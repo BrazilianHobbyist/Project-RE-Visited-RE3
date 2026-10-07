@@ -1,0 +1,56 @@
+# ============================================================
+# RE3Recomp — Resident Evil 3: Nemesis (PS1) → Windows
+# PSXRecomp Framework Configuration
+# ============================================================
+# IMPORTANTE: Os valores marcados com "TODO" precisam ser
+# preenchidos após rodar o setup_project.ps1 do PSXRecomp,
+# que extrai essas informações do cabeçalho PS-X EXE do disco.
+# ============================================================
+
+[game]
+name         = "Resident Evil 3: Nemesis"
+id           = "SLUS-00923"          # NTSC-U; ajustar para SLES-02239 se PAL
+exe          = "SLUS_009.23"         # nome do executável dentro do disco
+disc         = "RE3.cue"             # caminho relativo para o .cue (preencher)
+
+# Endereços de memória — extraídos do cabeçalho PS-X EXE pelo setup_project.ps1
+load_address = 0x80010000            # TODO: confirmar com setup script
+entry_pc     = 0x80010000            # TODO: confirmar com setup script
+text_size    = 0x00000000            # TODO: preencher após extração
+stack_base   = 0x801FFFF0
+
+[recompiler]
+seeds        = "seeds/functions.csv" # gerado pelo script Ghidra
+out_dir      = "build/generated"     # onde o C gerado será salvo
+
+[runtime]
+fast_boot    = true                  # pular animação de boot do BIOS
+controller   = "analog"             # DualShock analógico (necessário para RE3)
+debug_port   = 9001                  # porta de debug (não conflitar com outros projetos)
+bios         = "openbios"           # usar OpenBIOS open-source
+                                     # ou "retail" + bios_path para SCPH1001.BIN
+
+[video]
+width        = 1920
+height       = 1080
+fullscreen   = false                 # iniciar em janela; Alt+Enter para alternar
+vsync        = true
+target_fps   = 60                    # RE3 original roda a ~30fps; 60 com interpolação
+
+[widescreen]
+# Suporte a 16:9 via patch nas constantes GTE da câmera 3D
+# Os endereços das funções precisam ser identificados no Ghidra (Fase 2)
+enabled      = true
+mode         = "fov_expansion"       # expande FOV horizontal sem esticar
+
+[audio]
+backend      = "sdl2"                # SDL2 para compatibilidade; ou "xaudio2"
+sample_rate  = 44100
+channels     = 2
+
+[saves]
+# Memory Card virtual mapeado para arquivo local
+memcard_dir  = "%APPDATA%/RE3Recomp/saves"
+memcard_0    = "MC0.mcr"
+memcard_1    = "MC1.mcr"
+# Formato .mcr é compatível com DuckStation e ePSXe para importar saves

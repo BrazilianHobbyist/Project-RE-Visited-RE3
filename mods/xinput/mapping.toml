@@ -1,0 +1,41 @@
+[controller.xinput]
+# Mapeamento de botões: PS1 → Xbox 360 (XInput)
+# RE3 usa o layout DualShock da seguinte forma:
+#   Cross    (×) = Ação / Confirmar
+#   Circle   (○) = Cancelar / Usar item
+#   Square   (□) = Correr / Acelerador
+#   Triangle (△) = Inventário / Menu
+#   L1       = Mirar
+#   R1       = Atirar
+#   L2       = Trocar arma (anterior)
+#   R2       = Trocar arma (próxima)
+#   Select   = Mapa
+#   Start    = Pause / Menu
+
+cross    = "A"          # × → A (Ação)
+circle   = "B"          # ○ → B (Cancelar)
+square   = "X"          # □ → X (Correr)
+triangle = "Y"          # △ → Y (Inventário)
+l1       = "LB"         # L1 → LB (Mirar)
+r1       = "RB"         # R1 → RB (Atirar)
+l2       = "LT"         # L2 → LT (Arma anterior)
+r2       = "RT"         # R2 → RT (Próxima arma)
+select   = "Back"       # Select → Back (Mapa)
+start    = "Start"      # Start → Start (Pausa)
+
+# D-Pad para movimentação (estilo tank controls do RE3)
+dpad_up    = "DPadUp"
+dpad_down  = "DPadDown"
+dpad_left  = "DPadLeft"
+dpad_right = "DPadRight"
+
+# Analógico esquerdo como alternativa ao D-Pad
+# RE3 suporta analógico nativo com DualShock
+analog_left_as_dpad = true
+analog_deadzone     = 0.2   # zona morta para evitar drift
+
+[controller.rumble]
+# RE3 suporta vibração (DualShock) — mapear para Rumble do Xbox
+enabled          = true
+left_motor_scale = 1.0
+right_motor_scale = 1.0

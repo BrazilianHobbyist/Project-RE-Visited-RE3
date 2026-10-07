@@ -1,0 +1,45 @@
+# Build outputs
+build/
+build/generated/
+*.exe
+*.pdb
+*.obj
+*.lib
+*.dll
+
+# PSXRecomp framework (submodule — não versionar conteúdo)
+# (o próprio git submodule cuida disso)
+
+# Dados do jogo (NUNCA versionar — copyright)
+*.bin
+*.cue
+*.iso
+*.img
+*.mdf
+*.mds
+*.mcr
+*.srm
+
+# Ghidra
+.ghidra/
+*.rep/
+*.gpr
+
+# IDE
+.vscode/settings.json
+.vscode/.history/
+*.user
+.vs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# Temporários
+*.tmp
+*.bak
+~*
