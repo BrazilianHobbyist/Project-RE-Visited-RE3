@@ -4,7 +4,7 @@
 
 # Project RE: Visited - Resident Evil 3
 
-🌐 **Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
+**Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
 
 ---
 
@@ -12,7 +12,7 @@
 
 ---
 
-## 🏛️ A Iniciativa Project RE: Visited
+## A Iniciativa Project RE: Visited
 
 **Project RE: Visited** é uma iniciativa independente e de código aberto criada para restaurar, modernizar e preservar historicamente a lendária trilogia clássica de *survival horror* do PlayStation original no PC:
 * **Resident Evil 3: Nemesis** (Lançamento Inaugural)
@@ -23,7 +23,7 @@ O objetivo é proporcionar a melhor experiência possível dos clássicos em har
 
 ---
 
-## 🔬 O que é Recompilação Estática Clean-Room?
+## O que é Recompilação Estática Clean-Room?
 
 Diferente de projetos de emulação tradicional ou de engenharia reversa que dependem de vazamentos de código-fonte, este projeto foi construído sob uma rigorosa metodologia de **Recompilação Estática Limpa (*Clean Room Static Recompilation*)**:
 
@@ -67,7 +67,7 @@ As chamadas de sistema, a GPU, o coprocessador geométrico GTE e o processador d
 
 ---
 
-## ⚖️ Amparo Jurídico e Isenção de Responsabilidade
+## Amparo Jurídico e Isenção de Responsabilidade
 
 A engenharia reversa para fins estritos de **interoperabilidade de software e preservação digital** é amplamente protegida por marcos legais e precedentes jurídicos consolidados:
 
@@ -79,28 +79,28 @@ A engenharia reversa para fins estritos de **interoperabilidade de software e pr
 
 ---
 
-## ✨ Recursos e Melhorias Implementadas
+## Recursos e Melhorias Implementadas
 
 Todas as opções listadas abaixo estão **100% implementadas, auditadas e funcionais** no projeto:
 
 | Recurso | Descrição |
 |---|---|
-| 📦 **Assistente de Instalação Integrado** | Extração nativa de setores ISO 9660 Mode 2 Form 1. Detecta e extrai o executável original `SLUS_009.23` de imagens `.bin` / `.iso` em milissegundos sem ferramentas externas. |
-| 🕹️ **Controles Modernos 3D (360°)** | Controle analógico verdadeiro no stick esquerdo com zona morta calibrada (0.26), ângulos relativos à câmera em tempo real, corrida automática ao inclinar mais de 82% e rotação suave. O D-Pad mantém 100% dos controles clássicos de tanque. |
-| ⚡ **Fluidez em Altas Taxas (até 240 FPS)** | Interpolação poligonal temporal contínua (`linear blend` + `flip-aware source`) que sincroniza os modelos 3D com a taxa de atualização do monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz ou Auto-Sync). |
-| 💎 **Correção Geométrica PGXP** | Elimina a instabilidade poligonal (*polygon jitter/wobble*) clássica do PS1 através de cálculo de vértices em ponto flutuante sub-pixel de alta precisão. |
-| 🎯 **Texturização com Correção de Perspectiva** | Mapeamento de textura com correção de perspectiva PGXP, removendo as distorções angulares e "dobras" de textura dos modelos 3D. |
-| 🖥️ **Widescreen 16:9 & Clássico 4:3** | Apresentação em tela cheia moderna sem bordas, tela cheia exclusiva ou janela. Modelos 3D renderizados em proporção estendida com suporte visual a 16:9 ou o formato original 4:3. |
-| 📐 **Resolução Interna 3D Escalável** | Renderização interna de malhas poligonais em alta definição (1080p, 1440p e 4K Ultra HD) via supersampling (SSAA). |
-| 🪄 **Anti-Aliasing FXAA** | Filtro pós-processamento suave para bordas poligonais limpas e sem serrilhados perceptíveis. |
-| ⏩ **Pular FMVs / Cutscenes (Auto-Skip)** | Pule instantaneamente apresentações e cutscenes em vídeo FMV (MDEC / XA) pressionando a tecla de ação ou ativando a opção no Launcher. |
-| 🔊 **Áudio SPU de Alta Fidelidade (48 kHz)** | Resampling de áudio ADPCM a 48.000 Hz em ponto flutuante via shadow engine de calibração dinâmica. |
-| 🌐 **Launcher Gráfico Multi-idioma** | Interface visual nativa em Win32 e GDI+ ultraleve com suporte dinâmico a Português (PT-BR), Inglês (EN) e Espanhol (ES). |
-| 💾 **Memory Cards Preservados** | Sistema de salvamento padrão PS1 gravado em arquivos `.mcd` binários reais (`saves/card1.mcd`), totalmente compatíveis com emuladores reais e hardware de console. |
+| **Assistente de Instalação Integrado** | Extração nativa de setores ISO 9660 Mode 2 Form 1. Detecta e extrai o executável original `SLUS_009.23` de imagens `.bin` / `.iso` em milissegundos sem ferramentas externas. |
+| **Controles Modernos 3D (360°)** | Controle analógico verdadeiro no stick esquerdo com zona morta calibrada (0.26), ângulos relativos à câmera em tempo real, corrida automática ao inclinar mais de 82% e rotação suave. O D-Pad mantém 100% dos controles clássicos de tanque. |
+| **Fluidez em Altas Taxas (até 240 FPS)** | Interpolação poligonal temporal contínua (`linear blend` + `flip-aware source`) que sincroniza os modelos 3D com a taxa de atualização do monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz ou Auto-Sync). |
+| **Correção Geométrica PGXP** | Elimina a instabilidade poligonal (*polygon jitter/wobble*) clássica do PS1 através de cálculo de vértices em ponto flutuante sub-pixel de alta precisão. |
+| **Texturização com Correção de Perspectiva** | Mapeamento de textura com correção de perspectiva PGXP, removendo as distorções angulares e "dobras" de textura dos modelos 3D. |
+| **Widescreen 16:9 & Clássico 4:3** | Apresentação em tela cheia moderna sem bordas, tela cheia exclusiva ou janela. Modelos 3D renderizados em proporção estendida com suporte visual a 16:9 ou o formato original 4:3. |
+| **Resolução Interna 3D Escalável** | Renderização interna de malhas poligonais em alta definição (1080p, 1440p e 4K Ultra HD) via supersampling (SSAA). |
+| **Anti-Aliasing FXAA** | Filtro pós-processamento suave para bordas poligonais limpas e sem serrilhados perceptíveis. |
+| **Pular FMVs / Cutscenes (Auto-Skip)** | Pule instantaneamente apresentações e cutscenes em vídeo FMV (MDEC / XA) pressionando a tecla de ação ou ativando a opção no Launcher. |
+| **Áudio SPU de Alta Fidelidade (48 kHz)** | Resampling de áudio ADPCM a 48.000 Hz em ponto flutuante via shadow engine de calibração dinâmica. |
+| **Launcher Gráfico Multi-idioma** | Interface visual nativa em Win32 e GDI+ ultraleve com suporte dinâmico a Português (PT-BR), Inglês (EN) e Espanhol (ES). |
+| **Memory Cards Preservados** | Sistema de salvamento padrão PS1 gravado em arquivos `.mcd` binários reais (`saves/card1.mcd`), totalmente compatíveis com emuladores reais e hardware de console. |
 
 ---
 
-## 🚫 Esclarecimento de Escopo (O que este projeto NÃO faz)
+## Esclarecimento de Escopo (O que este projeto NÃO faz)
 
 Para manter a integridade técnica, estabilidade e fidelidade histórica do jogo, delimitamos com clareza o que **não** faz parte deste projeto:
 
@@ -110,7 +110,7 @@ Para manter a integridade técnica, estabilidade e fidelidade histórica do jogo
 
 ---
 
-## 🚀 Como Jogar e Instalar (Guia Rápido)
+## Como Jogar e Instalar (Guia Rápido)
 
 ### Passo 1: Executar o Launcher
 Abra a pasta do projeto (ou o pacote de distribuição baixado na aba Releases) e execute:
@@ -131,7 +131,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 
 ---
 
-## 🎮 Controles
+## Controles
 
 ### Controle Xbox (XInput / Gamepad Moderno)
 * **Analógico Esquerdo**: Movimentação 360° analógica (Zona morta 0.26 / Auto-run com inclinação total)
@@ -156,7 +156,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 
 ---
 
-## 💾 Salvamento (Memory Cards)
+## ⌨️ Salvamento (Memory Cards)
 
 Os saves são gravados nos arquivos binários padrão do PlayStation:
 * `saves/card1.mcd` (Slot 1)
@@ -166,7 +166,7 @@ Você pode migrar livremente seus saves de e para emuladores como DuckStation e 
 
 ---
 
-## 🛠️ Instruções de Compilação (Para Desenvolvedores)
+## Instruções de Compilação (Para Desenvolvedores)
 
 Se você deseja compilar o código-fonte manualmente:
 
@@ -186,7 +186,7 @@ Se você deseja compilar o código-fonte manualmente:
 
 ---
 
-## 📜 Créditos & Reconhecimento
+## Créditos & Reconhecimento
 
 Consulte o documento completo [**`CREDITS.md`**](CREDITS.md) para a lista exaustiva de todas as fontes, ferramentas e termos legais.
 

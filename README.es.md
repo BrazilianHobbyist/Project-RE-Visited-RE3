@@ -4,7 +4,7 @@
 
 # Project RE: Visited - Resident Evil 3
 
-🌐 **Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
+**Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
 
 ---
 
@@ -12,7 +12,7 @@
 
 ---
 
-## 🏛️ La Iniciativa Project RE: Visited
+## La Iniciativa Project RE: Visited
 
 **Project RE: Visited** es una iniciativa independiente y de código abierto concebida para restaurar, modernizar y preservar históricamente la legendaria trilogía clásica de *survival horror* de PlayStation en PC:
 * **Resident Evil 3: Nemesis** (Lanzamiento Inaugural)
@@ -23,7 +23,7 @@ El objetivo es ofrecer la mejor experiencia posible de estos clásicos en hardwa
 
 ---
 
-## 🔬 ¿Qué es la Recompilación Estática Clean-Room?
+## ¿Qué es la Recompilación Estática Clean-Room?
 
 A diferencia de proyectos de emulación tradicional o de ingeniería inversa que dependen de filtraciones de código fuente, este proyecto fue desarrollado bajo una rigurosa metodología de **Recompilación Estática Limpia (*Clean Room Static Recompilation*)**:
 
@@ -67,7 +67,7 @@ Las llamadas al sistema, la GPU, el coprocesador geométrico GTE y el procesador
 
 ---
 
-## ⚖️ Marco Legal y Exención de Responsabilidad
+## Marco Legal y Exención de Responsabilidad
 
 La ingeniería inversa con el fin estricto de **interoperabilidad de software y preservación digital** está ampliamente amparada por marcos legales y precedentes consolidados:
 
@@ -78,28 +78,28 @@ La ingeniería inversa con el fin estricto de **interoperabilidad de software y 
 
 ---
 
-## ✨ Características y Mejoras Implementadas
+## Características y Mejoras Implementadas
 
 Todas las opciones enumeradas a continuación están **100% implementadas, auditadas y funcionales** en el proyecto:
 
 | Característica | Descripción |
 |---|---|
-| 📦 **Asistente de Instalación Integrado** | Extracción nativa de sectores ISO 9660 Mode 2 Form 1. Detecta y extrae el ejecutable original `SLUS_009.23` de imágenes `.bin` / `.iso` en milisegundos sin herramientas externas. |
-| 🕹️ **Controles Modernos 3D (360°)** | Control analógico real en el stick izquierdo con zona muerta calibrada (0.26), ángulos relativos a la cámara en tiempo real, carrera automática al inclinar más del 82% y rotación suave. La cruceta (D-Pad) mantiene 100% los controles clásicos de tanque. |
-| ⚡ **Fluidez en Altas Tasas (hasta 240 FPS)** | Interpolación poligonal temporal continua (`linear blend` + `flip-aware source`) que sincroniza los modelos 3D con la tasa de refresco del monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz o Auto-Sync). |
-| 💎 **Corrección Geométrica PGXP** | Elimina la oscilación poligonal (*polygon jitter/wobble*) clásica de PS1 mediante cálculo de vértices en coma flotante sub-píxel de alta precisión. |
-| 🎯 **Texturizado con Corrección de Perspectiva** | Mapeo de textura con corrección de perspectiva PGXP, eliminando distorsiones angulares en paredes y suelos. |
-| 🖥️ **Panorámico 16:9 y Clásico 4:3** | Presentación moderna en pantalla completa sin bordes, pantalla completa exclusiva o ventana. Modelos 3D renderizados en proporción extendida con soporte visual a 16:9 o formato original 4:3. |
-| 📐 **Resolución Interna 3D Escalable** | Renderizado interno de mallas poligonales en alta definición (1080p, 1440p y 4K Ultra HD) mediante supersampling (SSAA). |
-| 🪄 **Anti-Aliasing FXAA** | Filtro de postprocesamiento suave para bordes poligonales limpios y sin dientes de sierra perceptibles. |
-| ⏩ **Saltar FMVs / Cinemáticas (Auto-Skip)** | Salte instantáneamente presentaciones y cinemáticas en vídeo FMV (MDEC / XA) pulsando la tecla de acción o marcando la opción en el Launcher. |
-| 🔊 **Audio SPU de Alta Fidelidad (48 kHz)** | Resampling de audio ADPCM a 48.000 Hz en coma flotante mediante shadow engine de calibración dinámica. |
-| 🌐 **Launcher Gráfico Multilingüe** | Interfaz visual nativa en Win32 y GDI+ ultraligera con soporte dinámico a Español (ES), Inglés (EN) y Portugués (PT-BR). |
-| 💾 **Memory Cards Preservadas** | Sistema de guardado estándar de PS1 grabado en archivos binarios reales `.mcd` (`saves/card1.mcd`), totalmente compatibles con emuladores reales y consolas físicas. |
+| **Asistente de Instalación Integrado** | Extracción nativa de sectores ISO 9660 Mode 2 Form 1. Detecta y extrae el ejecutable original `SLUS_009.23` de imágenes `.bin` / `.iso` en milisegundos sin herramientas externas. |
+| **Controles Modernos 3D (360°)** | Control analógico real en el stick izquierdo con zona muerta calibrada (0.26), ángulos relativos a la cámara en tiempo real, carrera automática al inclinar más del 82% y rotación suave. La cruceta (D-Pad) mantiene 100% los controles clásicos de tanque. |
+| **Fluidez en Altas Tasas (hasta 240 FPS)** | Interpolación poligonal temporal continua (`linear blend` + `flip-aware source`) que sincroniza los modelos 3D con la tasa de refresco del monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz o Auto-Sync). |
+| **Corrección Geométrica PGXP** | Elimina la oscilación poligonal (*polygon jitter/wobble*) clásica de PS1 mediante cálculo de vértices en coma flotante sub-píxel de alta precisión. |
+| **Texturizado con Corrección de Perspectiva** | Mapeo de textura con corrección de perspectiva PGXP, eliminando distorsiones angulares en paredes y suelos. |
+| **Panorámico 16:9 y Clásico 4:3** | Presentación moderna en pantalla completa sin bordes, pantalla completa exclusiva o ventana. Modelos 3D renderizados en proporción extendida con soporte visual a 16:9 o formato original 4:3. |
+| **Resolución Interna 3D Escalable** | Renderizado interno de mallas poligonales en alta definición (1080p, 1440p y 4K Ultra HD) mediante supersampling (SSAA). |
+| **Anti-Aliasing FXAA** | Filtro de postprocesamiento suave para bordes poligonales limpios y sin dientes de sierra perceptibles. |
+| **Saltar FMVs / Cinemáticas (Auto-Skip)** | Salte instantáneamente presentaciones y cinemáticas en vídeo FMV (MDEC / XA) pulsando la tecla de acción o marcando la opción en el Launcher. |
+| **Audio SPU de Alta Fidelidad (48 kHz)** | Resampling de audio ADPCM a 48.000 Hz en coma flotante mediante shadow engine de calibración dinámica. |
+| **Launcher Gráfico Multilingüe** | Interfaz visual nativa en Win32 y GDI+ ultraligera con soporte dinámico a Español (ES), Inglés (EN) y Portugués (PT-BR). |
+| **Memory Cards Preservadas** | Sistema de guardado estándar de PS1 grabado en archivos binarios reales `.mcd` (`saves/card1.mcd`), totalmente compatibles con emuladores reales y consolas físicas. |
 
 ---
 
-## 🚫 Aclaración de Alcance (Lo que este proyecto NO hace)
+## Aclaración de Alcance (Lo que este proyecto NO hace)
 
 Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
@@ -109,7 +109,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## 🚀 Guía Rápida de Instalación
+## Guía Rápida de Instalación
 
 1. Ejecute **`Resident_Evil_3_Launcher.exe`**.
 2. Si es la primera vez, haga clic en **`Instalar Jogo...`** (o *Setup Files*):
@@ -117,11 +117,11 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
    * Seleccione la imagen de su CD original (`.bin`, `.cue` o `.iso`).
    * Haga clic en **`Iniciar Instalación & Extracción`**. El instalador extraerá automáticamente `SLUS_009.23`.
 3. Configure sus preferencias gráficas y de control.
-4. ¡Haga clic en **`JUGAR RESIDENT EVIL 3`**!
+4. ¡Haga clic en **`JOGAR RESIDENT EVIL 3`**!
 
 ---
 
-## 🎮 Controles
+## Controles
 
 ### Mando Xbox (XInput / Gamepad Moderno)
 * **Stick Analógico Izquierdo**: Movimiento 360° analógico (Zona muerta 0.26 / Auto-run al inclinar al máximo)
@@ -146,6 +146,16 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## 📜 Créditos y Referencias
+## ⌨️ Guardado (Memory Cards)
+
+Los datos se guardan en el formato binario estándar de PS1 dentro de la carpeta `saves/`:
+* `saves/card1.mcd` (Slot 1)
+* `saves/card2.mcd` (Slot 2)
+
+Compatible con DuckStation, Mednafen y hardware original de PS1.
+
+---
+
+## Créditos y Referencias
 
 Consulte el documento completo [**`CREDITS.md`**](CREDITS.md) para atribuciones completas de Capcom, Sony, RetroPortingToolkit, Ghidra, DuckStation, PGXP, SDL2 y demás colaboradores.
