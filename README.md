@@ -2,17 +2,17 @@
   <img src="assets/banner.jpg" alt="Project RE: Visited - Resident Evil 3" width="100%">
 </p>
 
-# Project RE: Visited - Resident Evil 3
+#Project RE: Visited - Resident Evil 3
 
-🌎 ** Languages / Idiomas**: [**English**](README.md) | [Português (Brasil)](README.pt-br.md) | [Español](README.es.md)
-
----
-
-☣️ ** Native C/C++ x86_64 PC Port & Clean-Room Static Recompilation of Resident Evil 3: Nemesis (1999, PlayStation 1) for Windows**
+🌎 **Languages / Idiomas**: [**English**](README.md) | [Português (Brasil)](README.pt-br.md) | [Español](README.es.md)
 
 ---
 
-☣️ ## The Project RE: Visited Initiative
+☣️ **Native C/C++ x86_64 PC Port & Clean-Room Static Recompilation of Resident Evil 3: Nemesis (1999, PlayStation 1) for Windows**
+
+---
+
+☣️ ##The Project RE: Visited Initiative
 
 **Project RE: Visited** is an independent, open-source preservation initiative dedicated to restoring, modernizing, and preserving the seminal PlayStation 1 survival horror trilogy natively on PC:
 * **Resident Evil 3: Nemesis** (Inaugural Release)
@@ -23,7 +23,7 @@ Our mission is to deliver the definitive experience of these historic classics o
 
 ---
 
-☣️ ## What is Clean-Room Static Recompilation?
+☣️ ##What is Clean-Room Static Recompilation?
 
 Unlike traditional emulators (which interpret CPU opcodes or generate JIT blocks at runtime) or reverse engineering efforts reliant on leaked source code, this project is engineered using **Clean Room Static Recompilation**:
 
@@ -67,7 +67,7 @@ PlayStation system calls, the GPU, GTE geometry coprocessor, and SPU audio proce
 
 ---
 
-☣️ ## Legal Framework & Disclaimer
+☣️ ##Legal Framework & Disclaimer
 
 Reverse engineering strictly for **interoperability and digital preservation** is firmly protected under statutory law and established legal precedents:
 
@@ -79,7 +79,7 @@ Reverse engineering strictly for **interoperability and digital preservation** i
 
 ---
 
-☣️ ## Implemented & Verified Features
+☣️ ##Implemented & Verified Features
 
 Every feature listed below is **100% implemented, audited, and functional**:
 
@@ -100,7 +100,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 
 ---
 
-☣️ ## Scope Delimitation (What this project DOES NOT do)
+☣️ ##Scope Delimitation (What this project DOES NOT do)
 
 To preserve technical stability and historical fidelity:
 1. **No Save-Corrupting RAM Inventory Trainers**: Modifying inventory states directly in RAM desynchronizes Capcom's internal state machine, causing corrupted save files and ghost items (e.g. glitched M4A1).
@@ -109,7 +109,7 @@ To preserve technical stability and historical fidelity:
 
 ---
 
-☣️ ## Quick Start: How to Play
+☣️ ##Quick Start: How to Play
 
 ### Step 1: Download & Extract
 Download the latest zip package from the **Releases** tab and extract it to any folder.
@@ -133,7 +133,7 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 
 ---
 
-☣️ ## Controls
+☣️ ##Controls
 
 ### Xbox Gamepad (XInput / Modern Controller)
 * **Left Analog Stick**: 360° Camera-Relative Movement / Auto-Run (>82% tilt)
@@ -158,7 +158,7 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 
 ---
 
-☣️ ## Save Data (Memory Cards)
+☣️ ##Save Data (Memory Cards)
 
 Save data is saved to standard PS1 binary format inside the `saves/` folder:
 * `saves/card1.mcd` (Slot 1)
@@ -168,7 +168,7 @@ Compatible with DuckStation, Mednafen, and original hardware.
 
 ---
 
-☣️ ## Building from Source (Developers)
+☣️ ##Building from Source (Developers)
 
 ### Requirements
 * Windows 10/11 (64-bit)
@@ -186,7 +186,7 @@ Compatible with DuckStation, Mednafen, and original hardware.
 
 ---
 
-☣️ ## Credits & Acknowledgments
+☣️ ##Credits & Acknowledgments
 
 See [**`CREDITS.md`**](CREDITS.md) for full attributions and third-party licenses.
 
