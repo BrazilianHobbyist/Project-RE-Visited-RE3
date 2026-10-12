@@ -158,7 +158,7 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 
 ---
 
-## ⌨️ Save Data (Memory Cards)
+## Save Data (Memory Cards)
 
 Save data is saved to standard PS1 binary format inside the `saves/` folder:
 * `saves/card1.mcd` (Slot 1)
