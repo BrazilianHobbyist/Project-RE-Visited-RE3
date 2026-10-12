@@ -1397,6 +1397,13 @@ LRESULT CALLBACK CreditsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         }
         break;
     }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
+        SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
     case WM_CLOSE: {
         DestroyWindow(hWnd);
         break;
@@ -1856,6 +1863,32 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         UpdateInstallStatusUI();
         break;
     }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        HWND hwndStatic = (HWND)lParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
+        if (hwndStatic == g_hLblSetupBiosStatus || hwndStatic == g_hLblSetupDiscStatus) {
+            wchar_t txt[128] = { 0 };
+            GetWindowTextW(hwndStatic, txt, 128);
+            if (wcsstr(txt, L"[OK]")) {
+                SetTextColor(hdcStatic, RGB(0, 140, 20));
+            } else if (wcsstr(txt, L"[!]")) {
+                SetTextColor(hdcStatic, RGB(190, 80, 0));
+            } else {
+                SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
+            }
+        } else {
+            SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
+        }
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
+    case WM_CTLCOLORBTN: {
+        HDC hdcBtn = (HDC)wParam;
+        SetBkMode(hdcBtn, TRANSPARENT);
+        SetBkColor(hdcBtn, GetSysColor(COLOR_BTNFACE));
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
     case WM_CLOSE: {
         DestroyWindow(hWnd);
         break;
@@ -2148,6 +2181,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)wParam;
         HWND hwndStatic = (HWND)lParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
         if (hwndStatic == g_hLblInstallStatus) {
             InstallStatus st = CheckInstallationStatus();
             if (st.isFullyInstalled) {
@@ -2155,10 +2190,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             } else {
                 SetTextColor(hdcStatic, RGB(190, 80, 0));
             }
-            SetBkMode(hdcStatic, TRANSPARENT);
-            return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        } else {
+            SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
         }
-        break;
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
+    case WM_CTLCOLORBTN: {
+        HDC hdcBtn = (HDC)wParam;
+        SetBkMode(hdcBtn, TRANSPARENT);
+        SetBkColor(hdcBtn, GetSysColor(COLOR_BTNFACE));
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
     }
     case WM_KEYDOWN: {
         if (wParam == VK_F1) {
