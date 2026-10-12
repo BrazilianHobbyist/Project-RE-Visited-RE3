@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.jpg" alt="Project RE: Visited - Resident Evil 3" width="100%">
+</p>
+
 # Project RE: Visited - Resident Evil 3
 
 🌐 **Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
