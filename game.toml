@@ -1,56 +1,59 @@
 # ============================================================
-# RE3Recomp — Resident Evil 3: Nemesis (PS1) → Windows
-# PSXRecomp Framework Configuration
-# ============================================================
-# IMPORTANTE: Os valores marcados com "TODO" precisam ser
-# preenchidos após rodar o setup_project.ps1 do PSXRecomp,
-# que extrai essas informações do cabeçalho PS-X EXE do disco.
+# Project RE: Visited - Resident Evil 3: Nemesis (PS1 PC Port)
+# Configuration File
 # ============================================================
 
 [game]
-name         = "Resident Evil 3: Nemesis"
-id           = "SLUS-00923"          # NTSC-U; ajustar para SLES-02239 se PAL
-exe          = "SLUS_009.23"         # nome do executável dentro do disco
-disc         = "RE3.cue"             # caminho relativo para o .cue (preencher)
+name = "Resident Evil 3: Nemesis"
+id = "SLUS-00923"
+players = 1
+exe = "disc/SLUS_009.23"
+disc = "gamedata/Resident Evil 3 - Nemesis (USA, Canada).cue"
+load_address = "0x80010000"
+entry_pc = "0x80011B80"
+text_size = "0x000D3800"
+stack_base = "0x801FFFF0"
 
-# Endereços de memória — extraídos do cabeçalho PS-X EXE pelo setup_project.ps1
-load_address = 0x80010000            # TODO: confirmar com setup script
-entry_pc     = 0x80010000            # TODO: confirmar com setup script
-text_size    = 0x00000000            # TODO: preencher após extração
-stack_base   = 0x801FFFF0
+[prepare_disc]
+out_dir = "disc"
+bin_name = "Resident Evil 3 - Nemesis (USA, Canada).bin"
+cue_name = "Resident Evil 3 - Nemesis (USA, Canada).cue"
+boot_exe = "SLUS_009.23"
+known_sizes = [722165136]
+known_md5 = ["03ccf2f717dad9168640f518dd4e3e80"]
+known_sha1 = ["c5993ac3ea6efb4181554aa32d8749a7f728a7ad"]
+known_crc32 = ["132bb3e6"]
 
 [recompiler]
-seeds        = "seeds/functions.csv" # gerado pelo script Ghidra
-out_dir      = "build/generated"     # onde o C gerado será salvo
+seeds = "seeds/ghidra_funcs.txt"
+out_dir = "generated"
+strict = true
 
 [runtime]
-fast_boot    = true                  # pular animação de boot do BIOS
-controller   = "analog"             # DualShock analógico (necessário para RE3)
-debug_port   = 9001                  # porta de debug (não conflitar com outros projetos)
-bios         = "openbios"           # usar OpenBIOS open-source
-                                     # ou "retail" + bios_path para SCPH1001.BIN
+window_title = "Project RE: Visited - Resident Evil 3"
+memcard_dir = "saves"
+controller = "digital"
+overlay_cache = true
+idle_skip = false
+bios_hle = false
+audio_spu_hq = true
 
 [video]
-width        = 1920
-height       = 1080
-fullscreen   = false                 # iniciar em janela; Alt+Enter para alternar
-vsync        = true
-target_fps   = 60                    # RE3 original roda a ~30fps; 60 com interpolação
+renderer = "opengl"
+aspect_ratio = "16:9"
+fullscreen = true
+geometry_correction = true
+perspective_texturing = true
+auto_skip_fmv = true
 
 [widescreen]
-# Suporte a 16:9 via patch nas constantes GTE da câmera 3D
-# Os endereços das funções precisam ser identificados no Ghidra (Fase 2)
-enabled      = true
-mode         = "fov_expansion"       # expande FOV horizontal sem esticar
+native_wide = false
 
-[audio]
-backend      = "sdl2"                # SDL2 para compatibilidade; ou "xaudio2"
-sample_rate  = 44100
-channels     = 2
+[controller]
+default_mode = "digital"
+default_p1_device = "auto"
 
-[saves]
-# Memory Card virtual mapeado para arquivo local
-memcard_dir  = "%APPDATA%/RE3Recomp/saves"
-memcard_0    = "MC0.mcr"
-memcard_1    = "MC1.mcr"
-# Formato .mcr é compatível com DuckStation e ePSXe para importar saves
+[netplay]
+require_cue = false
+required_tracks = 1
+required_disc_fp = "06a17096baa2d3c9abb3275850479f22a3deadafc2d14799f04ea95cdb5baed0"

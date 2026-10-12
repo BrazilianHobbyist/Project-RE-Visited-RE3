@@ -1,45 +1,92 @@
-# Build outputs
+# ============================================================
+# RE3Recomp — Git Ignore Rules for Public Distribution
+# ============================================================
+
+# Compilação e Binários Gerados
 build/
-build/generated/
+bin/
 *.exe
+*.dll
+*.so
+*.dylib
 *.pdb
 *.obj
+*.o
 *.lib
-*.dll
+*.a
 
-# PSXRecomp framework (submodule — não versionar conteúdo)
-# (o próprio git submodule cuida disso)
+# Código Recompilado Gerado (Gerado dinamicamente a partir do disco do usuário)
+generated/
+build/generated/
 
-# Dados do jogo (NUNCA versionar — copyright)
+# Dados Proprietários do Jogo (NUNCA versionar — Copyright Capcom)
+disc/
+SLUS*
+SLES*
+SLPS*
 *.bin
 *.cue
 *.iso
 *.img
 *.mdf
 *.mds
+*.ccd
+*.sub
+gamedata/
+
+# BIOS do PlayStation (NUNCA versionar — Copyright Sony)
+bios/
+bios.cfg
+SCPH*.BIN
+scph*.bin
+
+# Saves e Memory Cards Pessoais
+saves/
+*.mcd
 *.mcr
 *.srm
+*.sav
+.pst_bios_isolated
 
-# Ghidra
+# Cache de Recompilação e Dumps de Depuração
+cache/
+overlay_captures.json.d/
+overlay_captures.json
+psx_freeze_*.json
+psx_last_run_report.json
+
+# Arquivos de Configuração Locais Gerados
+game.toml.autofilled
+*.local.toml
+settings.toml
+
+# Ghidra e Descompilação
 .ghidra/
 *.rep/
 *.gpr
 
-# IDE
-.vscode/settings.json
-.vscode/.history/
-*.user
+# IDEs e Editores
+.vscode/
 .vs/
+*.user
+*.suo
+*.workspace
+.idea/
 
-# Python
+# Python & Ferramentas
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+tools/model_tool/__pycache__/
+tools/model_tool/extracted_*/
+tools/model_tool/models/
+tools/model_tool/*.png
 
-# Logs
+# Logs e Temporários
 *.log
-
-# Temporários
 *.tmp
 *.bak
 ~*
+*.diff
+*.patch
+!patches/*.patch

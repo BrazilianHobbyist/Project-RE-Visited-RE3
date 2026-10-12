@@ -45,6 +45,16 @@ if (-not (Test-Path "$ProjectRoot\psxrecomp\CMakeLists.txt")) {
     }
 }
 
+# Aplicar patches customizados no runtime (Interpolação de Movimento, Controles 3D, Widescreen)
+$PatchFile = "$ProjectRoot\patches\psxrecomp_runtime.patch"
+if (Test-Path $PatchFile) {
+    $canApply = & git -C "$ProjectRoot\psxrecomp" apply --check "$PatchFile" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "🔧 Aplicando patches customizados no PSXRecomp runtime..." -ForegroundColor Cyan
+        & git -C "$ProjectRoot\psxrecomp" apply "$PatchFile"
+    }
+}
+
 # ---- Limpar build se solicitado ----
 if ($Clean -and (Test-Path $BuildDir)) {
     Write-Host "🧹 Limpando diretório de build..." -ForegroundColor Yellow
@@ -100,10 +110,10 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "✅ Build concluído!" -ForegroundColor Green
-Write-Host "   Executável: $BuildDir\RE3Recomp.exe" -ForegroundColor Green
+Write-Host "   Executável: $BuildDir\Resident_Evil_3__Nemesis_Recompiled.exe" -ForegroundColor Green
 Write-Host ""
 Write-Host "Para executar:" -ForegroundColor Cyan
-Write-Host "  .\build\RE3Recomp.exe" -ForegroundColor White
+Write-Host "  .\build\Resident_Evil_3__Nemesis_Recompiled.exe" -ForegroundColor White
 Write-Host ""
 Write-Host "Atalhos de teclado:" -ForegroundColor Cyan
 Write-Host "  Alt+Enter  → Alternar fullscreen/janela" -ForegroundColor White

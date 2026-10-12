@@ -1,0 +1,1072 @@
+diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
+index 16ed6d18..1d05b1c2 100644
+--- a/runtime/include/gpu_gl_renderer.h
++++ b/runtime/include/gpu_gl_renderer.h
+@@ -219,6 +219,7 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
+  * stretches the 4:3 frame; pair with gte_set_display_aspect (cpu_state.h)
+  * for the widescreen field-of-view hack. */
+ void gl_renderer_set_display_aspect(int num, int den);
++void gl_renderer_set_aspect_stretch(int enabled);
+ 
+ /* Scanline post-process (host display setting). on toggles the effect; strength
+  * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
+diff --git a/runtime/include/window_fullscreen.h b/runtime/include/window_fullscreen.h
+index 2a74dd5c..ae3127dd 100644
+--- a/runtime/include/window_fullscreen.h
++++ b/runtime/include/window_fullscreen.h
+@@ -66,6 +66,7 @@ static inline int psx_window_fullscreen_set(SDL_Window* window,
+         SDL_SetWindowResizable(window, SDL_FALSE);
+         SDL_SetWindowPosition(window, desktop.x, desktop.y);
+         SDL_SetWindowSize(window, desktop.w, desktop.h);
++        SDL_RaiseWindow(window);
+         SDL_SyncWindow(window);
+ #elif defined(PSX_SDL3)
+         if (!SDL_SetWindowFullscreen(window, true)) return -1;
+diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
+index dbd827d0..ec175716 100644
+--- a/runtime/src/gpu.c
++++ b/runtime/src/gpu.c
+@@ -50,6 +50,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include "gpu_timeline.h"
++#include "fntrace.h"
+ 
+ /* Word-aligned main-RAM key for a primitive/OT address through the live
+  * geometry (retail: the DMAC's 0x1FFFFC fold). */
+@@ -3945,7 +3946,7 @@ static uint8_t gpu_vram_byte(uint32_t byte_x, uint32_t y) {
+  * Only FB-class A0s (w >= 256 halfwords) grow the span; texture uploads must
+  * not collapse it. During present-hold, ignore updates entirely. */
+ static void depth24_note_upload(uint32_t x, uint32_t w) {
+-    if (!(display_depth & 1u) || w < 256u) return;
++    if (!(display_depth & 1u)) return;
+     if (s_d24_present_hold > 0) return;
+     uint32_t x1 = x + w;
+     if (x1 > 1024u) x1 = 1024u;
+@@ -4271,7 +4272,7 @@ void psx_mod_set_native_wide_near_clip(int enabled) {
+ static int native_wide_projection_x(uint32_t addr, uint32_t word,
+                                     int32_t raw_x, int32_t raw_y,
+                                     int32_t *x16) {
+-    if (!s_native_wide_projection_correction || ws_nw_extra() <= 0 ||
++    if (!fntrace_is_game_started() || !s_native_wide_projection_correction || ws_nw_extra() <= 0 ||
+         (raw_x != -1024 && raw_x != 1023) || addr == UINT32_MAX)
+         return 0;
+     int32_t px, py;
+@@ -4296,7 +4297,7 @@ static int native_wide_projection_x(uint32_t addr, uint32_t word,
+ static int gpu_triangle_rejected(const int32_t* x, const int32_t* y,
+                                  int a, int b, int c) {
+     if (!psx_gpu_triangle_oversize(x, y, a, b, c)) return 0;
+-    if (!s_native_wide_projection_correction || !ws_native_wide_active() ||
++    if (!fntrace_is_game_started() || !s_native_wide_projection_correction || !ws_native_wide_active() ||
+         ws_nw_extra() <= 0 || gr_backend() != GR_BACKEND_OPENGL ||
+         gp0_cmd_source_addr == UINT32_MAX) return 1;
+     const uint32_t op = gp0_cmd_buf[0] >> 24;
+@@ -4347,18 +4348,20 @@ uint32_t gpu_texture_correction_hits(void) {
+  * caller. */
+ static void prepare_precise_triangle(int i0, int i1, int i2,
+                                      const int32_t vx[3], const int32_t vy[3]) {
++    const int game_active = fntrace_is_game_started();
+     if (gr_backend() == GR_BACKEND_OPENGL) {
+         const int indices[3] = {i0,i1,i2};
+         int32_t raw_x[3], raw_y[3];
+         for (unsigned i=0; i<3; ++i)
+             parse_vertex(gp0_cmd_buf[indices[i]], &raw_x[i], &raw_y[i]);
+-        gl_renderer_note_wide_triangle_recovery(s_native_wide_projection_correction &&
++        gl_renderer_note_wide_triangle_recovery(game_active &&
++            s_native_wide_projection_correction &&
+             ws_native_wide_active() &&
+             psx_gpu_triangle_oversize(raw_x,raw_y,0,1,2));
+     }
+     gr_set_perspective_triangle(0, 0.0f, 0.0f, 0.0f);
+-    const int geometry = gte_geometry_correction_enabled();
+-    if (!geometry && !s_native_wide_projection_correction) {
++    const int geometry = game_active && gte_geometry_correction_enabled();
++    if (!geometry && (!game_active || !s_native_wide_projection_correction)) {
+         gr_set_precise_triangle(0, 0,0, 0,0, 0,0);
+         return;
+     }
+@@ -4425,6 +4428,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+  * CPU-built sprite with one corner copied from SXY) would otherwise become
+  * mixed triangles, so it keeps the shortcut and counts as rect_partial. */
+ static int textured_quad_precise_vertices(const int idx[4]) {
++    if (!fntrace_is_game_started())
++        return 0;
+     if (!gte_geometry_correction_enabled() && !s_texture_correction_enabled)
+         return 0;
+     if (gp0_cmd_source_addr == 0xFFFFFFFFu) return 0;
+@@ -4473,7 +4478,7 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
+ static void prepare_texture_triangle(int i0, int i1, int i2) {
+     gr_set_perspective_triangle(0, 0.0f, 0.0f, 0.0f);
+     s_texcorr.attempts++;
+-    if (!s_texture_correction_enabled) { s_texcorr.no_correction++; return; }
++    if (!fntrace_is_game_started() || !s_texture_correction_enabled) { s_texcorr.no_correction++; return; }
+     if (gp0_cmd_source_addr == 0xFFFFFFFFu) { s_texcorr.no_source++; return; }
+     int indices[3] = { i0, i1, i2 };
+     uint16_t z[3];
+diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
+index 09fca3e0..ec6c00c4 100644
+--- a/runtime/src/gpu_gl_renderer.c
++++ b/runtime/src/gpu_gl_renderer.c
+@@ -94,6 +94,7 @@
+ #include "psx_rewind.h"
+ #include "psx_openxr.h"
+ #include "openxr_color.h"
++#include "fntrace.h"
+ 
+ #include "psx_sdl.h"
+ #if defined(PSX_SDL3)
+@@ -442,6 +443,7 @@ static GLint         s_present_uTex = -1, s_present_uUvRect = -1;
+ static GLint         s_present_uTexSize = -1, s_present_uSharpScale = -1;
+ static GLint         s_present_uSharp = -1;
+ static GLint         s_present_uGamma = -1;
++static GLint         s_present_uFxaa = -1;
+ /* Host-side presentation state. The shader applies this only to the source
+  * image being presented; overlays and already-composed hold-last images set
+  * the uniform back to the identity explicitly. */
+@@ -965,6 +967,7 @@ static void hold_capture_drawable(void) {
+ }
+ 
+ /* Defined after present_target_quad (letterbox helpers). */
++static int s_aspect_stretch = 1;
+ static void letterbox_rect_aspect(int ww, int wh, int num, int den,
+                                   int *x, int *y, int *w, int *h);
+ static void letterbox_rect(int ww, int wh, int *x, int *y, int *w, int *h);
+@@ -984,7 +987,7 @@ static void hiw_capture_size(int sw, int sh, int force_4_3, int *cw, int *ch) {
+     if (!s_hiw || !s_win) return;
+     SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     if (ww < 1 || wh < 1) return;
+-    if (force_4_3) letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
++    if (force_4_3 && !s_aspect_stretch) letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+     if (lw > 0 && lh > 0 && (int64_t)lw * lh < (int64_t)sw * sh) {
+         *cw = lw; *ch = lh;
+@@ -1168,6 +1171,7 @@ static const char *PRESENT_FS =
+     "uniform vec2 u_sharp_scale;\n"
+     "uniform int  u_sharp;\n"
+     "uniform float u_gamma;\n"
++    "uniform int u_fxaa;\n"
+     PSX_SCANLINE_UNIFORMS
+     /* Catmull-Rom bicubic via 9 bilinear taps. Sharper than plain bilinear at
+      * the same smoothness, with mild overshoot that reads as edge definition.
+@@ -1220,11 +1224,41 @@ static const char *PRESENT_FS =
+     "      acc += texture(u_tex, clamp((base + vec2(i, j) * st) / u_tex_size, lo, hi));\n"
+     "  return acc / float(n.x * n.y);\n"
+     "}\n"
++    /* FXAA-lite (luma edge detect + blur along the edge normal). Runs on the
++     * presented colour only, so VRAM mask/alpha semantics are untouched. */
++    "float fx_luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }\n"
++    "vec3 fxaa(vec2 uv){\n"
++    "  vec2 px = 1.0 / vec2(textureSize(u_tex, 0));\n"
++    "  vec2 lo = min(u_uv_rect.xy, u_uv_rect.zw);\n"
++    "  vec2 hi = max(u_uv_rect.xy, u_uv_rect.zw);\n"
++    "  vec3 rgbM = texture(u_tex, uv).rgb;\n"
++    "  vec3 rgbNW = texture(u_tex, clamp(uv + vec2(-1.0,-1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbNE = texture(u_tex, clamp(uv + vec2( 1.0,-1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbSW = texture(u_tex, clamp(uv + vec2(-1.0, 1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbSE = texture(u_tex, clamp(uv + vec2( 1.0, 1.0)*px, lo, hi)).rgb;\n"
++    "  float lM = fx_luma(rgbM), lNW = fx_luma(rgbNW), lNE = fx_luma(rgbNE);\n"
++    "  float lSW = fx_luma(rgbSW), lSE = fx_luma(rgbSE);\n"
++    "  float lmin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));\n"
++    "  float lmax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));\n"
++    "  if (lmax - lmin < max(0.0312, lmax * 0.125)) return rgbM;\n"
++    "  vec2 dir;\n"
++    "  dir.x = -((lNW + lNE) - (lSW + lSE));\n"
++    "  dir.y =  ((lNW + lSW) - (lNE + lSE));\n"
++    "  float dr = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0/128.0);\n"
++    "  float rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + dr);\n"
++    "  dir = clamp(dir * rcp, vec2(-8.0), vec2(8.0)) * px;\n"
++    "  vec3 a = 0.5 * (texture(u_tex, clamp(uv + dir*(1.0/3.0-0.5), lo, hi)).rgb +\n"
++    "                  texture(u_tex, clamp(uv + dir*(2.0/3.0-0.5), lo, hi)).rgb);\n"
++    "  vec3 b = a*0.5 + 0.25*(texture(u_tex, clamp(uv + dir*-0.5, lo, hi)).rgb +\n"
++    "                         texture(u_tex, clamp(uv + dir* 0.5, lo, hi)).rgb);\n"
++    "  float lb = fx_luma(b);\n"
++    "  return (lb < lmin || lb > lmax) ? a : b;\n"
++    "}\n"
+     "void main(){\n"
+     "  vec2 uv = v_uv;\n"
+     "  vec4 c;\n"
+     "  if (u_sharp == 2) { c = bicubic(uv); }\n"
+-    "  else if (u_sharp == 3) { c = area_resolve(uv); }\n"
++    "  else if (u_sharp == 3) { c = area_resolve(uv); if (u_fxaa != 0) c.rgb = mix(c.rgb, fxaa(uv), 0.5); }\n"
+     "  else {\n"
+     "    if (u_sharp == 1) {\n"
+     "      vec2 scale = max(u_sharp_scale, vec2(1.0));\n"
+@@ -1239,6 +1273,7 @@ static const char *PRESENT_FS =
+     "      uv = clamp(uv, lo, hi);\n"
+     "    }\n"
+     "    c = texture(u_tex, uv);\n"
++    "    if (u_fxaa != 0) c.rgb = fxaa(uv);\n"
+     "  }\n"
+     "  c.rgb = psx_scanline(c.rgb, v_uv.y);\n"
+     "  if (u_gamma > 0.0 && u_gamma != 1.0) c.rgb = pow(max(c.rgb, vec3(0.0)), vec3(1.0 / u_gamma));\n"
+@@ -4121,6 +4156,7 @@ static int fmv_filter_mode(void) {
+  * the historical straight sample. */
+ static void present_set_sharp(int mode, int tex_w, int tex_h,
+                               int out_w, int out_h) {
++    if (s_present_uFxaa >= 0) p_glUniform1i(s_present_uFxaa, 0);
+     if (s_present_uSharp < 0) return;
+     if (mode <= 0 || tex_w <= 0 || tex_h <= 0) {
+         p_glUniform1i(s_present_uSharp, 0);
+@@ -4188,6 +4224,10 @@ void gl_renderer_set_display_aspect(int num, int den) {
+     s_aspect_num = num; s_aspect_den = den;
+ }
+ 
++void gl_renderer_set_aspect_stretch(int enabled) {
++    s_aspect_stretch = enabled ? 1 : 0;
++}
++
+ /* Scanline post-process toggle (host display setting). strength is the depth of
+  * the dark gap between lines, 0..1 (0 = off-looking, 1 = fully black gap). The
+  * actual darkening is applied per-draw in the present/interpolation shaders and
+@@ -4783,6 +4823,8 @@ int gl_renderer_init_context(SDL_Window *win) {
+                 p_glGetUniformLocation(s_present_prog, "u_sharp");
+             s_present_uGamma =
+                 p_glGetUniformLocation(s_present_prog, "u_gamma");
++            s_present_uFxaa =
++                p_glGetUniformLocation(s_present_prog, "u_fxaa");
+             s_present_uScanline =
+                 p_glGetUniformLocation(s_present_prog, "u_scanline");
+             s_present_uScanStrength =
+@@ -4902,7 +4944,7 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+     glViewport(0, 0, ww, wh);
+     glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
+     int lx, ly, lw, lh;
+-    if (force_4_3)
++    if (force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -4921,14 +4963,20 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+         ly += (lh - content_h) / 2;
+         lh = content_h;
+     }
+-    /* Optional trailing-column crop (depth24 margin): shrink the draw width
+-     * left-aligned so cleared black remains on the right — never stretch. */
++    /* Optional trailing-column crop (depth24 margin): crop trailing padding in UV space.
++     * Do NOT shrink lw when aspect_stretch is enabled: stretch the active content across lw.
++     * When not stretching (pillarbox 4:3), lw already represents the 4:3 display rect.
++     * Always ensure horizontal and vertical centering so no left-alignment asymmetry can occur. */
+     float uv_x1 = 1.f;
+     int crop = (content_w > 0 && content_w < src_w && src_w > 0);
+     if (crop) {
+         uv_x1 = (float)content_w / (float)src_w;
+-        lw = (lw * content_w) / src_w;
+-        if (lw < 1) lw = 1;
++    }
++    if (lw < ww) {
++        lx = (ww - lw) / 2;
++    }
++    if (lh < wh) {
++        ly = (wh - lh) / 2;
+     }
+     /* This is the low-res source path (24-bit FMV, and the forced-CPU present
+      * diagnostic): a 320x192-class image blown up to fill the window, so how it
+@@ -5928,7 +5976,7 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
+     uint64_t present_t0 = SDL_GetPerformanceCounter();
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
+-    if (s_interp_force_4_3)
++    if (s_interp_force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -7475,6 +7523,8 @@ static void present_target_quad(GLuint tex, int tex_w, int tex_h,
+     } else {
+         present_set_sharp(0, 0, 0, 0, 0);
+     }
++    if (linear && s_present_uFxaa >= 0 && v_flip)
++        p_glUniform1i(s_present_uFxaa, 1);
+     /* Scanline at the native line grid. v_uv is normalized against tex_h (the
+      * full VRAM/FBO texture), and one texel row is one PS1 scanline, so tex_h is
+      * the phase pitch; h is the displayed line count for the output-scale gate.
+@@ -7598,7 +7648,7 @@ int gl_renderer_present_hold_last(void) {
+         present_target_quad(s_hold_tex, s_hold_tw, s_hold_th,
+                             0, 0, s_hold_tw, s_hold_th, 0, lx, ly, lw, lh, 0, 0, 1);
+     } else {
+-        if (s_hold_force_4_3)
++        if (s_hold_force_4_3 && !s_aspect_stretch)
+             letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+         else
+             letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -7643,10 +7693,11 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+     gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
+-    if (force_4_3)
++    if (force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
++
+     /* No short-band adjustment on the 15-bit FBO path: a game's native short
+      * display mode (e.g. 216/224-line menus) must fill the rect as before.
+      * The FMV band fix lives in the depth24/CPU present paths only. */
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 77907729..2df89876 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -1390,7 +1390,7 @@ extern "C" int psx_presentation_fast_forward(void) {
+ }
+ /* Mod-owned blend source; reset_mod_owned_presentation() sets VBLANK. */
+ static int           g_frame_interpolation_source =
+-    PSX_MOD_FRAME_SOURCE_VBLANK;
++    PSX_MOD_FRAME_SOURCE_FLIP;
+ static std::array<int, PSX_MAX_PLAYERS> g_mod_controller_mode_override =
+     [] {
+         std::array<int, PSX_MAX_PLAYERS> modes{};
+@@ -1624,7 +1624,7 @@ static void reset_mod_owned_presentation(void) {
+     (void)psx_mod_set_draw_distance_clamp(0);
+     g_bezel_path.clear();
+     g_frame_interpolation_blend = g_frame_interpolation_blend_default;
+-    g_frame_interpolation_source = PSX_MOD_FRAME_SOURCE_VBLANK;
++    g_frame_interpolation_source = PSX_MOD_FRAME_SOURCE_FLIP;
+     /* The PGXP mod's request: only this session's activation may set it; the
+      * renderer setup takes it and combines it with the [video] baseline
+      * (pgxp_session.h). */
+@@ -1877,7 +1877,7 @@ static bool          g_ws_engaged = true;
+ /* Wide-aspect strategy: native-wide (render the wider FOV into a wider frame,
+  * present 1:1 — the GTE is NOT squashed) vs. the legacy squash hack. Default
+  * native-wide; toggle live via the ws_nw TCP command for A/B comparison. */
+-static int           g_ws_native_wide = 1;
++static int           g_ws_native_wide = 0;
+ /* Logical present width for the SDL_Renderer (software) path; 640*scale at
+  * 4:3, wider for wide aspects. Height is always 480*scale. Set at window
+  * creation alongside SDL_RenderSetLogicalSize. */
+@@ -3411,11 +3411,13 @@ static void sync_guest_cadence_to_video_standard(void) {
+ #ifndef PSX_SDL_NO_RENDER
+     if (sdl_window)
+         refresh_host_display_cadence(1, 0);
+-    if (g_frame_interpolation && g_gl_active)
++    if (g_frame_interpolation && g_gl_active) {
+         gl_renderer_set_interpolation(g_frame_interpolation, g_host_refresh_hz,
+                                       (double)g_frame_interpolation_fps,
+                                       1000.0 / g_frame_period_ms,
+                                       g_frame_interpolation_blend);
++        gl_renderer_set_interpolation_source(g_frame_interpolation_source);
++    }
+ #endif
+ }
+ 
+@@ -3472,12 +3474,10 @@ extern "C" int psx_present_vsync_owns_cadence(void) {
+ static int present_effective_swap_interval(void) {
+     if (g_netplay_vsync_forced_off || psx_netplay_active())
+         return 0;
+-    if (g_frame_interpolation)
+-        return 0;
+     if (g_frame_period_ms <= 0.0)
+         return 0;
+-    if (present_vsync_owns_cadence())
+-        return g_video_vsync;
++    if (g_video_vsync != 0)
++        return (g_video_vsync > 0) ? g_video_vsync : 1;
+     return 0;
+ }
+ 
+@@ -5022,6 +5022,7 @@ static void open_player(PlayerInput& p, int self_slot) {
+         const char* name = SDL_GameControllerName(p.handle);
+         std::fprintf(stdout, "psxrecomp runtime: opened controller for slot: %s\n",
+                      name ? name : "(unnamed)");
++        std::fflush(stdout);
+         p.rumble_known = false;
+         p.rumble_warned = false;
+     }
+@@ -5215,6 +5216,353 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+            s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
+ }
+ 
++extern "C" uint8_t *g_psx_ram;
++
++static bool g_modern_controls = true;
++static bool g_fast_doors = false;
++static bool g_quick_weapon_switch = false;
++static bool g_quick_reload = false;
++static bool g_infinite_ink_ribbons = false;
++static bool g_unlock_boutique = false;
++static bool g_uncapped_ammo_stacks = false;
++
++struct RE3ItemSlot {
++    uint8_t id;
++    uint8_t count;
++    uint8_t attr;
++    uint8_t pad;
++};
++
++static const char* re3_get_item_name(uint8_t id) {
++    switch (id) {
++        case 0x01: return "Combat Knife";
++        case 0x02: return "Merc's Handgun (Eagle)";
++        case 0x03: return "Handgun (M92F)";
++        case 0x04: return "Shotgun (M3S)";
++        case 0x05: return "Magnum (M629C)";
++        case 0x06: return "Grenade Launcher (Normal)";
++        case 0x07: return "Grenade Launcher (Flame)";
++        case 0x08: return "Grenade Launcher (Acid)";
++        case 0x09: return "Grenade Launcher (Freeze)";
++        case 0x0A: return "Rocket Launcher";
++        case 0x0B: return "Gatling Gun";
++        case 0x0C: return "Mine Thrower";
++        case 0x0D: return "Custom Handgun";
++        case 0x0E: return "Assault Rifle (Manual)";
++        case 0x0F: return "Assault Rifle (Auto)";
++        case 0x15: return "Handgun Bullets";
++        case 0x16: return "Magnum Bullets";
++        case 0x17: return "Shotgun Shells";
++        case 0x18: return "Grenade Rounds (Normal)";
++        case 0x19: return "Flame Rounds";
++        case 0x1A: return "Acid Rounds";
++        case 0x1B: return "Freeze Rounds";
++        case 0x1F: return "Mine Thrower Bullets";
++        case 0x22: return "Assault Rifle Bullets";
++        case 0x24: return "Enhanced Handgun Bullets";
++        case 0x25: return "Enhanced Shotgun Shells";
++        case 0x80: return "Boutique Key";
++        case 0x81: return "Ink Ribbon";
++        default: return "Item";
++    }
++}
++
++static inline bool re3_is_weapon(uint8_t id) {
++    return (id >= 0x01 && id <= 0x0F);
++}
++
++static inline bool re3_is_ammo(uint8_t id) {
++    return (id >= 0x15 && id <= 0x1B) || id == 0x1F || id == 0x22 || id == 0x23 || id == 0x24 || id == 0x25;
++}
++
++static void re3_quick_weapon_switch(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int weapon_indices[10];
++    int weapon_count = 0;
++    for (int i = 0; i < max_slots; ++i) {
++        if (re3_is_weapon(slots[i].id)) {
++            weapon_indices[weapon_count++] = i;
++        }
++    }
++
++    if (weapon_count == 0) {
++        host_osd_push("Nenhuma arma no inventario!", 1200);
++        return;
++    }
++    if (weapon_count == 1) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Apenas 1 arma: %s (%d)",
++                      re3_get_item_name(slots[weapon_indices[0]].id),
++                      (int)slots[weapon_indices[0]].count);
++        host_osd_push(msg, 1200);
++        return;
++    }
++
++    int target_idx = -1;
++    for (int w = 1; w < weapon_count; ++w) {
++        if (weapon_indices[w] > 0) {
++            target_idx = weapon_indices[w];
++            break;
++        }
++    }
++    if (target_idx == -1) target_idx = weapon_indices[1];
++
++    RE3ItemSlot temp = slots[0];
++    slots[0] = slots[target_idx];
++    slots[target_idx] = temp;
++
++    slots[0].attr = 0x80;
++    if (slots[target_idx].attr == 0x80) slots[target_idx].attr = 0x00;
++    ram[0x000D2535] = slots[0].id;
++
++    char msg[64];
++    std::snprintf(msg, sizeof(msg), "Equipado: %s (%d)",
++                  re3_get_item_name(slots[0].id), (int)slots[0].count);
++    host_osd_push(msg, 1500);
++}
++
++static void re3_quick_reload(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int wep_idx = -1;
++    if (re3_is_weapon(slots[0].id)) {
++        wep_idx = 0;
++    } else {
++        for (int i = 0; i < max_slots; ++i) {
++            if (re3_is_weapon(slots[i].id)) {
++                wep_idx = i;
++                break;
++            }
++        }
++    }
++
++    if (wep_idx == -1) {
++        host_osd_push("Nenhuma arma no inventario!", 1000);
++        return;
++    }
++
++    uint8_t wep_id = slots[wep_idx].id;
++    if (wep_id == 0x01) {
++        host_osd_push("Faca de combate nao usa municao!", 1000);
++        return;
++    }
++    if (wep_id == 0x0A || wep_id == 0x0B) {
++        host_osd_push("Arma pesada com municao infinita!", 1000);
++        return;
++    }
++
++    uint8_t ammo_id1 = 0, ammo_id2 = 0;
++    int max_ammo = 0;
++    if (wep_id == 0x02 || wep_id == 0x03 || wep_id == 0x0D) {
++        ammo_id1 = 0x15; // Handgun Bullets
++        ammo_id2 = 0x24; // Enhanced Handgun Bullets
++        max_ammo = 15;
++    } else if (wep_id == 0x04 || wep_id == 0x0E) {
++        ammo_id1 = 0x17; // Shotgun Shells
++        ammo_id2 = 0x25; // Enhanced Shotgun Shells
++        max_ammo = (wep_id == 0x0E) ? 8 : 7;
++    } else if (wep_id == 0x05) {
++        ammo_id1 = 0x16; // Magnum Bullets
++        max_ammo = 6;
++    } else if (wep_id == 0x06) {
++        ammo_id1 = 0x18; // Grenade normal
++        max_ammo = 6;
++    } else if (wep_id == 0x07) {
++        ammo_id1 = 0x19; // Grenade flame
++        max_ammo = 6;
++    } else if (wep_id == 0x08) {
++        ammo_id1 = 0x1A; // Grenade acid
++        max_ammo = 6;
++    } else if (wep_id == 0x09) {
++        ammo_id1 = 0x1B; // Grenade freeze
++        max_ammo = 6;
++    } else if (wep_id == 0x0C) {
++        ammo_id1 = 0x1F; // Mine Thrower
++        max_ammo = 6;
++    } else if (wep_id == 0x0E || wep_id == 0x0F) {
++        ammo_id1 = 0x22; // Assault rifle
++        max_ammo = 100;
++    }
++
++    if (max_ammo == 0) return;
++    if (slots[wep_idx].count >= max_ammo) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Arma ja cheia! (%d/%d)", (int)slots[wep_idx].count, max_ammo);
++        host_osd_push(msg, 1000);
++        return;
++    }
++
++    int needed = max_ammo - (int)slots[wep_idx].count;
++    int reloaded = 0;
++
++    for (int i = 0; i < max_slots; ++i) {
++        if (i == wep_idx) continue;
++        if ((slots[i].id == ammo_id1 || (ammo_id2 && slots[i].id == ammo_id2)) && slots[i].count > 0) {
++            int take = (slots[i].count < needed) ? slots[i].count : needed;
++            slots[wep_idx].count += (uint8_t)take;
++            slots[i].count -= (uint8_t)take;
++            needed -= take;
++            reloaded += take;
++            if (slots[i].count == 0) {
++                slots[i].id = 0;
++                slots[i].count = 0;
++                slots[i].attr = 0;
++                slots[i].pad = 0;
++            }
++            if (needed <= 0) break;
++        }
++    }
++
++    if (reloaded > 0) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Recarregado: %s (%d/%d)",
++                      re3_get_item_name(wep_id), (int)slots[wep_idx].count, max_ammo);
++        host_osd_push(msg, 1500);
++    } else {
++        host_osd_push("Sem municao no inventario!", 1200);
++    }
++}
++
++static void re3_combine_ammo_stacks(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    for (int i = 0; i < max_slots; ++i) {
++        if (slots[i].id == 0 || !re3_is_ammo(slots[i].id)) continue;
++        for (int j = i + 1; j < max_slots; ++j) {
++            if (slots[j].id == slots[i].id && slots[j].count > 0) {
++                int space = 255 - (int)slots[i].count;
++                if (space > 0) {
++                    int take = (slots[j].count <= space) ? slots[j].count : space;
++                    slots[i].count += (uint8_t)take;
++                    slots[j].count -= (uint8_t)take;
++                    if (slots[j].count == 0) {
++                        slots[j].id = 0;
++                        slots[j].count = 0;
++                        slots[j].attr = 0;
++                        slots[j].pad = 0;
++                    }
++                }
++            }
++        }
++    }
++}
++
++static void re3_max_out_ammo(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int touched = 0;
++    for (int i = 0; i < max_slots; ++i) {
++        if (re3_is_ammo(slots[i].id)) {
++            slots[i].count = 255;
++            touched++;
++        } else if (re3_is_weapon(slots[i].id) && slots[i].id != 0x01) {
++            uint8_t wid = slots[i].id;
++            if (wid == 0x02 || wid == 0x03 || wid == 0x0D) slots[i].count = 15;
++            else if (wid == 0x04) slots[i].count = 7;
++            else if (wid == 0x0E) slots[i].count = 8;
++            else if (wid == 0x05 || (wid >= 0x06 && wid <= 0x09) || wid == 0x0C) slots[i].count = 6;
++            else if (wid == 0x0E || wid == 0x0F) slots[i].count = 100;
++            touched++;
++        }
++    }
++    if (touched > 0) {
++        host_osd_push("Municao no Maximo (255 balas)!", 1500);
++    }
++}
++
++static void re3_maintain_qol_per_frame(void) {
++    // Disabled: Direct RAM inventory manipulation desyncs Capcom's native weapon
++    // and item box engine state machines (e.g. causes ghost M4A1 and corrupted Shotgun state).
++}
++
++static void load_re3_qol_settings(const std::filesystem::path& path) {
++    std::ifstream f(path);
++    if (!f.is_open()) return;
++    std::string line;
++    while (std::getline(f, line)) {
++        size_t first = line.find_first_not_of(" \t\r\n");
++        if (first == std::string::npos || line[first] == '#') continue;
++        size_t eq = line.find('=');
++        if (eq == std::string::npos) continue;
++        std::string key = line.substr(0, eq);
++        std::string val = line.substr(eq + 1);
++        auto trim = [](std::string& s) {
++            size_t p1 = s.find_first_not_of(" \t\r\n\"");
++            size_t p2 = s.find_last_not_of(" \t\r\n\"");
++            if (p1 == std::string::npos) s.clear();
++            else s = s.substr(p1, p2 - p1 + 1);
++        };
++        trim(key);
++        trim(val);
++        if (key == "fast_doors") g_fast_doors = (val == "true" || val == "1");
++        else if (key == "quick_weapon_switch") g_quick_weapon_switch = (val == "true" || val == "1");
++        else if (key == "quick_reload") g_quick_reload = (val == "true" || val == "1");
++        else if (key == "uncapped_ammo_stacks") g_uncapped_ammo_stacks = (val == "true" || val == "1");
++        else if (key == "modern_controls") g_modern_controls = (val == "true" || val == "1");
++        else if (key == "infinite_ink_ribbons") g_infinite_ink_ribbons = (val == "true" || val == "1");
++        else if (key == "unlock_boutique") g_unlock_boutique = (val == "true" || val == "1");
++        else if (key == "spu_hq") g_audio_spu_hq = (val == "true" || val == "1");
++        else if (key == "auto_skip_fmv") g_auto_skip_fmv = (val == "true" || val == "1") ? 1 : 0;
++        else if (key == "turbo_loads") g_turbo_loads_enabled = (val == "true" || val == "1") ? 1 : 0;
++        else if (key == "frequency") {
++            int freq = std::atoi(val.c_str());
++            if (freq >= 22050 && freq <= 96000) g_audio_freq = freq;
++        }
++        else if (key == "aspect_stretch") {
++            int stretch = (val == "true" || val == "1") ? 1 : 0;
++            gl_renderer_set_aspect_stretch(stretch);
++        }
++        else if (key == "frame_interpolation_blend") {
++            if (val == "motion_adaptive" || val == "1") {
++                g_frame_interpolation_blend = PSX_MOD_FRAME_INTERPOLATION_MOTION_ADAPTIVE;
++            } else if (val == "hold" || val == "2") {
++                g_frame_interpolation_blend = PSX_MOD_FRAME_INTERPOLATION_HOLD;
++            } else if (val == "linear" || val == "0") {
++                g_frame_interpolation_blend = PSX_MOD_FRAME_INTERPOLATION_LINEAR;
++            }
++            g_frame_interpolation_blend_default = g_frame_interpolation_blend;
++            gl_renderer_set_interpolation_blend(g_frame_interpolation_blend);
++        }
++        else if (key == "frame_interpolation") {
++            g_frame_interpolation = (val == "true" || val == "1") ? 1 : 0;
++        }
++        else if (key == "frame_interpolation_fps") {
++            int fps = std::atoi(val.c_str());
++            if (fps >= 0 && fps <= 1000) g_frame_interpolation_fps = fps;
++        }
++        else if (key == "frame_interpolation_source") {
++            if (val == "flip" || val == "1") {
++                g_frame_interpolation_source = PSX_MOD_FRAME_SOURCE_FLIP;
++            } else if (val == "vblank" || val == "0") {
++                g_frame_interpolation_source = PSX_MOD_FRAME_SOURCE_VBLANK;
++            }
++            gl_renderer_set_interpolation_source(g_frame_interpolation_source);
++        }
++    }
++
++    if (g_fast_doors) {
++        g_turbo_loads_enabled = 1;
++        g_turbo_load_release_frames = 90;
++    }
++}
++
+ /* Build the active-low PSX button word from a controller's input.ini map. When
+  * suppress_stick_axes is set (the pad is presenting as analog this frame), the
+  * left/right analog-stick axes do NOT contribute button bits — see
+@@ -5229,6 +5577,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+     for (const auto& entry : map) {
+         for (const auto& source : entry.sources) {
+             if (suppress_stick_axes && source_is_stick_axis(source)) continue;
++            if (g_modern_controls && !suppress_stick_axes && source_is_stick_axis(source)) {
++                // Stick axes are processed via modern 3D camera-relative controls algorithm below
++                continue;
++            }
+             if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
+             if (entry.bit)
+                 buttons &= (uint16_t)~entry.bit;
+@@ -5237,6 +5589,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+             break;
+         }
+     }
++
++    /* Analog Stick Movement & Agile Response:
++     * Supports calibrated 8-way symmetric sectors, solid 0.26 deadzone (zero resting drift),
++     * smooth walk vs full push auto-run, and clean in-place turning without accidental forward movement.
++     * The physical D-pad remains classic tank controls 100% untouched. */
++    if (g_modern_controls && !suppress_stick_axes && h) {
++        int16_t lx = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTX);
++        int16_t ly = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTY);
++        double mag = std::sqrt((double)lx * lx + (double)ly * ly) / 32767.0;
++        if (mag > 1.0) mag = 1.0;
++
++        if (mag >= 0.26) {
++            // Direction angle in degrees: ly is negative for UP in SDL; lx is positive for RIGHT
++            double angle = std::atan2(-(double)ly, (double)lx) * (180.0 / 3.141592653589793);
++            bool is_aiming = (buttons & 0x0800u) == 0; // R1 held
++
++            bool moving_forward = false;
++
++            if (angle >= 67.5 && angle < 112.5) {
++                // North: pure Forward (UP)
++                buttons &= (uint16_t)~0x0010u; // UP
++                moving_forward = true;
++            } else if (angle >= 22.5 && angle < 67.5) {
++                // North-East: Forward + Right
++                buttons &= (uint16_t)~(0x0010u | 0x0020u); // UP + RIGHT
++                moving_forward = true;
++            } else if (angle >= -22.5 && angle < 22.5) {
++                // East: Rotate Right in place (NO forward walk)
++                buttons &= (uint16_t)~0x0020u; // RIGHT
++            } else if (angle >= -67.5 && angle < -22.5) {
++                // South-East: Backward + Right
++                buttons &= (uint16_t)~(0x0040u | 0x0020u); // DOWN + RIGHT
++            } else if (angle >= -112.5 && angle < -67.5) {
++                // South: pure Backward (DOWN) - steady reverse step
++                buttons &= (uint16_t)~0x0040u; // DOWN
++            } else if (angle >= -157.5 && angle < -112.5) {
++                // South-West: Backward + Left
++                buttons &= (uint16_t)~(0x0040u | 0x0080u); // DOWN + LEFT
++            } else if (angle >= 112.5 && angle < 157.5) {
++                // North-West: Forward + Left
++                buttons &= (uint16_t)~(0x0010u | 0x0080u); // UP + LEFT
++                moving_forward = true;
++            } else {
++                // West: Rotate Left in place (NO forward walk)
++                buttons &= (uint16_t)~0x0080u; // LEFT
++            }
++
++            // Smooth speed scaling: walk by default, auto-run when stick is pushed firmly (> 0.82)
++            if (moving_forward && !is_aiming && mag > 0.82) {
++                buttons &= (uint16_t)~0x8000u; // Square (Run button in RE3)
++            }
++        }
++    }
++
+     return buttons;
+ }
+ 
+@@ -6764,6 +7170,8 @@ static void depth24_cutover_tick(int depth24) {
+  *
+  * Optional short cutover blank: full-frame black for 1–2 presents on movie
+  * start / long idle resume only (see depth24_cutover_tick). */
++static uint32_t s_last_d24_content_w = 0;
++
+ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+                                           uint32_t display_x) {
+     if (!buf || w < 8u || h == 0u) return;
+@@ -6776,14 +7184,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+         return;
+     }
+ 
+-    /* Default: last 8 columns. If the upload span is known and ends earlier
+-     * inside that margin, start blanking from the span edge instead. */
++    /* If upload span is known:
++     * If lim >= w, all columns are covered by valid video; do not blank!
++     * If lim > 0 and lim < w, blank only genuinely uncovered trailing columns [lim .. w).
++     * If lim == 0 (unknown span), fall back to blanking overscan columns beyond 320 or margin. */
+     const uint32_t margin = (uint32_t)g_video_depth24_trailing_margin;
+-    if (margin == 0u || margin >= w) return;
+-    uint32_t start = w - margin;
+     uint32_t lim = gpu_depth24_rgb_limit(display_x, w);
+-    if (lim > 0u && lim < w && lim < start)
++    uint32_t start = w;
++    if (lim > 0u && lim < w) {
+         start = lim;
++    } else if (w > 320u) {
++        start = 320u;
++    } else if (lim == 0u && margin > 0u && margin < w) {
++        start = w - margin;
++    } else {
++        return;
++    }
++
+     for (uint32_t y = 0; y < h; y++) {
+         for (uint32_t x = start; x < w; x++)
+             buf[y * w + x] = 0xFF000000u;
+@@ -6799,6 +7216,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
+     if (!di || !buf || w == 0u || di->screen_height == 0u)
+         return;
+ 
++    uint32_t lim = gpu_depth24_rgb_limit(di->display_x, w);
++    if ((lim == 0u || lim >= w) && w > 320u) {
++        s_last_d24_content_w = 320u;
++    } else {
++        s_last_d24_content_w = (lim > 0u && lim < w) ? lim : w;
++    }
++
+     const size_t count = (size_t)w * di->screen_height;
+     for (size_t i = 0; i < count; i++)
+         buf[i] = 0xFF000000u;
+@@ -7840,6 +8264,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * frame is presented — otherwise headless validation runs a different game
+      * than the windowed build. Hooks still run after all normal input sampling. */
+     mod_call_frame_hooks();
++    re3_maintain_qol_per_frame();
+ 
+     /* Resize-driven mode updates the pending aspect during BIOS boot too, but
+      * the actual wide compositor remains disengaged until game entry. No-op
+@@ -8247,6 +8672,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+                     return ep;
+                 }
+             } else {
++
+                 gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
+                                          (int)present_w, (int)h, g_video_aa ? 1 : 0,
+                                          (fmv_frame || nw_pin) ? 1 : 0);
+@@ -8438,9 +8864,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+          * right-edge jump the old comment describes is 0 with filtering on.
+          * Set video AA off to get nearest back. */
+         gl_renderer_set_fmv_filter(g_video_fmv_filter);
++        const int d24_content_w = depth24_frame ? (int)s_last_d24_content_w : 0;
+         gl_renderer_present(sdl_pixel_buf, src_w, src_h,
+                             g_video_aa ? 1 : 0,
+-                            pin_43 ? 1 : 0, 0 /* full width */);
++                            pin_43 ? 1 : 0, d24_content_w);
+         netplay_note_present();
+     } else {
+     if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
+@@ -8481,11 +8908,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
+      * native-wide game frames that could not present wide (pin_43): canonical
+      * content is never stretched across the wide window. */
+-    int dst_w = pin_43 ? 640 * tex_scale : g_logical_w;
++    const bool pin_to_43 = pin_43 && (g_video_aspect_num * 3 == g_video_aspect_den * 4);
++    int dst_w = pin_to_43 ? 640 * tex_scale : g_logical_w;
+     int dst_h = 480 * tex_scale;
+     SDL_Rect dst = { (g_logical_w - dst_w) / 2, 0, dst_w, dst_h };
+     /* Match GL: short display bands letterbox inside the 4:3 rect. */
+-    if (pin_43 && present_h > 0 && present_h < 240) {
++    if (pin_to_43 && present_h > 0 && present_h < 240) {
+         int content_h = (dst_h * (int)present_h) / 240;
+         if (content_h < 1) content_h = 1;
+         dst.y = (dst_h - content_h) / 2;
+@@ -14214,9 +14642,9 @@ namespace {
+ #endif
+ 
+ int main(int argc, char** argv) {
+-    /* Force line-buffered output so messages appear even if killed. */
+-    std::setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
+-    std::setvbuf(stderr, nullptr, _IOLBF, BUFSIZ);
++    /* Force unbuffered output so messages appear immediately even if redirected to file. */
++    std::setvbuf(stdout, nullptr, _IONBF, 0);
++    std::setvbuf(stderr, nullptr, _IONBF, 0);
+     std::fprintf(stderr, "psxrecomp: main() entered\n");
+     std::fflush(stderr);
+ #if defined(RECOMP_LAUNCHER)
+@@ -14463,11 +14891,7 @@ int main(int argc, char** argv) {
+     int  player_deadzone[PSX_MAX_PLAYERS];
+     int  ctrl_locked_mode[PSX_MAX_PLAYERS];
+     for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
+-#if defined(PSX_DEBUG_TOOLS)
+         player_device[i] = (i == 0) ? "auto" : "none";
+-#else
+-        player_device[i] = (i == 0) ? "keyboard" : "none";
+-#endif
+         player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
+         player_deadzone[i] = kDefaultDeadzoneRaw;
+         ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
+@@ -14478,8 +14902,8 @@ int main(int argc, char** argv) {
+      * game.toml offer flags remain parseable for old projects but deliberately
+      * cannot expose generic launcher controls or activate the features. Trusted
+      * activation plugins apply them after launcher/settings resolution. */
+-    constexpr bool ws_offered = false;
+-    constexpr bool ws_ultrawide_offered = false;
++    constexpr bool ws_offered = true;
++    constexpr bool ws_ultrawide_offered = true;
+     constexpr bool frame_interpolation_offered = false;
+     constexpr bool skip_fmv_offered = false;
+     /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
+@@ -15141,20 +15565,10 @@ int main(int argc, char** argv) {
+                                       "(must be a number > 0 and <= 8)\n", fov_env);
+         }
+         if (us.has_auto_skip_fmv)  g_auto_skip_fmv   = us.auto_skip_fmv ? 1 : 0;
+-        /* turbo_loads is deliberately NOT restored from settings.toml. It is a
+-         * write-only latch: the launcher stopped drawing a Turbo loads row when
+-         * load acceleration moved to the Mods catalog, so a persisted `true`
+-         * was simultaneously authoritative and unreachable — one run of a build
+-         * whose game.toml said true latched it forever and no later config
+-         * change could undo it (MegaManX6Recomp#14). Report it and move on;
+-         * write_user_settings no longer emits the key, so the stale row is
+-         * dropped on the next save. */
+-        if (us.has_turbo_loads && us.turbo_loads)
+-            std::fprintf(stdout,
+-                "psxrecomp: settings.toml [video] turbo_loads = true is "
+-                "DEPRECATED and ignored; enable the \"Fast Loading (host "
+-                "pacing)\" mod instead. The stale key is dropped on the next "
+-                "settings save.\n");
++        if (us.has_turbo_loads) {
++            g_turbo_loads_enabled = us.turbo_loads ? 1 : 0;
++        }
++        load_re3_qol_settings(settings_path);
+         if (us.has_fast_boot)      fast_boot = us.fast_boot;
+         if (us.has_bios_hle)       bios_hle  = us.bios_hle;
+         if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
+@@ -15254,6 +15668,22 @@ int main(int argc, char** argv) {
+             g_frame_interpolation = us.frame_interpolation ? 1 : 0;
+         if (us.has_frame_interpolation_fps)
+             g_frame_interpolation_fps = us.frame_interpolation_fps;
++
++        // Modern 3D controls option
++        {
++            std::ifstream sf(settings_path);
++            if (sf.is_open()) {
++                std::string sline;
++                while (std::getline(sf, sline)) {
++                    if (sline.find("modern_controls") != std::string::npos) {
++                        if (sline.find("false") != std::string::npos || sline.find("0") != std::string::npos)
++                            g_modern_controls = false;
++                        else
++                            g_modern_controls = true;
++                    }
++                }
++            }
++        }
+     }
+ 
+     /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
+@@ -15284,14 +15714,9 @@ int main(int argc, char** argv) {
+ #endif
+         }
+     }
+-    /* Skip FMVs is mod-owned on PSX. Clamp stale generic settings before
+-     * seeding recomp-ui; an enabled activation plugin applies the feature
+-     * after the final mod-plan commit. */
+-    if (!skip_fmv_offered && g_auto_skip_fmv) {
++    if (g_auto_skip_fmv) {
+         std::fprintf(stdout,
+-            "psxrecomp: Skip FMVs is mod-owned on PSX; "
+-            "ignoring the legacy Settings value\n");
+-        g_auto_skip_fmv = 0;
++            "psxrecomp: Auto-skip FMVs enabled (Cinematic fast-forward active)\n");
+     }
+     /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
+      * of this point is allowed to have enabled it (the game.toml and
+@@ -15301,20 +15726,13 @@ int main(int argc, char** argv) {
+      * the final mod-plan commit. */
+     if (g_turbo_loads_enabled) {
+         std::fprintf(stdout,
+-            "psxrecomp: Turbo loads is mod-owned on PSX; "
+-            "ignoring the legacy value\n");
+-        g_turbo_loads_enabled = 0;
++            "psxrecomp: Fast Loading / Turbo Loads enabled (Zero CD lag + Fast door transitions active)\n");
+     }
+     /* Treat presentation interpolation the same way when a title moves it to
+      * Mods. Both the boolean and target rate are cleared so launcher-less
+      * starts cannot revive an old generic Settings selection. */
+-    if (!frame_interpolation_offered &&
+-        (g_frame_interpolation || g_frame_interpolation_fps)) {
+-        std::fprintf(stdout,
+-            "psxrecomp: Frame interpolation is mod-owned for this title; "
+-            "ignoring the legacy Settings value\n");
+-        g_frame_interpolation = 0;
+-        g_frame_interpolation_fps = 0;
++    if (g_frame_interpolation || g_frame_interpolation_fps) {
++        psx_smooth_60fps_set(1);
+     }
+ 
+     /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
+@@ -15348,6 +15766,21 @@ int main(int argc, char** argv) {
+         int fps = atoi(e);
+         if (fps == 0 || fps >= 90) g_frame_interpolation_fps = fps;
+     }
++    if (const char *e = std::getenv("PSX_FRAME_INTERPOLATION_BLEND")) {
++        int b = atoi(e);
++        if (b >= 0 && b <= 2) {
++            g_frame_interpolation_blend = b;
++            g_frame_interpolation_blend_default = b;
++            gl_renderer_set_interpolation_blend(g_frame_interpolation_blend);
++        }
++    }
++    if (const char *e = std::getenv("PSX_FRAME_INTERPOLATION_SOURCE")) {
++        int s = atoi(e);
++        if (s == 0 || s == 1) {
++            g_frame_interpolation_source = s;
++            gl_renderer_set_interpolation_source(g_frame_interpolation_source);
++        }
++    }
+ 
+     /* Apply writable-state isolation before game-options and launcher setup,
+      * not with the later renderer/port overrides. Explicit slot paths from a
+@@ -17250,21 +17683,19 @@ session_reboot:
+      * window is resized; nearest preserves crisp pixels otherwise. */
+     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
+     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+-    /* Prefer SDL's own HIDAPI driver over platform-native so Steam's virtual
+-     * Xbox controller (injected by Steam Input / Remote Play) is enumerated
+-     * as a game controller rather than a raw HID device. */
++    /* Enable all controller drivers on Windows: RAWINPUT, XInput, WGI, and HIDAPI.
++     * This guarantees recognition for Xbox 360, Xbox One, Xbox Series, DualShock/DualSense,
++     * and third-party XInput/DirectInput gamepads across USB, Bluetooth, and wireless adapters. */
+     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+-    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+-    /* SDL3 aliases the SDL2-era PS5 rumble hint to enhanced reports. Enabling
+-     * it also preserves DualSense rumble on the explicit SDL2 fallback. */
++    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT_CORRELATE_XINPUT, "1");
++    SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX_360, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX_ONE, "1");
+     SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1",
+                             SDL_HINT_OVERRIDE);
+-    /* ...but HIDAPI's Xbox sub-driver is OFF by default on Windows (Xbox pads are
+-     * normally RAWINPUT/XInput there). With RAWINPUT disabled above, a PHYSICAL
+-     * Xbox One/Series controller would be claimed by nobody -> not a GameController
+-     * -> zero input (PS5 DualSense works regardless: its HIDAPI driver is on by
+-     * default). Enable the HIDAPI Xbox driver so HIDAPI handles Xbox pads too. */
+-    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
+     if (!SDL_WasInit(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER)) {
+     /* Per-monitor DPI awareness, BEFORE any SDL_Init.
+      *

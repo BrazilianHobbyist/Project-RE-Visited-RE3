@@ -1,76 +1,45 @@
 cmake_minimum_required(VERSION 3.20)
-project(RE3Recomp VERSION 0.1.0 LANGUAGES C CXX)
-
-# ============================================================
-# RE3Recomp — CMakeLists.txt
-# Port nativo de Resident Evil 3: Nemesis (PS1) para Windows
-# Usa o framework PSXRecomp como submodule
-# ============================================================
-
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_CXX_STANDARD 20)
-
-# ------------------------------------------------------------
-# PSXRecomp Framework (submodule)
-# ------------------------------------------------------------
-# O framework deve estar em: psxrecomp/
-# Para clonar: git submodule add https://github.com/RetroPortingToolKit/psxrecomp psxrecomp
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/psxrecomp/CMakeLists.txt")
-    message(FATAL_ERROR 
-        "PSXRecomp submodule não encontrado!\n"
-        "Execute: git submodule update --init --recursive")
+set(PSXRECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/psxrecomp" CACHE PATH
+    "Path to psxrecomp")
+if(NOT EXISTS "${PSXRECOMP_ROOT}/runtime/runtime.cmake")
+    message(FATAL_ERROR
+        "PSXRecomp runtime is missing: ${PSXRECOMP_ROOT}/runtime/runtime.cmake\n"
+        "This project expects the psxrecomp framework checkout at ${PSXRECOMP_ROOT}.\n"
+        "Run: git submodule update --init --recursive\n"
+        "If psxrecomp/ is not a submodule, set -DPSXRECOMP_ROOT=<path-to-psxrecomp>.")
 endif()
 
-add_subdirectory(psxrecomp)
+project(RE3Recomp LANGUAGES C CXX)
 
-# ------------------------------------------------------------
-# Geração de código (recompilador)
-# O código C gerado pelo recompilador fica em build/generated/
-# O CMake do PSXRecomp cuida de compilar esses arquivos automaticamente
-# ------------------------------------------------------------
+set(PSX_RECOMP_UI OFF CACHE BOOL
+    "No recomp-ui submodule in this build" FORCE)
+set(PSX_REWIND OFF CACHE BOOL
+    "Disable rewind engine" FORCE)
 
-# ------------------------------------------------------------
-# Mods customizados do RE3Recomp
-# ------------------------------------------------------------
-add_library(re3_mods STATIC
-    mods/widescreen/widescreen_patch.c
-    mods/saves/saves.c
+include("${PSXRECOMP_ROOT}/runtime/runtime.cmake")
+
+set(PSX_PRELOADED_MODS "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded")
+if(NOT IS_DIRECTORY "${PSX_PRELOADED_MODS}")
+    set(PSX_PRELOADED_MODS "NONE")
+endif()
+
+psxrecomp_add_game_runtime(RE3Recomp
+    PRELOADED_MODS_DIR "${PSX_PRELOADED_MODS}"
+    WINDOW_TITLE "Resident Evil 3: Nemesis Recompiled"
+    DEFAULT_GAME_CONFIG_PATH "game.toml"
+    MAX_PLAYERS 1
+    GEN_MARKER "generated/SLUS_009.23_dispatch.c"
+    GEN_FULL_GLOB "generated/SLUS_009.23_full_*.c"
 )
 
-target_include_directories(re3_mods PRIVATE
-    psxrecomp/runtime/include
-)
-
-# ------------------------------------------------------------
-# Configurações de plataforma
-# ------------------------------------------------------------
-if(WIN32)
-    # Linkar com Shlobj.lib para SHGetFolderPath (módulo de saves)
-    target_link_libraries(re3_mods PRIVATE Shell32)
-    
-    # XInput para suporte ao controle Xbox
-    target_link_libraries(re3_mods PRIVATE Xinput)
-    
-    # Evitar o warning C4996 do MSVC para funções POSIX
-    target_compile_definitions(re3_mods PRIVATE _CRT_SECURE_NO_WARNINGS)
-endif()
-
-# ------------------------------------------------------------
-# Executável principal
-# O PSXRecomp define o target "psxrecomp_runtime" que integra tudo
-# ------------------------------------------------------------
-if(TARGET psxrecomp_runtime)
-    target_link_libraries(psxrecomp_runtime PRIVATE re3_mods)
-    
-    # Definir nome do executável final
-    set_target_properties(psxrecomp_runtime PROPERTIES
-        OUTPUT_NAME "RE3Recomp"
-    )
-endif()
-
-# ------------------------------------------------------------
-# Mensagens de status no configure
-# ------------------------------------------------------------
-message(STATUS "RE3Recomp v${PROJECT_VERSION}")
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
-message(STATUS "Mods: widescreen, saves, xinput")
+# Stage runtime configs next to the exe for direct build/ launches.
+foreach(_PSX_RUNTIME_CONFIG game.toml)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}")
+        add_custom_command(TARGET RE3Recomp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}"
+                "$<TARGET_FILE_DIR:RE3Recomp>/${_PSX_RUNTIME_CONFIG}"
+            COMMENT "Staging ${_PSX_RUNTIME_CONFIG}"
+            VERBATIM)
+    endif()
+endforeach()
