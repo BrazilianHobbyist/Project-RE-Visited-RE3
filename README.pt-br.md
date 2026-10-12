@@ -4,15 +4,15 @@
 
 # Project RE: Visited - Resident Evil 3
 
-**Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
+🌎 **Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
 
 ---
 
-**Port Nativo em C/C++ x86_64 e Recompilação Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
+☣️ **Port Nativo em C/C++ x86_64 e Recompilação Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
 
 ---
 
-## A Iniciativa Project RE: Visited
+## ☣️ A Iniciativa Project RE: Visited
 
 **Project RE: Visited** é uma iniciativa independente e de código aberto criada para restaurar, modernizar e preservar historicamente a lendária trilogia clássica de *survival horror* do PlayStation original no PC:
 * **Resident Evil 3: Nemesis** (Lançamento Inaugural)
@@ -23,7 +23,7 @@ O objetivo é proporcionar a melhor experiência possível dos clássicos em har
 
 ---
 
-## O que é Recompilação Estática Clean-Room?
+## ☣️ O que é Recompilação Estática Clean-Room?
 
 Diferente de projetos de emulação tradicional ou de engenharia reversa que dependem de vazamentos de código-fonte, este projeto foi construído sob uma rigorosa metodologia de **Recompilação Estática Limpa (*Clean Room Static Recompilation*)**:
 
@@ -67,7 +67,7 @@ As chamadas de sistema, a GPU, o coprocessador geométrico GTE e o processador d
 
 ---
 
-## Amparo Jurídico e Isenção de Responsabilidade
+## ☣️ Amparo Jurídico e Isenção de Responsabilidade
 
 A engenharia reversa para fins estritos de **interoperabilidade de software e preservação digital** é amplamente protegida por marcos legais e precedentes jurídicos consolidados:
 
@@ -79,7 +79,7 @@ A engenharia reversa para fins estritos de **interoperabilidade de software e pr
 
 ---
 
-## Recursos e Melhorias Implementadas
+## ☣️ Recursos e Melhorias Implementadas
 
 Todas as opções listadas abaixo estão **100% implementadas, auditadas e funcionais** no projeto:
 
@@ -100,17 +100,17 @@ Todas as opções listadas abaixo estão **100% implementadas, auditadas e funci
 
 ---
 
-## Esclarecimento de Escopo (O que este projeto NÃO faz)
+## ☣️ Esclarecimento de Escopo (O que este projeto NÃO faz)
 
 Para manter a integridade técnica, estabilidade e fidelidade histórica do jogo, delimitamos com clareza o que **não** faz parte deste projeto:
 
 1. **Sem Alteração Arbitrária de Memória / Trainers Instáveis**: Não incluímos modificações forçadas de inventário ou "item box hacks" diretamente na RAM. A máquina de estados de Resident Evil 3 depende da integridade rigorosa da memória original; forçar itens arbitrários corrompe o salvamento e gera itens corrompidos.
-2. **Sem Descaracterização Artística com Pacotes Externos de IA**: A fidelidade visual é aprimorada matematicamente via PGXP e SSAA sobre as texturas autênticas de 1999. O jogo não injeta texturas artificiais por substituição que alterem o tom sombrio concebido pelos artistas da Capcom.
+2. **Sem Texture Packs**: A fidelidade visual é aprimorada matematicamente via PGXP e SSAA sobre as texturas autênticas de 1999. O jogo não injeta texturas artificiais por substituição que alterem o tom sombrio concebido pelos artistas da Capcom.
 3. **Sem Câmera Livre 3D nos Cenários Fixos**: Os cenários de *Resident Evil 3* são pinturas bidimensionais pré-renderizadas em 4:3 com ângulos de câmera dramáticos calculados para gerar tensão. O modo Widescreen realiza a apresentação moderna sem quebrar a geometria invisível de colisões do jogo.
 
 ---
 
-## Como Jogar e Instalar (Guia Rápido)
+## ☣️ Como Jogar e Instalar (Guia Rápido)
 
 ### Passo 1: Executar o Launcher
 Abra a pasta do projeto (ou o pacote de distribuição baixado na aba Releases) e execute:
@@ -131,7 +131,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 
 ---
 
-## Controles
+## ☣️ Controles
 
 ### Controle Xbox (XInput / Gamepad Moderno)
 * **Analógico Esquerdo**: Movimentação 360° analógica (Zona morta 0.26 / Auto-run com inclinação total)
@@ -166,7 +166,7 @@ Você pode migrar livremente seus saves de e para emuladores como DuckStation e 
 
 ---
 
-## Instruções de Compilação (Para Desenvolvedores)
+## ☣️ Instruções de Compilação (Para Desenvolvedores)
 
 Se você deseja compilar o código-fonte manualmente:
 
@@ -186,7 +186,7 @@ Se você deseja compilar o código-fonte manualmente:
 
 ---
 
-## Créditos & Reconhecimento
+## ☣️ Créditos & Reconhecimento
 
 Consulte o documento completo [**`CREDITS.md`**](CREDITS.md) para a lista exaustiva de todas as fontes, ferramentas e termos legais.
 
