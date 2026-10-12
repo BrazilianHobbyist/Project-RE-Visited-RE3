@@ -8,7 +8,7 @@
 
 ---
 
-☣️ **Native C/C++ x86_64 PC Port & Clean-Room Static Recompilation of Resident Evil 3: Nemesis (1999, PlayStation 1) for Windows**
+**Native C/C++ x86_64 PC Port & Clean-Room Static Recompilation of Resident Evil 3: Nemesis (1999, PlayStation 1) for Windows**
 
 ---
 
