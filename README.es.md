@@ -4,15 +4,15 @@
 
 # Project RE: Visited - Resident Evil 3
 
-**Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
+🌎 **Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
 
 ---
 
-**Port Nativo en C/C++ x86_64 y Recompilación Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
+☣️ **Port Nativo en C/C++ x86_64 y Recompilación Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
 
 ---
 
-## La Iniciativa Project RE: Visited
+## ☣️ La Iniciativa Project RE: Visited
 
 **Project RE: Visited** es una iniciativa independiente y de código abierto concebida para restaurar, modernizar y preservar históricamente la legendaria trilogía clásica de *survival horror* de PlayStation en PC:
 * **Resident Evil 3: Nemesis** (Lanzamiento Inaugural)
@@ -23,7 +23,7 @@ El objetivo es ofrecer la mejor experiencia posible de estos clásicos en hardwa
 
 ---
 
-## ¿Qué es la Recompilación Estática Clean-Room?
+## ☣️ ¿Qué es la Recompilación Estática Clean-Room?
 
 A diferencia de proyectos de emulación tradicional o de ingeniería inversa que dependen de filtraciones de código fuente, este proyecto fue desarrollado bajo una rigurosa metodología de **Recompilación Estática Limpia (*Clean Room Static Recompilation*)**:
 
@@ -67,7 +67,7 @@ Las llamadas al sistema, la GPU, el coprocesador geométrico GTE y el procesador
 
 ---
 
-## Marco Legal y Exención de Responsabilidad
+## ☣️ Marco Legal y Exención de Responsabilidad
 
 La ingeniería inversa con el fin estricto de **interoperabilidad de software y preservación digital** está ampliamente amparada por marcos legales y precedentes consolidados:
 
@@ -78,7 +78,7 @@ La ingeniería inversa con el fin estricto de **interoperabilidad de software y 
 
 ---
 
-## Características y Mejoras Implementadas
+## ☣️ Características y Mejoras Implementadas
 
 Todas las opciones enumeradas a continuación están **100% implementadas, auditadas y funcionales** en el proyecto:
 
@@ -99,17 +99,17 @@ Todas las opciones enumeradas a continuación están **100% implementadas, audit
 
 ---
 
-## Aclaración de Alcance (Lo que este proyecto NO hace)
+## ☣️ Aclaración de Alcance (Lo que este proyecto NO hace)
 
 Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 1. **Sin Alteración Arbitraria de Memoria / Trainers Inestables**: No incluimos modificaciones forzadas de inventario o "item box hacks" directamente en la RAM, ya que corrompen el guardado en la máquina de estados de Resident Evil 3.
-2. **Sin Desfiguración Artística con Paquetes de IA**: La fidelidad visual se mejora matemáticamente mediante PGXP y SSAA sobre las texturas auténticas de 1999, respetando el tono sombrío original de Capcom.
+2. **Sin Texture Packs**: La fidelidad visual se mejora matemáticamente mediante PGXP y SSAA sobre las texturas auténticas de 1999, respetando el tono sombrío original de Capcom.
 3. **Sin Cámara Libre 3D en Fondos Prerenderizados**: Los escenarios de *Resident Evil 3* son pinturas bidimensionales prerenderizadas en 4:3. El modo 16:9 adapta la presentación visual sin romper las colisiones invisibles del juego.
 
 ---
 
-## Guía Rápida de Instalación
+## ☣️ Guía Rápida de Instalación
 
 1. Ejecute **`Resident_Evil_3_Launcher.exe`**.
 2. Si es la primera vez, haga clic en **`Instalar Jogo...`** (o *Setup Files*):
@@ -121,7 +121,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## Controles
+## ☣️ Controles
 
 ### Mando Xbox (XInput / Gamepad Moderno)
 * **Stick Analógico Izquierdo**: Movimiento 360° analógico (Zona muerta 0.26 / Auto-run al inclinar al máximo)
@@ -156,6 +156,6 @@ Compatible con DuckStation, Mednafen y hardware original de PS1.
 
 ---
 
-## Créditos y Referencias
+## ☣️ Créditos y Referencias
 
 Consulte el documento completo [**`CREDITS.md`**](CREDITS.md) para atribuciones completas de Capcom, Sony, RetroPortingToolkit, Ghidra, DuckStation, PGXP, SDL2 y demás colaboradores.
