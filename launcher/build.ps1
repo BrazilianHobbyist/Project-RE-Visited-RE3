@@ -13,6 +13,9 @@ g++ -O2 -static -mwindows -municode "$ScriptDir\main.cpp" "$ScriptDir\resource.o
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Launcher compilado com sucesso: $ScriptDir\Resident_Evil_3_Launcher.exe" -ForegroundColor Green
     $PCPortDir = Join-Path (Split-Path $ScriptDir -Parent) "ResidentEvil3-PCPort"
+    if (-not (Test-Path $PCPortDir)) {
+        $PCPortDir = Join-Path (Split-Path (Split-Path $ScriptDir -Parent) -Parent) "ResidentEvil3-PCPort"
+    }
     if (Test-Path $PCPortDir) {
         Copy-Item "$ScriptDir\Resident_Evil_3_Launcher.exe" "$PCPortDir\Resident_Evil_3_Launcher.exe" -Force
         Write-Host "Copiado para: $PCPortDir\Resident_Evil_3_Launcher.exe" -ForegroundColor Green

@@ -1,3 +1,4 @@
 [submodule "psxrecomp"]
 	path = psxrecomp
 	url = https://github.com/RetroPortingToolKit/psxrecomp
+	ignore = dirty
