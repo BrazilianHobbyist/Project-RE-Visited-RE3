@@ -96,6 +96,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 | **Instant FMV / Cutscene Skip** | Skip intro logos and pre-rendered cinematics (MDEC / XA) instantly with a single button press. |
 | **High-Fidelity 48kHz SPU Audio** | Floating-point 4-point cubic interpolation resampling for authentic ADPCM sound playback. |
 | **Multi-Language Launcher** | Lightweight native Win32/GDI+ interface supporting English, Portuguese (PT-BR), and Spanish (ES). |
+| **Built-in Cheats & Modifiers** | 100% reversible, safe modifier selector in the Launcher: Infinite Health (God Mode), Infinite Ammo, Infinite Ink Ribbons, All Weapons in Item Box, Unlock The Mercenaries, Unlock Boutique & All Outfits, and Unlock All Epilogues. Plus real-time in-game hotkeys. |
 | **Native Memory Card Saves** | Authentic PS1 binary memory card files (`saves/card1.mcd`), 100% compatible with real hardware and emulators like DuckStation and Mednafen. |
 
 ---
@@ -103,7 +104,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 ## ☣️ Scope Delimitation (What this project DOES NOT do)
 
 To preserve technical stability and historical fidelity:
-1. **No Save-Corrupting RAM Inventory Trainers**: Modifying inventory states directly in RAM desynchronizes Capcom's internal state machine, causing corrupted save files and ghost items (e.g. glitched M4A1).
+1. **Safe Native Memory Integration (No Save Corruption)**: Cheats use Capcom's authentic engine flags (`0x800D1F32` / Clear Mode) and monitored active player buffers. They never corrupt item slots, never cause ghost weapons, and are 100% reversible (uncheck anytime to restore authentic vanilla gameplay).
 2. **No Texture Packs**: Backgrounds and textures remain true to the original 1999 dark gothic atmosphere; visual clarity is enhanced mathematically via PGXP and SSAA rather than AI filtering.
 3. **No Free Camera in Pre-rendered Backgrounds**: Resident Evil 3's fixed cameras are 2D artwork designed for cinematic suspense; the 16:9 mode adapts modern displays without breaking invisible collision geometry.
 
@@ -155,6 +156,9 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 * **A**: Inventory
 * **Enter**: Start
 * **Alt + Enter** or **F11**: Toggle Fullscreen / Windowed
+* **F6**: Toggle God Mode (Infinite Health) On/Off
+* **F7**: Toggle Infinite Ammo On/Off
+* **F8**: Refill Current Weapon & Ammo to Max Capacity
 
 ---
 

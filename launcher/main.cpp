@@ -47,7 +47,18 @@ enum ControlID {
     ID_BTN_SETUP_BROWSE_BIOS = 1022,
     ID_BTN_SETUP_BROWSE_DISC = 1023,
     ID_BTN_SETUP_START = 1024,
-    ID_BTN_SETUP_CLOSE = 1025
+    ID_BTN_SETUP_CLOSE = 1025,
+    ID_BTN_OPEN_CHEATS = 1026,
+    ID_BTN_CHEATS_SAVE = 1027,
+    ID_BTN_CHEATS_RESET = 1028,
+    ID_BTN_CHEATS_CLOSE = 1029,
+    ID_CHK_CHEAT_HEALTH = 1030,
+    ID_CHK_CHEAT_AMMO = 1031,
+    ID_CHK_CHEAT_RIBBONS = 1032,
+    ID_CHK_CHEAT_WEAPONS = 1033,
+    ID_CHK_CHEAT_MERCENARIES = 1034,
+    ID_CHK_CHEAT_BOUTIQUE = 1035,
+    ID_CHK_CHEAT_EPILOGUES = 1036
 };
 
 // Global handles
@@ -55,6 +66,24 @@ HINSTANCE g_hInst = NULL;
 HWND g_hWndMain = NULL;
 HWND g_hComboLanguage = NULL;
 HWND g_hLblLanguage = NULL;
+
+// Cheats Dialog handles
+HWND g_hWndCheats = NULL;
+HWND g_hBtnOpenCheats = NULL;
+HWND g_hLblCheatsTitle = NULL;
+HWND g_hLblCheatsSub = NULL;
+HWND g_hGrpCheatsList = NULL;
+HWND g_hChkCheatHealth = NULL;
+HWND g_hChkCheatAmmo = NULL;
+HWND g_hChkCheatRibbons = NULL;
+HWND g_hChkCheatWeapons = NULL;
+HWND g_hChkCheatMercenaries = NULL;
+HWND g_hChkCheatBoutique = NULL;
+HWND g_hChkCheatEpilogues = NULL;
+HWND g_hLblCheatsHotkeys = NULL;
+HWND g_hBtnCheatsSave = NULL;
+HWND g_hBtnCheatsReset = NULL;
+HWND g_hBtnCheatsClose = NULL;
 
 // Installation status & Setup handles
 HWND g_hGrpSetup = NULL;
@@ -124,6 +153,8 @@ std::wstring g_currentLang = L"en"; // Default is English!
 // Forward declarations
 void UpdateInstallStatusUI();
 void ShowSetupDialog(HWND hWndParent);
+void ShowCheatsDialog(HWND hWndParent);
+void UpdateCheatsButtonText();
 
 std::wstring GetProjectRootDir() {
     wchar_t exePath[MAX_PATH];
@@ -500,7 +531,16 @@ struct GameConfig {
     bool antialiasing = true;
     bool auto_skip_fmv = false;
     bool spu_hq = true;
+    bool infinite_health = false;
+    bool infinite_ammo = false;
+    bool infinite_ink_ribbons = false;
+    bool all_weapons_box = false;
+    bool unlock_mercenaries = false;
+    bool unlock_boutique = false;
+    bool unlock_epilogues = false;
 };
+
+GameConfig g_cachedConfig;
 
 GameConfig LoadConfig() {
     GameConfig cfg;
@@ -568,6 +608,13 @@ GameConfig LoadConfig() {
         else if (key == L"antialiasing") cfg.antialiasing = (val == L"true" || val == L"1");
         else if (key == L"auto_skip_fmv") cfg.auto_skip_fmv = (val == L"true");
         else if (key == L"spu_hq") cfg.spu_hq = (val == L"true" || val == L"1");
+        else if (key == L"infinite_health") cfg.infinite_health = (val == L"true" || val == L"1");
+        else if (key == L"infinite_ammo") cfg.infinite_ammo = (val == L"true" || val == L"1");
+        else if (key == L"infinite_ink_ribbons") cfg.infinite_ink_ribbons = (val == L"true" || val == L"1");
+        else if (key == L"all_weapons_box") cfg.all_weapons_box = (val == L"true" || val == L"1");
+        else if (key == L"unlock_mercenaries") cfg.unlock_mercenaries = (val == L"true" || val == L"1");
+        else if (key == L"unlock_boutique") cfg.unlock_boutique = (val == L"true" || val == L"1");
+        else if (key == L"unlock_epilogues") cfg.unlock_epilogues = (val == L"true" || val == L"1");
     }
     return cfg;
 }
@@ -611,7 +658,15 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"modern_controls     = " << (cfg.modern_controls ? L"true" : L"false") << L"\n";
         sFile << L"hotkey_pad_fast_forward = 1528\n";
         sFile << L"hotkey_pad_save_state_menu = 2040\n";
-        sFile << L"hotkey_pad_rewind = 1272\n";
+        sFile << L"hotkey_pad_rewind = 1272\n\n";
+        sFile << L"[cheats]\n";
+        sFile << L"infinite_health       = " << (cfg.infinite_health ? L"true" : L"false") << L"\n";
+        sFile << L"infinite_ammo         = " << (cfg.infinite_ammo ? L"true" : L"false") << L"\n";
+        sFile << L"infinite_ink_ribbons  = " << (cfg.infinite_ink_ribbons ? L"true" : L"false") << L"\n";
+        sFile << L"all_weapons_box       = " << (cfg.all_weapons_box ? L"true" : L"false") << L"\n";
+        sFile << L"unlock_mercenaries    = " << (cfg.unlock_mercenaries ? L"true" : L"false") << L"\n";
+        sFile << L"unlock_boutique       = " << (cfg.unlock_boutique ? L"true" : L"false") << L"\n";
+        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n";
         sFile.close();
     }
 
@@ -663,7 +718,7 @@ bool SaveConfig(const GameConfig& cfg) {
 }
 
 GameConfig GetGuiConfig() {
-    GameConfig cfg;
+    GameConfig cfg = g_cachedConfig;
     cfg.language = g_currentLang;
 
     int idxAspect = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
@@ -978,10 +1033,12 @@ void ApplyLanguage(const std::wstring& lang) {
         else SetWindowTextW(g_hBtnSave, L"Save Settings");
     }
 
+    UpdateCheatsButtonText();
+
     if (g_hBtnCredits) {
-        if (lang == L"es") SetWindowTextW(g_hBtnCredits, L"Créditos del Proyecto y Descargo Legal (Disclaimer)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnCredits, L"Créditos do Projeto && Aviso Legal (Disclaimer)");
-        else SetWindowTextW(g_hBtnCredits, L"Project Credits && Legal Disclaimer");
+        if (lang == L"es") SetWindowTextW(g_hBtnCredits, L"Créditos y Aviso Legal");
+        else if (lang == L"pt-br") SetWindowTextW(g_hBtnCredits, L"Créditos && Disclaimer");
+        else SetWindowTextW(g_hBtnCredits, L"Credits && Disclaimer");
     }
 
     if (g_hLblLegalNote) {
@@ -1457,6 +1514,224 @@ void ShowCreditsDialog(HWND hWndParent) {
         EnableWindow(hWndParent, FALSE);
         ShowWindow(g_hWndCredits, SW_SHOWNORMAL);
         UpdateWindow(g_hWndCredits);
+    }
+}
+
+bool HasAnyCheatActive(const GameConfig& cfg) {
+    return cfg.infinite_health || cfg.infinite_ammo || cfg.infinite_ink_ribbons ||
+           cfg.all_weapons_box || cfg.unlock_mercenaries || cfg.unlock_boutique ||
+           cfg.unlock_epilogues;
+}
+
+void UpdateCheatsButtonText() {
+    if (!g_hBtnOpenCheats) return;
+    bool active = HasAnyCheatActive(g_cachedConfig);
+    std::wstring text;
+    if (g_currentLang == L"es") {
+        text = active ? L"Trucos / Cheats (ACTIVO)" : L"Trucos y Modificadores...";
+    } else if (g_currentLang == L"pt-br") {
+        text = active ? L"Cheats & Mods (ATIVO)" : L"Cheats & Modificadores...";
+    } else {
+        text = active ? L"Cheats & Mods (ACTIVE)" : L"Cheats & Modifiers...";
+    }
+    SetWindowTextW(g_hBtnOpenCheats, text.c_str());
+}
+
+LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        std::wstring titleText, subText, grpText;
+        std::wstring chkHealth, chkAmmo, chkRibbons, chkWeapons, chkMercs, chkBoutique, chkEpilogues;
+        std::wstring hotkeysText, btnReset, btnSave, btnClose;
+
+        if (g_currentLang == L"es") {
+            titleText = L"Modificadores del Juego y Selector de Trucos (Cheats)";
+            subText = L"100% reversible. Desmarque cualquier opción para restaurar el juego original.";
+            grpText = L"  Opciones de Trucos y Modificadores  ";
+            chkHealth = L"Salud Infinita (God Mode — Jill es inmune al daño letal y veneno)";
+            chkAmmo = L"Munición Infinita (Las armas nunca consumen balas al disparar)";
+            chkRibbons = L"Cintas de Tinta Infinitas (Guarda la partida tantas veces como quieras)";
+            chkWeapons = L"Todas las Armas en el Baúl (Baúl inicial con armas pesadas: Rocket, Gatling, M4A1)";
+            chkMercs = L"Desbloquear The Mercenaries (Modo Mercenarios disponible de inmediato)";
+            chkBoutique = L"Desbloquear Boutique y Trajes (Acceso a la boutique con todos los atuendos)";
+            chkEpilogues = L"Desbloquear Todos los Epílogos (Galería completa con los 8 epílogos)";
+            hotkeysText = L"Atajos en juego: [F6] Alternar God Mode  |  [F7] Munición Infinita  |  [F8] Munición Máxima";
+            btnReset = L"Desactivar Todo";
+            btnSave = L"Guardar y Aplicar";
+            btnClose = L"Cancelar / Cerrar";
+        } else if (g_currentLang == L"pt-br") {
+            titleText = L"Modificadores de Jogo & Seletor de Cheats";
+            subText = L"100% reversível. Desmarque qualquer opção para restaurar a campanha clássica pura.";
+            grpText = L"  Opções de Trapaças & Modificadores  ";
+            chkHealth = L"Vida Infinita (God Mode — Jill é imune a dano letal e a veneno)";
+            chkAmmo = L"Munição Infinita (Armas de fogo nunca gastam balas ao atirar)";
+            chkRibbons = L"Fitas de Salvamento Infinitas (Salve o jogo quantas vezes quiser)";
+            chkWeapons = L"Todas as Armas no Baú (Baú inicial com armas pesadas: Rocket, Gatling, M4A1)";
+            chkMercs = L"Desbloquear The Mercenaries (Modo Mercenários liberado imediatamente)";
+            chkBoutique = L"Desbloquear Boutique & Trajes (Acesso à Boutique com todas as 5 roupas extras)";
+            chkEpilogues = L"Desbloquear Todos os Epílogos (Galeria completa com todos os 8 epílogos)";
+            hotkeysText = L"Atalhos no jogo: [F6] Alternar God Mode  |  [F7] Munição Infinita  |  [F8] Munição Máxima";
+            btnReset = L"Desativar Tudo";
+            btnSave = L"Salvar & Aplicar";
+            btnClose = L"Cancelar / Fechar";
+        } else {
+            titleText = L"Game Modifiers & Cheat Selector";
+            subText = L"100% reversible. Uncheck any option to restore authentic original gameplay.";
+            grpText = L"  Cheat Codes & Gameplay Options  ";
+            chkHealth = L"Infinite Health (God Mode — Jill is immune to lethal damage & poison)";
+            chkAmmo = L"Infinite Ammo (Weapons never consume ammunition when firing)";
+            chkRibbons = L"Infinite Ink Ribbons (Save your game as many times as you want)";
+            chkWeapons = L"All Weapons in Item Box (Chest stocked with heavy weapons: Rocket, Gatling, M4A1)";
+            chkMercs = L"Unlock The Mercenaries (Operation: Mad Jackal accessible immediately)";
+            chkBoutique = L"Unlock Boutique & All Costumes (Access uptown boutique with all 5 outfits)";
+            chkEpilogues = L"Unlock All Epilogues (Complete gallery with all 8 character epilogues)";
+            hotkeysText = L"In-game shortcuts: [F6] Toggle God Mode  |  [F7] Infinite Ammo  |  [F8] Max Ammo";
+            btnReset = L"Reset All (Off)";
+            btnSave = L"Save & Apply";
+            btnClose = L"Cancel / Close";
+        }
+
+        g_hLblCheatsTitle = CreateWindowW(L"STATIC", titleText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 14, 520, 24, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hLblCheatsTitle, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+        g_hLblCheatsSub = CreateWindowW(L"STATIC", subText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 38, 520, 20, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hLblCheatsSub, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
+
+        g_hGrpCheatsList = CreateWindowW(L"BUTTON", grpText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 66, 528, 276, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hGrpCheatsList, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+        g_hChkCheatHealth = CreateWindowW(L"BUTTON", chkHealth.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 92, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_HEALTH, g_hInst, NULL);
+        SendMessageW(g_hChkCheatHealth, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatAmmo = CreateWindowW(L"BUTTON", chkAmmo.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 126, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_AMMO, g_hInst, NULL);
+        SendMessageW(g_hChkCheatAmmo, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatRibbons = CreateWindowW(L"BUTTON", chkRibbons.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 160, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_RIBBONS, g_hInst, NULL);
+        SendMessageW(g_hChkCheatRibbons, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatWeapons = CreateWindowW(L"BUTTON", chkWeapons.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 194, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_WEAPONS, g_hInst, NULL);
+        SendMessageW(g_hChkCheatWeapons, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatMercenaries = CreateWindowW(L"BUTTON", chkMercs.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 228, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_MERCENARIES, g_hInst, NULL);
+        SendMessageW(g_hChkCheatMercenaries, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatBoutique = CreateWindowW(L"BUTTON", chkBoutique.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 262, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_BOUTIQUE, g_hInst, NULL);
+        SendMessageW(g_hChkCheatBoutique, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkCheatEpilogues = CreateWindowW(L"BUTTON", chkEpilogues.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 296, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_EPILOGUES, g_hInst, NULL);
+        SendMessageW(g_hChkCheatEpilogues, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hLblCheatsHotkeys = CreateWindowW(L"STATIC", hotkeysText.c_str(), WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 350, 528, 20, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hLblCheatsHotkeys, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
+
+        g_hBtnCheatsReset = CreateWindowW(L"BUTTON", btnReset.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 382, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_RESET, g_hInst, NULL);
+        SendMessageW(g_hBtnCheatsReset, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hBtnCheatsSave = CreateWindowW(L"BUTTON", btnSave.c_str(), WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 190, 382, 184, 36, hWnd, (HMENU)ID_BTN_CHEATS_SAVE, g_hInst, NULL);
+        SendMessageW(g_hBtnCheatsSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+        g_hBtnCheatsClose = CreateWindowW(L"BUTTON", btnClose.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 386, 382, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_CLOSE, g_hInst, NULL);
+        SendMessageW(g_hBtnCheatsClose, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        // Populate checkboxes
+        SendMessageW(g_hChkCheatHealth, BM_SETCHECK, g_cachedConfig.infinite_health ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatAmmo, BM_SETCHECK, g_cachedConfig.infinite_ammo ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatRibbons, BM_SETCHECK, g_cachedConfig.infinite_ink_ribbons ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatWeapons, BM_SETCHECK, g_cachedConfig.all_weapons_box ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatMercenaries, BM_SETCHECK, g_cachedConfig.unlock_mercenaries ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatBoutique, BM_SETCHECK, g_cachedConfig.unlock_boutique ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkCheatEpilogues, BM_SETCHECK, g_cachedConfig.unlock_epilogues ? BST_CHECKED : BST_UNCHECKED, 0);
+
+        break;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == ID_BTN_CHEATS_RESET) {
+            SendMessageW(g_hChkCheatHealth, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatAmmo, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatRibbons, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatWeapons, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatMercenaries, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatBoutique, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkCheatEpilogues, BM_SETCHECK, BST_UNCHECKED, 0);
+        } else if (id == ID_BTN_CHEATS_SAVE) {
+            g_cachedConfig.infinite_health = (SendMessageW(g_hChkCheatHealth, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.infinite_ammo = (SendMessageW(g_hChkCheatAmmo, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.infinite_ink_ribbons = (SendMessageW(g_hChkCheatRibbons, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.all_weapons_box = (SendMessageW(g_hChkCheatWeapons, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.unlock_mercenaries = (SendMessageW(g_hChkCheatMercenaries, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.unlock_boutique = (SendMessageW(g_hChkCheatBoutique, BM_GETCHECK, 0, 0) == BST_CHECKED);
+            g_cachedConfig.unlock_epilogues = (SendMessageW(g_hChkCheatEpilogues, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+            GameConfig fullCfg = GetGuiConfig();
+            SaveConfig(fullCfg);
+            UpdateCheatsButtonText();
+            DestroyWindow(hWnd);
+        } else if (id == ID_BTN_CHEATS_CLOSE) {
+            DestroyWindow(hWnd);
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        SetBkMode(hdcStatic, TRANSPARENT);
+        SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
+        SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
+    case WM_CLOSE: {
+        DestroyWindow(hWnd);
+        break;
+    }
+    case WM_DESTROY: {
+        g_hWndCheats = NULL;
+        if (g_hWndMain) {
+            EnableWindow(g_hWndMain, TRUE);
+            SetForegroundWindow(g_hWndMain);
+        }
+        break;
+    }
+    default:
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+void ShowCheatsDialog(HWND hWndParent) {
+    if (g_hWndCheats) {
+        BringWindowToTop(g_hWndCheats);
+        SetForegroundWindow(g_hWndCheats);
+        return;
+    }
+
+    RECT rcParent;
+    GetWindowRect(hWndParent, &rcParent);
+    int pW = rcParent.right - rcParent.left;
+    int pH = rcParent.bottom - rcParent.top;
+    int width = 580;
+    int height = 470;
+    int posX = rcParent.left + (pW - width) / 2;
+    int posY = rcParent.top + (pH - height) / 2;
+    if (posX < 0) posX = 0;
+    if (posY < 0) posY = 0;
+
+    std::wstring dlgTitle = (g_currentLang == L"es") ? L"Modificadores del Juego y Selector de Trucos" :
+                            (g_currentLang == L"pt-br") ? L"Modificadores de Jogo & Seletor de Cheats" :
+                            L"Game Modifiers & Cheat Selector";
+
+    g_hWndCheats = CreateWindowExW(
+        WS_EX_DLGMODALFRAME,
+        L"RE3CheatsWindowClass",
+        dlgTitle.c_str(),
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        posX, posY, width, height,
+        hWndParent, NULL, g_hInst, NULL
+    );
+
+    if (g_hWndCheats) {
+        EnableWindow(hWndParent, FALSE);
+        ShowWindow(g_hWndCheats, SW_SHOWNORMAL);
+        UpdateWindow(g_hWndCheats);
     }
 }
 
@@ -2052,7 +2327,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 694, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Project Credits && Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 742, 508, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 742, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 742, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 780, 508, 16, hWnd, NULL, g_hInst, NULL);
@@ -2060,6 +2338,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         // Carregar configuracao salva
         GameConfig cfg = LoadConfig();
+        g_cachedConfig = cfg;
         g_currentLang = cfg.language;
         if (g_currentLang == L"es") SendMessageW(g_hComboLanguage, CB_SETCURSEL, 1, 0);
         else if (g_currentLang == L"pt-br") SendMessageW(g_hComboLanguage, CB_SETCURSEL, 2, 0);
@@ -2175,6 +2454,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             ShowCreditsDialog(hWnd);
         } else if (id == ID_BTN_OPEN_SETUP) {
             ShowSetupDialog(hWnd);
+        } else if (id == ID_BTN_OPEN_CHEATS) {
+            ShowCheatsDialog(hWnd);
         }
         break;
     }
@@ -2260,6 +2541,16 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     swc.hIcon = g_hAppIcon ? g_hAppIcon : LoadIconW(NULL, IDI_APPLICATION);
     swc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, 0);
     RegisterClassExW(&swc);
+
+    WNDCLASSEXW chwc = { sizeof(chwc) };
+    chwc.lpfnWndProc = CheatsWndProc;
+    chwc.hInstance = hInstance;
+    chwc.hCursor = LoadCursorW(NULL, IDC_ARROW);
+    chwc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    chwc.lpszClassName = L"RE3CheatsWindowClass";
+    chwc.hIcon = g_hAppIcon ? g_hAppIcon : LoadIconW(NULL, IDI_APPLICATION);
+    chwc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, 0);
+    RegisterClassExW(&chwc);
 
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc = WndProc;
