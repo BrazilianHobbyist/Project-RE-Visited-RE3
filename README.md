@@ -4,7 +4,7 @@
 
 # Project RE: Visited - Resident Evil 3
 
-🌎 **Languages / Idiomas**: [**English**](README.md) | [Português (Brasil)](README.pt-br.md) | [Español](README.es.md)
+**Languages / Idiomas**: [**English**](README.md) | [Português (Brasil)](README.pt-br.md) | [Español](README.es.md)
 
 ---
 
@@ -12,7 +12,7 @@
 
 ---
 
-## ☣️ The Project RE: Visited Initiative
+## The Project RE: Visited Initiative
 
 **Project RE: Visited** is an independent, open-source preservation initiative dedicated to restoring, modernizing, and preserving the seminal PlayStation 1 survival horror trilogy natively on PC:
 * **Resident Evil 3: Nemesis** (Inaugural Release)
@@ -23,7 +23,7 @@ Our mission is to deliver the definitive experience of these historic classics o
 
 ---
 
-## ☣️ What is Clean-Room Static Recompilation?
+## What is Clean-Room Static Recompilation?
 
 Unlike traditional emulators (which interpret CPU opcodes or generate JIT blocks at runtime) or reverse engineering efforts reliant on leaked source code, this project is engineered using **Clean Room Static Recompilation**:
 
@@ -63,11 +63,11 @@ No leaked source code, proprietary SDK headers, or confidential developer materi
 PlayStation system calls, the GPU, GTE geometry coprocessor, and SPU audio processor are handled by an open-source C/C++ runtime layer built on top of modern **OpenGL**, **SDL2**, and **OpenBIOS**.
 
 ### 4. Strict Zero-Asset Policy
-**This repository DOES NOT host, store, or distribute any game assets, ROMs, ISOs, retail BIOS dumps, audio tracks, 3D models, or textures.** All copyrighted game assets remain in the user's legally owned original disc and are extracted locally by the user.
+**This repository DOES NOT host, store, or distribute any game assets, ROMs, ISOs, audio tracks, 3D models, or textures.** All copyrighted game assets remain in the user's legally owned original disc and are extracted locally by the user.
 
 ---
 
-## ☣️ Legal Framework & Disclaimer
+## Legal Framework & Disclaimer
 
 Reverse engineering strictly for **interoperability and digital preservation** is firmly protected under statutory law and established legal precedents:
 
@@ -79,7 +79,7 @@ Reverse engineering strictly for **interoperability and digital preservation** i
 
 ---
 
-## ☣️ Implemented & Verified Features
+## Implemented & Verified Features
 
 Every feature listed below is **100% implemented, audited, and functional**:
 
@@ -101,7 +101,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 
 ---
 
-## ☣️ Scope Delimitation (What this project DOES NOT do)
+## Scope Delimitation (What this project DOES NOT do)
 
 To preserve technical stability and historical fidelity:
 1. **Safe Native Memory Integration (No Save Corruption)**: Cheats use Capcom's authentic engine flags (`0x800D1F32` / Clear Mode) and monitored active player buffers. They never corrupt item slots, never cause ghost weapons, and are 100% reversible (uncheck anytime to restore authentic vanilla gameplay).
@@ -110,7 +110,7 @@ To preserve technical stability and historical fidelity:
 
 ---
 
-## ☣️ Quick Start: How to Play
+## Quick Start: How to Play
 
 ### Step 1: Download & Extract
 Download the latest zip package from the **Releases** tab and extract it to any folder.
@@ -124,7 +124,7 @@ Resident_Evil_3_Launcher.exe
 ### Step 3: Run the Setup Wizard
 If this is your first run, the status will show `[!] STATUS: Setup Required`.
 1. Click **`Setup Files...`** (or *Instalar Jogo*).
-2. **PlayStation BIOS (Preconfigured)**: **OpenBIOS** (clean-room MIT open-source BIOS from PCSX-Redux) is **already bundled and preconfigured by default**, allowing you to play immediately without hunting for commercial dumps. If you prefer to use your own retail PlayStation BIOS dump (`SCPH1001.BIN`), click **`Change BIOS...`** and select it for 100% factory authenticity.
+2. **Open-Source BIOS (OpenBIOS)**: Clean-room MIT open-source BIOS from PCSX-Redux is already bundled and preconfigured by default. No external BIOS dump or setup is required.
 3. **Game Disc Image**: Select your original CD image (`.bin`, `.cue`, or `.iso`).
 4. Click **`Start Installation & Extraction`**. The wizard will verify the files and extract `SLUS_009.23` in under a second.
 
@@ -134,7 +134,7 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 
 ---
 
-## ☣️ Controls
+## Controls
 
 ### Xbox Gamepad (XInput / Modern Controller)
 * **Left Analog Stick**: 360° Camera-Relative Movement / Auto-Run (>82% tilt)
@@ -162,7 +162,7 @@ Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and contr
 
 ---
 
-## ⌨️ Save Data (Memory Cards)
+## Save Data (Memory Cards)
 
 Save data is saved to standard PS1 binary format inside the `saves/` folder:
 * `saves/card1.mcd` (Slot 1)
@@ -172,7 +172,7 @@ Compatible with DuckStation, Mednafen, and original hardware.
 
 ---
 
-## ☣️ Building from Source (Developers)
+## Building from Source (Developers)
 
 ### Requirements
 * Windows 10/11 (64-bit)
@@ -190,7 +190,7 @@ Compatible with DuckStation, Mednafen, and original hardware.
 
 ---
 
-## ☣️ Credits & Acknowledgments
+## Credits & Acknowledgments
 
 See [**`CREDITS.md`**](CREDITS.md) for full attributions and third-party licenses.
 

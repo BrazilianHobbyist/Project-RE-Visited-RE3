@@ -4,15 +4,15 @@
 
 # Project RE: Visited - Resident Evil 3
 
-🌎 **Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
+**Idiomas / Languages**: [English](README.md) | [Português (Brasil)](README.pt-br.md) | [**Español**](README.es.md)
 
 ---
 
-☣️ **Port Nativo en C/C++ x86_64 y Recompilación Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
+**Port Nativo en C/C++ x86_64 y Recompilación Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
 
 ---
 
-## ☣️ La Iniciativa Project RE: Visited
+## La Iniciativa Project RE: Visited
 
 **Project RE: Visited** es una iniciativa independiente y de código abierto concebida para restaurar, modernizar y preservar históricamente la legendaria trilogía clásica de *survival horror* de PlayStation en PC:
 * **Resident Evil 3: Nemesis** (Lanzamiento Inaugural)
@@ -23,7 +23,7 @@ El objetivo es ofrecer la mejor experiencia posible de estos clásicos en hardwa
 
 ---
 
-## ☣️ ¿Qué es la Recompilación Estática Clean-Room?
+## ¿Qué es la Recompilación Estática Clean-Room?
 
 A diferencia de proyectos de emulación tradicional o de ingeniería inversa que dependen de filtraciones de código fuente, este proyecto fue desarrollado bajo una rigurosa metodología de **Recompilación Estática Limpia (*Clean Room Static Recompilation*)**:
 
@@ -57,17 +57,17 @@ A diferencia de proyectos de emulación tradicional o de ingeniería inversa que
 El binario original compilado (`SLUS_009.23`) tiene sus instrucciones MIPS R3000A analizadas y traducidas estáticamente a código C intermedio de alto rendimiento. Cada rutina del juego se ejecuta como código nativo de máquina x86_64 en el procesador del ordenador, sin el impacto de rendimiento de decodificación en tiempo de ejecución (*JIT*) o ciclos de interpretación de un emulador.
 
 ### 2. Cero Líneas de Código Fuente Propietario de Capcom
-Ningún código fuente filtrado, descompilación no autorizada de secretos industriales o material confidencial fue utilizado. El proyecto es 100% de desarrollo limpio (*clean-room*), tratando el binário original como una especificación estática de entrada.
+Ningún código fuente filtrado, descompilación no autorizada de secretos industriales o material confidencial fue utilizado. El proyecto es 100% de desarrollo limpio (*clean-room*), tratando el binario original como una especificación estática de entrada.
 
 ### 3. Capa de Abstracción de Hardware Abierta (HAL)
 Las llamadas al sistema, la GPU, el coprocesador geométrico GTE y el procesador de sonido SPU se traducen en tiempo de ejecución a APIs modernas y abiertas (OpenGL, SDL2, OpenBIOS).
 
 ### 4. Política Estrictamente Libre de Activos (*Zero-Asset Policy*)
-**Este repositorio NO almacena, NO aloja y NO distribuye ningún archivo de juego, ROM, ISO, BIOS protegida, música, modelo o textura.** Todo el contenido protegido necesario para jugar es extraído directamente por el usuario a partir de su propia copia legítima del juego.
+**Este repositorio NO almacena, NO aloja y NO distribuye ningún archivo de juego, ROM, ISO, música, modelo o textura.** Todo el contenido protegido necesario para jugar es extraído directamente por el usuario a partir de su propia copia legítima del juego.
 
 ---
 
-## ☣️ Marco Legal y Exención de Responsabilidad
+## Marco Legal y Exención de Responsabilidad
 
 La ingeniería inversa con el fin estricto de **interoperabilidad de software y preservación digital** está ampliamente amparada por marcos legales y precedentes consolidados:
 
@@ -78,7 +78,7 @@ La ingeniería inversa con el fin estricto de **interoperabilidad de software y 
 
 ---
 
-## ☣️ Características y Mejoras Implementadas
+## Características y Mejoras Implementadas
 
 Todas las opciones enumeradas a continuación están **100% implementadas, auditadas y funcionales** en el proyecto:
 
@@ -100,7 +100,7 @@ Todas las opciones enumeradas a continuación están **100% implementadas, audit
 
 ---
 
-## ☣️ Aclaración de Alcance (Lo que este proyecto NO hace)
+## Aclaración de Alcance (Lo que este proyecto NO hace)
 
 Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
@@ -110,11 +110,11 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## ☣️ Guía Rápida de Instalación
+## Guía Rápida de Instalación
 
 1. Ejecute **`Resident_Evil_3_Launcher.exe`**.
 2. Si es la primera vez, haga clic en **`Instalar Jogo...`** (o *Setup Files*):
-   * **BIOS de PlayStation (Preconfigurada)**: **OpenBIOS** (código abierto MIT de PCSX-Redux) ya está **integrada y preconfigurada por defecto**, permitiendo jugar de inmediato sin necesidad de buscar volcados comerciales. Si prefiere su propio volcado original (`SCPH1001.BIN`), haga clic en **`Cambiar BIOS...`** y selecciónelo para autenticidad 100% de fábrica.
+   * **BIOS de Código Abierto (OpenBIOS)**: Ya viene integrada y preconfigurada por defecto (implementación limpia bajo licencia MIT), sin requerir ningún archivo de BIOS externo.
    * Seleccione la imagen de su CD original (`.bin`, `.cue` o `.iso`).
    * Haga clic en **`Iniciar Instalación & Extracción`**. El instalador extraerá automáticamente `SLUS_009.23`.
 3. Configure sus preferencias gráficas y de control.
@@ -122,7 +122,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## ☣️ Controles
+## Controles
 
 ### Mando Xbox (XInput / Gamepad Moderno)
 * **Stick Analógico Izquierdo**: Movimiento 360° analógico (Zona muerta 0.26 / Auto-run al inclinar al máximo)
@@ -150,7 +150,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 ---
 
-## ⌨️ Guardado (Memory Cards)
+## Guardado (Memory Cards)
 
 Los datos se guardan en el formato binario estándar de PS1 dentro de la carpeta `saves/`:
 * `saves/card1.mcd` (Slot 1)
@@ -160,6 +160,6 @@ Compatible con DuckStation, Mednafen y hardware original de PS1.
 
 ---
 
-## ☣️ Créditos y Referencias
+## Créditos y Referencias
 
 Consulte el documento completo [**`CREDITS.md`**](CREDITS.md) para atribuciones completas de Capcom, Sony, RetroPortingToolkit, Ghidra, DuckStation, PGXP, SDL2 y demás colaboradores.
