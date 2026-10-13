@@ -124,9 +124,9 @@ Resident_Evil_3_Launcher.exe
 ### Step 3: Run the Setup Wizard
 If this is your first run, the status will show `[!] STATUS: Setup Required`.
 1. Click **`Setup Files...`** (or *Instalar Jogo*).
-2. **PlayStation BIOS**: Select your `SCPH1001.BIN` file.
+2. **PlayStation BIOS (Preconfigured)**: **OpenBIOS** (clean-room MIT open-source BIOS from PCSX-Redux) is **already bundled and preconfigured by default**, allowing you to play immediately without hunting for commercial dumps. If you prefer to use your own retail PlayStation BIOS dump (`SCPH1001.BIN`), click **`Change BIOS...`** and select it for 100% factory authenticity.
 3. **Game Disc Image**: Select your original CD image (`.bin`, `.cue`, or `.iso`).
-4. Click **`Start Installation & Extraction`**. The wizard will copy the files and extract `SLUS_009.23` in under a second.
+4. Click **`Start Installation & Extraction`**. The wizard will verify the files and extract `SLUS_009.23` in under a second.
 
 ### Step 4: Configure & Play
 Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and controls, then click:

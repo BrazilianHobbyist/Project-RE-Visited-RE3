@@ -7,8 +7,8 @@ $ScriptDir = $PSScriptRoot
 Write-Host "Compilando recursos do Launcher..." -ForegroundColor Cyan
 windres "$ScriptDir\resource.rc" -O coff -o "$ScriptDir\resource.o"
 
-Write-Host "Compilando executavel do Launcher..." -ForegroundColor Cyan
-g++ -O2 -mwindows -municode "$ScriptDir\main.cpp" "$ScriptDir\resource.o" -o "$ScriptDir\Resident_Evil_3_Launcher.exe" -lgdiplus -lcomctl32 -lcomdlg32 -lshlwapi
+Write-Host "Compilando executavel estatico do Launcher..." -ForegroundColor Cyan
+g++ -O2 -static -mwindows -municode "$ScriptDir\main.cpp" "$ScriptDir\resource.o" -o "$ScriptDir\Resident_Evil_3_Launcher.exe" -lgdiplus -lcomctl32 -lcomdlg32 -lshlwapi
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Launcher compilado com sucesso: $ScriptDir\Resident_Evil_3_Launcher.exe" -ForegroundColor Green

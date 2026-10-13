@@ -114,7 +114,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 1. Ejecute **`Resident_Evil_3_Launcher.exe`**.
 2. Si es la primera vez, haga clic en **`Instalar Jogo...`** (o *Setup Files*):
-   * Seleccione su archivo de BIOS (`SCPH1001.BIN`).
+   * **BIOS de PlayStation (Preconfigurada)**: **OpenBIOS** (código abierto MIT de PCSX-Redux) ya está **integrada y preconfigurada por defecto**, permitiendo jugar de inmediato sin necesidad de buscar volcados comerciales. Si prefiere su propio volcado original (`SCPH1001.BIN`), haga clic en **`Cambiar BIOS...`** y selecciónelo para autenticidad 100% de fábrica.
    * Seleccione la imagen de su CD original (`.bin`, `.cue` o `.iso`).
    * Haga clic en **`Iniciar Instalación & Extracción`**. El instalador extraerá automáticamente `SLUS_009.23`.
 3. Configure sus preferencias gráficas y de control.
