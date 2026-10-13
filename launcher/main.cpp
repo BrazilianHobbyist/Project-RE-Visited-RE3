@@ -58,7 +58,8 @@ enum ControlID {
     ID_CHK_CHEAT_WEAPONS = 1033,
     ID_CHK_CHEAT_MERCENARIES = 1034,
     ID_CHK_CHEAT_BOUTIQUE = 1035,
-    ID_CHK_CHEAT_EPILOGUES = 1036
+    ID_CHK_CHEAT_EPILOGUES = 1036,
+    ID_CHK_FAST_DOORS = 1037
 };
 
 // Global handles
@@ -126,6 +127,7 @@ HWND g_hChkPgxpGeom = NULL;
 HWND g_hChkPgxpTex = NULL;
 HWND g_hChkAntialiasing = NULL;
 HWND g_hChkSkipFmv = NULL;
+HWND g_hChkFastDoors = NULL;
 HWND g_hChkSpuHq = NULL;
 HWND g_hBtnInput = NULL;
 HWND g_hBtnSaves = NULL;
@@ -564,10 +566,11 @@ struct GameConfig {
     bool frame_interpolation = true;
     int frame_interpolation_fps = 0;
     bool modern_controls = true;
-    bool geometry_correction = true;
+    bool geometry_correction = false;
     bool perspective_texturing = true;
     bool antialiasing = true;
     bool auto_skip_fmv = false;
+    bool fast_doors = true;
     bool spu_hq = true;
     bool infinite_health = false;
     bool infinite_ammo = false;
@@ -645,6 +648,7 @@ GameConfig LoadConfig() {
         else if (key == L"perspective_texturing") cfg.perspective_texturing = (val == L"true");
         else if (key == L"antialiasing") cfg.antialiasing = (val == L"true" || val == L"1");
         else if (key == L"auto_skip_fmv") cfg.auto_skip_fmv = (val == L"true");
+        else if (key == L"fast_doors" || key == L"door_skip") cfg.fast_doors = (val == L"true" || val == L"1");
         else if (key == L"spu_hq") cfg.spu_hq = (val == L"true" || val == L"1");
         else if (key == L"infinite_health") cfg.infinite_health = (val == L"true" || val == L"1");
         else if (key == L"infinite_ammo") cfg.infinite_ammo = (val == L"true" || val == L"1");
@@ -685,9 +689,11 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"perspective_texturing = " << (cfg.perspective_texturing ? L"true" : L"false") << L"\n";
         sFile << L"antialiasing        = " << (cfg.antialiasing ? L"true" : L"false") << L"\n";
         sFile << L"auto_skip_fmv       = " << (cfg.auto_skip_fmv ? L"true" : L"false") << L"\n";
+        sFile << L"fast_doors          = " << (cfg.fast_doors ? L"true" : L"false") << L"\n";
         sFile << L"vsync               = \"on\"\n";
         sFile << L"low_latency_input   = true\n";
-        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n\n";
+        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n";
+        sFile << L"pan_scan            = " << ((cfg.aspect_ratio == L"16:9_pan_scan") ? L"true" : L"false") << L"\n\n";
         sFile << L"[audio]\n";
         sFile << L"frequency = 48000\n";
         sFile << L"spu_hq = " << (cfg.spu_hq ? L"true" : L"false") << L"\n\n";
@@ -740,6 +746,8 @@ bool SaveConfig(const GameConfig& cfg) {
                 line = L"perspective_texturing = " + std::wstring(cfg.perspective_texturing ? L"true" : L"false");
             } else if (line.find(L"auto_skip_fmv") != std::wstring::npos) {
                 line = L"auto_skip_fmv = " + std::wstring(cfg.auto_skip_fmv ? L"true" : L"false");
+            } else if (line.find(L"fast_doors") != std::wstring::npos) {
+                line = L"fast_doors = " + std::wstring(cfg.fast_doors ? L"true" : L"false");
             }
         }
     }
@@ -760,7 +768,9 @@ GameConfig GetGuiConfig() {
     cfg.language = g_currentLang;
 
     int idxAspect = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
-    cfg.aspect_ratio = (idxAspect == 1) ? L"4:3" : L"16:9";
+    if (idxAspect == 0) cfg.aspect_ratio = L"16:9_pan_scan";
+    else if (idxAspect == 1) cfg.aspect_ratio = L"16:9";
+    else cfg.aspect_ratio = L"4:3";
 
     int idxDisp = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
     cfg.fullscreen = (idxDisp == 1);
@@ -821,6 +831,7 @@ GameConfig GetGuiConfig() {
     cfg.perspective_texturing = (SendMessageW(g_hChkPgxpTex, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.antialiasing = (SendMessageW(g_hChkAntialiasing, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.auto_skip_fmv = (SendMessageW(g_hChkSkipFmv, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    cfg.fast_doors = (SendMessageW(g_hChkFastDoors, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.spu_hq = (SendMessageW(g_hChkSpuHq, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     return cfg;
@@ -856,12 +867,15 @@ void ApplyLanguage(const std::wstring& lang) {
         int cur = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
         SendMessageW(g_hComboAspect, CB_RESETCONTENT, 0, 0);
         if (lang == L"es") {
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinámico (Estilo RE Remaster)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Pantalla Completa)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clásico Original (Barras Negras Laterales)");
         } else if (lang == L"pt-br") {
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinâmico (Estilo RE Remaster)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Tela Cheia Imersiva)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clássico Original (Tarjas Laterais)");
         } else {
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Dynamic Pan & Scan (RE Remaster Style)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Full Immersive Screen)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Classic Original (Side Black Bars)");
         }
@@ -984,9 +998,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hChkPgxpGeom) {
-        if (lang == L"es") SetWindowTextW(g_hChkPgxpGeom, L"Corrección PGXP Geométrica (Elimina temblor y oscilación de polígonos)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpGeom, L"Correção PGXP Geométrica (Elimina oscilação e distorção de polígonos)");
-        else SetWindowTextW(g_hChkPgxpGeom, L"PGXP Geometry Correction (Removes polygon jitter and vertex wobble)");
+        if (lang == L"es") SetWindowTextW(g_hChkPgxpGeom, L"Corrección PGXP Geométrica (No recomendado: deforma personajes)");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpGeom, L"Correção PGXP Geométrica (Não recomendado: deforma personagens)");
+        else SetWindowTextW(g_hChkPgxpGeom, L"PGXP Geometry Correction (Not recommended: causes model deformation)");
     }
 
     if (g_hChkPgxpTex) {
@@ -1057,6 +1071,12 @@ void ApplyLanguage(const std::wstring& lang) {
         if (lang == L"es") SetWindowTextW(g_hChkSkipFmv, L"Omitir cinemáticas/FMVs automáticamente (por defecto: desactivado)");
         else if (lang == L"pt-br") SetWindowTextW(g_hChkSkipFmv, L"Pular vídeos/FMVs automaticamente (padrão: desligado)");
         else SetWindowTextW(g_hChkSkipFmv, L"Auto-skip FMVs / cutscenes (Default: Off)");
+    }
+
+    if (g_hChkFastDoors) {
+        if (lang == L"es") SetWindowTextW(g_hChkFastDoors, L"Omitir puertas / Door Skip (Transición instantánea entre salas)");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkFastDoors, L"Pular portas / Door Skip (Transição instantânea de salas)");
+        else SetWindowTextW(g_hChkFastDoors, L"Door Skipping / Fast Transitions (Instant room transitions)");
     }
 
     if (g_hBtnLaunch) {
@@ -2359,7 +2379,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hComboRenderer = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 382, 324, 120, hWnd, (HMENU)ID_COMBO_RENDERER, g_hInst, NULL);
         SendMessageW(g_hComboRenderer, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkPgxpGeom = CreateWindowW(L"BUTTON", L"PGXP Geometry Correction", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 412, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_GEOM, g_hInst, NULL);
+        g_hChkPgxpGeom = CreateWindowW(L"BUTTON", L"PGXP Geometry Correction (Not recommended)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 412, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_GEOM, g_hInst, NULL);
         SendMessageW(g_hChkPgxpGeom, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         g_hChkPgxpTex = CreateWindowW(L"BUTTON", L"Perspective-Correct Texturing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 436, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_TEX, g_hInst, NULL);
@@ -2384,7 +2404,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 610, 508, 76, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 610, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 634, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
@@ -2393,20 +2413,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 656, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 678, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 694, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 716, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 694, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 716, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 742, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 764, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 742, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 764, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 780, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 804, 508, 16, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
@@ -2423,7 +2446,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Aplicar idioma ativo e preencher comboboxes
         ApplyLanguage(g_currentLang);
 
-        SendMessageW(g_hComboAspect, CB_SETCURSEL, (cfg.aspect_ratio == L"4:3") ? 1 : 0, 0);
+        int aspectSel = 0;
+        if (cfg.aspect_ratio == L"16:9_pan_scan") aspectSel = 0;
+        else if (cfg.aspect_ratio == L"16:9") aspectSel = 1;
+        else if (cfg.aspect_ratio == L"4:3") aspectSel = 2;
+        SendMessageW(g_hComboAspect, CB_SETCURSEL, aspectSel, 0);
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, cfg.fullscreen ? 1 : 0, 0);
         SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cfg.renderer == L"software") ? 1 : 0, 0);
 
@@ -2450,6 +2477,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hChkPgxpTex, BM_SETCHECK, cfg.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkAntialiasing, BM_SETCHECK, cfg.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSkipFmv, BM_SETCHECK, cfg.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkFastDoors, BM_SETCHECK, cfg.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSpuHq, BM_SETCHECK, cfg.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
 
         break;
@@ -2640,7 +2668,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     int width = 560;
-    int height = 855;
+    int height = 880;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int posX = (screenW - width) / 2;
