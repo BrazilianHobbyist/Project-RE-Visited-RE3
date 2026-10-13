@@ -4,15 +4,15 @@
 
 # Project RE: Visited - Resident Evil 3
 
-🌎 **Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
+**Idiomas / Languages**: [English](README.md) | [**Português (Brasil)**](README.pt-br.md) | [Español](README.es.md)
 
 ---
 
-☣️ **Port Nativo em C/C++ x86_64 e Recompilação Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
+**Port Nativo em C/C++ x86_64 e Recompilação Estática de Resident Evil 3: Nemesis (1999, PlayStation 1) para Windows**
 
 ---
 
-## ☣️ A Iniciativa Project RE: Visited
+## A Iniciativa Project RE: Visited
 
 **Project RE: Visited** é uma iniciativa independente e de código aberto criada para restaurar, modernizar e preservar historicamente a lendária trilogia clássica de *survival horror* do PlayStation original no PC:
 * **Resident Evil 3: Nemesis** (Lançamento Inaugural)
@@ -23,7 +23,7 @@ O objetivo é proporcionar a melhor experiência possível dos clássicos em har
 
 ---
 
-## ☣️ O que é Recompilação Estática Clean-Room?
+## O que é Recompilação Estática Clean-Room?
 
 Diferente de projetos de emulação tradicional ou de engenharia reversa que dependem de vazamentos de código-fonte, este projeto foi construído sob uma rigorosa metodologia de **Recompilação Estática Limpa (*Clean Room Static Recompilation*)**:
 
@@ -63,11 +63,11 @@ Nenhum código-fonte vazado, descompilação não autorizada de segredos industr
 As chamadas de sistema, a GPU, o coprocessador geométrico GTE e o processador de som SPU são traduzidos em tempo de execução para APIs modernas e abertas (OpenGL, SDL2, OpenBIOS).
 
 ### 4. Distribuição Estritamente Livre de Ativos (*Zero-Asset Policy*)
-**Este repositório NÃO armazena, NÃO hospeda e NÃO distribui nenhum arquivo de jogo, ROM, ISO, BIOS protegida, música, modelo ou textura.** Toda a mídia original necessária para jogar é extraída diretamente pelo usuário a partir de sua própria cópia legítima do jogo.
+**Este repositório NÃO armazena, NÃO hospeda e NÃO distribui nenhum arquivo de jogo, ROM, ISO, música, modelo ou textura.** Toda a mídia original necessária para jogar é extraída diretamente pelo usuário a partir de sua própria cópia legítima do jogo.
 
 ---
 
-## ☣️ Amparo Jurídico e Isenção de Responsabilidade
+## Amparo Jurídico e Isenção de Responsabilidade
 
 A engenharia reversa para fins estritos de **interoperabilidade de software e preservação digital** é amplamente protegida por marcos legais e precedentes jurídicos consolidados:
 
@@ -79,7 +79,7 @@ A engenharia reversa para fins estritos de **interoperabilidade de software e pr
 
 ---
 
-## ☣️ Recursos e Melhorias Implementadas
+## Recursos e Melhorias Implementadas
 
 Todas as opções listadas abaixo estão **100% implementadas, auditadas e funcionais** no projeto:
 
@@ -101,7 +101,7 @@ Todas as opções listadas abaixo estão **100% implementadas, auditadas e funci
 
 ---
 
-## ☣️ Esclarecimento de Escopo (O que este projeto NÃO faz)
+## Esclarecimento de Escopo (O que este projeto NÃO faz)
 
 Para manter a integridade técnica, estabilidade e fidelidade histórica do jogo, delimitamos com clareza o que **não** faz parte deste projeto:
 
@@ -111,7 +111,7 @@ Para manter a integridade técnica, estabilidade e fidelidade histórica do jogo
 
 ---
 
-## ☣️ Como Jogar e Instalar (Guia Rápido)
+## Como Jogar e Instalar (Guia Rápido)
 
 ### Passo 1: Executar o Launcher
 Abra a pasta do projeto (ou o pacote de distribuição baixado na aba Releases) e execute:
@@ -122,7 +122,7 @@ Resident_Evil_3_Launcher.exe
 ### Passo 2: Assistente de Instalação (Zero Fricção)
 Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instalação Pendente`.
 1. Clique em **`Instalar Jogo...`**.
-2. **BIOS do PlayStation (Pré-configurada)**: A **OpenBIOS** (reimplementação limpa sob licença MIT do PCSX-Redux) já vem **embutida e pré-configurada por padrão**, dispensando qualquer busca ou download de BIOS para jogar. Se você possuir um dump original da sua própria BIOS de PlayStation (`SCPH1001.BIN`), basta clicar em **`Trocar BIOS...`** e selecioná-lo para máxima autenticidade de hardware.
+2. **BIOS de Código Aberto (OpenBIOS)**: A **OpenBIOS** (reimplementação limpa sob licença MIT do PCSX-Redux) já vem **embutida e pré-configurada por padrão**, dispensando qualquer busca, download ou configuração de arquivo de BIOS para jogar.
 3. No campo **Imagem do Jogo**, selecione seu arquivo `.bin`, `.cue` ou `.iso` do CD de *Resident Evil 3*.
 4. Clique em **`Iniciar Instalação & Extração`**. O Launcher validará os arquivos e **extrairá o executável `SLUS_009.23` diretamente da imagem do disco** em instantes.
 
@@ -132,7 +132,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 
 ---
 
-## ☣️ Controles
+## Controles
 
 ### Controle Xbox (XInput / Gamepad Moderno)
 * **Analógico Esquerdo**: Movimentação 360° analógica (Zona morta 0.26 / Auto-run com inclinação total)
@@ -160,7 +160,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 
 ---
 
-## ⌨️ Salvamento (Memory Cards)
+## Salvamento (Memory Cards)
 
 Os saves são gravados nos arquivos binários padrão do PlayStation:
 * `saves/card1.mcd` (Slot 1)
@@ -170,7 +170,7 @@ Você pode migrar livremente seus saves de e para emuladores como DuckStation e 
 
 ---
 
-## ☣️ Instruções de Compilação (Para Desenvolvedores)
+## Instruções de Compilação (Para Desenvolvedores)
 
 Se você deseja compilar o código-fonte manualmente:
 
@@ -190,7 +190,7 @@ Se você deseja compilar o código-fonte manualmente:
 
 ---
 
-## ☣️ Créditos & Reconhecimento
+## Créditos & Reconhecimento
 
 Consulte o documento completo [**`CREDITS.md`**](CREDITS.md) para a lista exaustiva de todas as fontes, ferramentas e termos legais.
 
