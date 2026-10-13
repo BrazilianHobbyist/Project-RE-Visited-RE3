@@ -95,6 +95,7 @@ Todas las opciones enumeradas a continuación están **100% implementadas, audit
 | **Saltar FMVs / Cinemáticas (Auto-Skip)** | Salte instantáneamente presentaciones y cinemáticas en vídeo FMV (MDEC / XA) pulsando la tecla de acción o marcando la opción en el Launcher. |
 | **Audio SPU de Alta Fidelidad (48 kHz)** | Resampling de audio ADPCM a 48.000 Hz en coma flotante mediante shadow engine de calibración dinámica. |
 | **Launcher Gráfico Multilingüe** | Interfaz visual nativa en Win32 y GDI+ ultraligera con soporte dinámico a Español (ES), Inglés (EN) y Portugués (PT-BR). |
+| **Selector de Trucos y Modificadores** | Menú dedicado y 100% reversible en el Launcher: Salud Infinita (God Mode), Munición Infinita, Cintas de Tinta Infinitas, Todas las Armas en el Baúl, Desbloqueo de The Mercenaries, Boutique y Trajes, y Todos los Epílogos. Con atajos en tiempo real en el juego. |
 | **Memory Cards Preservadas** | Sistema de guardado estándar de PS1 grabado en archivos binarios reales `.mcd` (`saves/card1.mcd`), totalmente compatibles con emuladores reales y consolas físicas. |
 
 ---
@@ -103,7 +104,7 @@ Todas las opciones enumeradas a continuación están **100% implementadas, audit
 
 Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
-1. **Sin Alteración Arbitraria de Memoria / Trainers Inestables**: No incluimos modificaciones forzadas de inventario o "item box hacks" directamente en la RAM, ya que corrompen el guardado en la máquina de estados de Resident Evil 3.
+1. **Integración Segura de Memoria Nativa (Sin Corrupción de Partidas)**: El selector de trucos interactúa directamente con los flags nativos de Capcom (`0x800D1F32` / Clear Mode) y buffers activos del jugador. No altera slots de forma destructiva, no genera armas fantasma y es 100% reversible (desmarque en cualquier momento para restaurar la experiencia original).
 2. **Sin Texture Packs**: La fidelidad visual se mejora matemáticamente mediante PGXP y SSAA sobre las texturas auténticas de 1999, respetando el tono sombrío original de Capcom.
 3. **Sin Cámara Libre 3D en Fondos Prerenderizados**: Los escenarios de *Resident Evil 3* son pinturas bidimensionales prerenderizadas en 4:3. El modo 16:9 adapta la presentación visual sin romper las colisiones invisibles del juego.
 
@@ -143,6 +144,9 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 * **A**: Inventario
 * **Enter**: Start
 * **Alt + Enter** o **F11**: Alternar Pantalla Completa / Ventana
+* **F6**: Alternar Salud Infinita (God Mode) Activado/Desactivado
+* **F7**: Alternar Munición Infinita Activado/Desactivado
+* **F8**: Recargar Arma y Munición al Máximo
 
 ---
 
