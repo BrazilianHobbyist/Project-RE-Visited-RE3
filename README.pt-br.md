@@ -122,9 +122,9 @@ Resident_Evil_3_Launcher.exe
 ### Passo 2: Assistente de Instalação (Zero Fricção)
 Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instalação Pendente`.
 1. Clique em **`Instalar Jogo...`**.
-2. No campo **Arquivo de BIOS**, selecione seu arquivo `SCPH1001.BIN`.
+2. **BIOS do PlayStation (Pré-configurada)**: A **OpenBIOS** (reimplementação limpa sob licença MIT do PCSX-Redux) já vem **embutida e pré-configurada por padrão**, dispensando qualquer busca ou download de BIOS para jogar. Se você possuir um dump original da sua própria BIOS de PlayStation (`SCPH1001.BIN`), basta clicar em **`Trocar BIOS...`** e selecioná-lo para máxima autenticidade de hardware.
 3. No campo **Imagem do Jogo**, selecione seu arquivo `.bin`, `.cue` ou `.iso` do CD de *Resident Evil 3*.
-4. Clique em **`Iniciar Instalação & Extração`**. O Launcher criará as pastas corretas e **extrairá o executável `SLUS_009.23` diretamente da imagem do disco** em instantes.
+4. Clique em **`Iniciar Instalação & Extração`**. O Launcher validará os arquivos e **extrairá o executável `SLUS_009.23` diretamente da imagem do disco** em instantes.
 
 ### Passo 3: Configurar e Jogar
 1. Ajuste a proporção de tela (**16:9** ou **4:3**), resolução interna 3D (até **4K**), taxa de fluidez (até **240 FPS**), modo de controle (**Moderno 3D** ou **Clássico Tanque**) e filtros (PGXP e FXAA).

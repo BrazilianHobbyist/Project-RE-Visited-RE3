@@ -248,24 +248,62 @@ InstallStatus CheckInstallationStatus() {
     std::wstring root = GetBuildDir();
 
     // 1. BIOS check
-    std::wstring bios1001 = root + L"\\bios\\SCPH1001.BIN";
-    std::wstring bios5552 = root + L"\\bios\\SCPH5552.BIN";
-    WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (GetFileAttributesExW(bios1001.c_str(), GetFileExInfoStandard, &fad)) {
-        LARGE_INTEGER size;
-        size.HighPart = fad.nFileSizeHigh;
-        size.LowPart = fad.nFileSizeLow;
-        if (size.QuadPart >= 500000) {
-            st.hasBios = true;
-            st.biosPath = bios1001;
+    // Check if bios.cfg exists first to honor explicit previous user choice
+    std::wstring biosCfgPath = root + L"\\bios.cfg";
+    std::wstring configuredBios = L"";
+    std::wifstream bcfg(biosCfgPath.c_str());
+    if (bcfg.is_open()) {
+        std::getline(bcfg, configuredBios);
+        while (!configuredBios.empty() && (configuredBios.back() == L'\r' || configuredBios.back() == L'\n' || configuredBios.back() == L' ')) {
+            configuredBios.pop_back();
         }
-    } else if (GetFileAttributesExW(bios5552.c_str(), GetFileExInfoStandard, &fad)) {
-        LARGE_INTEGER size;
-        size.HighPart = fad.nFileSizeHigh;
-        size.LowPart = fad.nFileSizeLow;
-        if (size.QuadPart >= 500000) {
-            st.hasBios = true;
-            st.biosPath = bios5552;
+        bcfg.close();
+    }
+
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!configuredBios.empty()) {
+        std::wstring fullCfgBios = root + L"\\" + configuredBios;
+        if (GetFileAttributesExW(fullCfgBios.c_str(), GetFileExInfoStandard, &fad)) {
+            LARGE_INTEGER size;
+            size.HighPart = fad.nFileSizeHigh;
+            size.LowPart = fad.nFileSizeLow;
+            if (size.QuadPart >= 500000) {
+                st.hasBios = true;
+                st.biosPath = fullCfgBios;
+            }
+        }
+    }
+
+    // Default order: OpenBIOS (bundled / clean-room), followed by SCPH1001 / SCPH5552
+    if (!st.hasBios) {
+        std::wstring biosOpen = root + L"\\bios\\openbios.bin";
+        std::wstring bios1001 = root + L"\\bios\\SCPH1001.BIN";
+        std::wstring bios5552 = root + L"\\bios\\SCPH5552.BIN";
+
+        if (GetFileAttributesExW(biosOpen.c_str(), GetFileExInfoStandard, &fad)) {
+            LARGE_INTEGER size;
+            size.HighPart = fad.nFileSizeHigh;
+            size.LowPart = fad.nFileSizeLow;
+            if (size.QuadPart >= 500000) {
+                st.hasBios = true;
+                st.biosPath = biosOpen;
+            }
+        } else if (GetFileAttributesExW(bios1001.c_str(), GetFileExInfoStandard, &fad)) {
+            LARGE_INTEGER size;
+            size.HighPart = fad.nFileSizeHigh;
+            size.LowPart = fad.nFileSizeLow;
+            if (size.QuadPart >= 500000) {
+                st.hasBios = true;
+                st.biosPath = bios1001;
+            }
+        } else if (GetFileAttributesExW(bios5552.c_str(), GetFileExInfoStandard, &fad)) {
+            LARGE_INTEGER size;
+            size.HighPart = fad.nFileSizeHigh;
+            size.LowPart = fad.nFileSizeLow;
+            if (size.QuadPart >= 500000) {
+                st.hasBios = true;
+                st.biosPath = bios5552;
+            }
         }
     }
 
@@ -1056,21 +1094,21 @@ void LaunchGame() {
         if (g_currentLang == L"es") {
             title = L"Instalación Requerida";
             msg = L"Los archivos necesarios para ejecutar el juego aún no están configurados:\n\n"
-                  L"- BIOS (SCPH1001.BIN): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ FALTA") + L"\n"
+                  L"- BIOS (OpenBIOS / SCPH1001): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ FALTA") + L"\n"
                   L"- Imagen del Disco: " + std::wstring(st.hasDisc ? L"✓ OK" : L"❌ FALTA") + L"\n"
                   L"- Ejecutable SLUS_009.23: " + std::wstring(st.hasSlus ? L"✓ OK" : L"❌ FALTA") + L"\n\n"
                   L"¿Desea abrir el Asistente de Instalación ahora para configurarlos automáticamente?";
         } else if (g_currentLang == L"pt-br") {
             title = L"Instalação Necessária";
             msg = L"Os arquivos necessários para rodar o jogo ainda não foram configurados:\n\n"
-                  L"- BIOS (SCPH1001.BIN): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ AUSENTE") + L"\n"
+                  L"- BIOS (OpenBIOS / SCPH1001): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ AUSENTE") + L"\n"
                   L"- Imagem do Disco: " + std::wstring(st.hasDisc ? L"✓ OK" : L"❌ AUSENTE") + L"\n"
                   L"- Executável SLUS_009.23: " + std::wstring(st.hasSlus ? L"✓ OK" : L"❌ AUSENTE") + L"\n\n"
                   L"Deseja abrir o Assistente de Instalação agora para configurar automaticamente?";
         } else {
             title = L"Setup Required";
             msg = L"The required files to run the game have not been set up yet:\n\n"
-                  L"- BIOS (SCPH1001.BIN): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ MISSING") + L"\n"
+                  L"- BIOS (OpenBIOS / SCPH1001): " + std::wstring(st.hasBios ? L"✓ OK" : L"❌ MISSING") + L"\n"
                   L"- Disc Image: " + std::wstring(st.hasDisc ? L"✓ OK" : L"❌ MISSING") + L"\n"
                   L"- SLUS_009.23 Executable: " + std::wstring(st.hasSlus ? L"✓ OK" : L"❌ MISSING") + L"\n\n"
                   L"Would you like to open the Setup Wizard now to configure them automatically?";
@@ -1090,7 +1128,14 @@ void LaunchGame() {
         exePath = buildDir + L"\\ResidentEvil3.exe";
     }
 
-    std::wstring cmdLine = L"\"" + exePath + L"\" --bios bios\\SCPH1001.BIN";
+    std::wstring relBios = L"bios\\openbios.bin";
+    if (st.hasBios && !st.biosPath.empty()) {
+        size_t pos = st.biosPath.find_last_of(L"\\/");
+        std::wstring fileName = (pos != std::wstring::npos) ? st.biosPath.substr(pos + 1) : st.biosPath;
+        relBios = L"bios\\" + fileName;
+    }
+
+    std::wstring cmdLine = L"\"" + exePath + L"\" --bios \"" + relBios + L"\"";
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi = {};
@@ -1778,28 +1823,44 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
 
     // 1. BIOS
     std::wstring dstBios = buildDir + L"\\bios\\SCPH1001.BIN";
+    std::wstring openBios = buildDir + L"\\bios\\openbios.bin";
     bool biosOk = false;
+    std::wstring configuredBiosRel = L"bios/openbios.bin";
+
     if (!p->biosSrc.empty()) {
-        wchar_t fullSrc[MAX_PATH], fullDst[MAX_PATH];
+        wchar_t fullSrc[MAX_PATH];
         GetFullPathNameW(p->biosSrc.c_str(), MAX_PATH, fullSrc, NULL);
-        GetFullPathNameW(dstBios.c_str(), MAX_PATH, fullDst, NULL);
-        if (_wcsicmp(fullSrc, fullDst) != 0) {
+        std::wstring srcPath = fullSrc;
+        size_t slash = srcPath.find_last_of(L"\\/");
+        std::wstring fileName = (slash != std::wstring::npos) ? srcPath.substr(slash + 1) : L"SCPH1001.BIN";
+        std::wstring targetDst = buildDir + L"\\bios\\" + fileName;
+
+        if (_wcsicmp(fullSrc, targetDst.c_str()) != 0) {
             AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[1/4] Copiando archivo de BIOS..." :
                                         (g_currentLang == L"pt-br") ? L"[1/4] Copiando arquivo de BIOS..." :
                                         L"[1/4] Copying BIOS file...");
-            if (CopyFileW(fullSrc, fullDst, FALSE)) {
-                AppendSetupLog(p->hEditLog, L"  ✓ bios\\SCPH1001.BIN copiada com sucesso.");
+            if (CopyFileW(fullSrc, targetDst.c_str(), FALSE)) {
+                AppendSetupLog(p->hEditLog, L"  ✓ " + fileName + L" copiada com sucesso.");
                 biosOk = true;
+                configuredBiosRel = L"bios/" + fileName;
             } else {
                 AppendSetupLog(p->hEditLog, L"  ❌ Falha ao copiar a BIOS.");
             }
         } else {
-            AppendSetupLog(p->hEditLog, L"[1/4] BIOS SCPH1001.BIN já localizada na pasta bios\\.");
+            AppendSetupLog(p->hEditLog, L"[1/4] BIOS " + fileName + L" já localizada na pasta bios\\.");
             biosOk = true;
+            configuredBiosRel = L"bios/" + fileName;
         }
+    } else if (GetFileAttributesW(openBios.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[1/4] Utilizando OpenBIOS predeterminada (MIT / Código Abierto)." :
+                                    (g_currentLang == L"pt-br") ? L"[1/4] Utilizando OpenBIOS padrão (MIT / Código Aberto)." :
+                                    L"[1/4] Using default bundled OpenBIOS (MIT / Clean-Room).");
+        biosOk = true;
+        configuredBiosRel = L"bios/openbios.bin";
     } else if (GetFileAttributesW(dstBios.c_str()) != INVALID_FILE_ATTRIBUTES) {
         AppendSetupLog(p->hEditLog, L"[1/4] BIOS SCPH1001.BIN já presente e validada.");
         biosOk = true;
+        configuredBiosRel = L"bios/SCPH1001.BIN";
     } else {
         AppendSetupLog(p->hEditLog, L"[1/4] ❌ Nenhuma BIOS selecionada ou encontrada.");
     }
@@ -1807,7 +1868,7 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
     if (biosOk) {
         std::wofstream bcfg((buildDir + L"\\bios.cfg").c_str());
         if (bcfg.is_open()) {
-            bcfg << L"bios/SCPH1001.BIN\n";
+            bcfg << configuredBiosRel << L"\n";
             bcfg.close();
         }
     }
@@ -1962,9 +2023,9 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SendMessageW(g_hLblSetupSub, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Grupo 1: BIOS
-        std::wstring grpBiosText = (g_currentLang == L"es") ? L"  1. BIOS de PlayStation (SCPH1001.BIN / 512 KB)  " :
-                                   (g_currentLang == L"pt-br") ? L"  1. BIOS do PlayStation (SCPH1001.BIN / 512 KB)  " :
-                                   L"  1. PlayStation BIOS (SCPH1001.BIN / 512 KB)  ";
+        std::wstring grpBiosText = (g_currentLang == L"es") ? L"  1. BIOS de PlayStation (OpenBIOS Predeterminada / SCPH Opcional)  " :
+                                   (g_currentLang == L"pt-br") ? L"  1. BIOS do PlayStation (OpenBIOS Padrão / SCPH Opcional)  " :
+                                   L"  1. PlayStation BIOS (OpenBIOS Default / SCPH Optional)  ";
         g_hGrpSetupBios = CreateWindowW(L"BUTTON", grpBiosText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 84, 604, 88, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpSetupBios, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
@@ -1974,8 +2035,8 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         g_hEditSetupBiosPath = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_AUTOHSCROLL | ES_READONLY, 32, 130, 430, 26, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hEditSetupBiosPath, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        std::wstring browseText = (g_currentLang == L"es") ? L"Examinar BIOS..." :
-                                  (g_currentLang == L"pt-br") ? L"Procurar BIOS..." : L"Browse BIOS...";
+        std::wstring browseText = (g_currentLang == L"es") ? L"Cambiar BIOS..." :
+                                  (g_currentLang == L"pt-br") ? L"Trocar BIOS..." : L"Change BIOS...";
         g_hBtnSetupBrowseBios = CreateWindowW(L"BUTTON", browseText.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 470, 130, 140, 26, hWnd, (HMENU)ID_BTN_SETUP_BROWSE_BIOS, g_hInst, NULL);
         SendMessageW(g_hBtnSetupBrowseBios, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
@@ -2023,13 +2084,19 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         InstallStatus st = CheckInstallationStatus();
         if (st.hasBios) {
             SetWindowTextW(g_hEditSetupBiosPath, st.biosPath.c_str());
-            SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] BIOS instalada y verificada." :
-                                                  (g_currentLang == L"pt-br") ? L"[OK] BIOS instalada e verificada." :
-                                                  L"[OK] BIOS installed and verified.");
+            if (st.biosPath.find(L"openbios.bin") != std::wstring::npos) {
+                SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] OpenBIOS (Predeterminada / Código Abierto MIT)" :
+                                                      (g_currentLang == L"pt-br") ? L"[OK] OpenBIOS (Padrão / Código Aberto MIT)" :
+                                                      L"[OK] OpenBIOS (Default / Open-Source MIT)");
+            } else {
+                SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] BIOS SCPH Personalizada Instalada" :
+                                                      (g_currentLang == L"pt-br") ? L"[OK] BIOS SCPH Personalizada Instalada" :
+                                                      L"[OK] Custom SCPH BIOS Installed");
+            }
         } else {
-            SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[!] BIOS no configurada. Haga clic en Examinar." :
-                                                  (g_currentLang == L"pt-br") ? L"[!] BIOS não configurada. Clique em Procurar." :
-                                                  L"[!] BIOS not configured. Click Browse.");
+            SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[!] BIOS no configurada. Haga clic en Cambiar BIOS." :
+                                                  (g_currentLang == L"pt-br") ? L"[!] BIOS não configurada. Clique em Trocar BIOS." :
+                                                  L"[!] BIOS not configured. Click Change BIOS.");
         }
 
         if (st.hasDisc) {
@@ -2126,9 +2193,15 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_USER + 101: {
         InstallStatus st = CheckInstallationStatus();
         if (st.hasBios) {
-            SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] BIOS instalada y verificada." :
-                                                  (g_currentLang == L"pt-br") ? L"[OK] BIOS instalada e verificada." :
-                                                  L"[OK] BIOS installed and verified.");
+            if (st.biosPath.find(L"openbios.bin") != std::wstring::npos) {
+                SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] OpenBIOS (Predeterminada / Código Abierto MIT)" :
+                                                      (g_currentLang == L"pt-br") ? L"[OK] OpenBIOS (Padrão / Código Aberto MIT)" :
+                                                      L"[OK] OpenBIOS (Default / Open-Source MIT)");
+            } else {
+                SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] BIOS SCPH Personalizada Instalada" :
+                                                      (g_currentLang == L"pt-br") ? L"[OK] BIOS SCPH Personalizada Instalada" :
+                                                      L"[OK] Custom SCPH BIOS Installed");
+            }
         }
         if (st.hasDisc) {
             SetWindowTextW(g_hLblSetupDiscStatus, (g_currentLang == L"es") ? L"[OK] Imagen de disco configurada." :
