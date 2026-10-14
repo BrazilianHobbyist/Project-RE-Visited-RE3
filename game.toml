@@ -40,7 +40,7 @@ audio_spu_hq = true
 
 [video]
 renderer = "opengl"
-aspect_ratio = "16:9_pan_scan"
+aspect_ratio = "16:9"
 fullscreen = true
 geometry_correction = true
 perspective_texturing = true
