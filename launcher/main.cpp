@@ -69,8 +69,7 @@ enum ControlID {
     ID_CHK_CHEAT_MERCENARIES = 1034,
     ID_CHK_CHEAT_BOUTIQUE = 1035,
     ID_CHK_CHEAT_EPILOGUES = 1036,
-    ID_CHK_FAST_DOORS = 1037,
-    ID_COMBO_SKINS = 1038
+    ID_CHK_FAST_DOORS = 1037
 };
 
 // Global handles
@@ -78,8 +77,6 @@ HINSTANCE g_hInst = NULL;
 HWND g_hWndMain = NULL;
 HWND g_hComboLanguage = NULL;
 HWND g_hLblLanguage = NULL;
-HWND g_hLblSkins = NULL;
-HWND g_hComboSkins = NULL;
 
 // Cheats Dialog handles
 HWND g_hWndCheats = NULL;
@@ -592,7 +589,6 @@ struct GameConfig {
     bool unlock_mercenaries = false;
     bool unlock_boutique = false;
     bool unlock_epilogues = false;
-    std::wstring jill_skin = L"default";
 };
 
 GameConfig g_cachedConfig;
@@ -635,9 +631,6 @@ GameConfig LoadConfig() {
             else cfg.language = L"en";
         }
         else if (key == L"aspect_ratio") cfg.aspect_ratio = val;
-        else if (key == L"pan_scan") {
-            if (val == L"true" || val == L"1") cfg.aspect_ratio = L"16:9_pan_scan";
-        }
         else if (key == L"fullscreen") {
             cfg.fullscreen = (val == L"1" || val == L"2" || val == L"true");
         }
@@ -674,58 +667,8 @@ GameConfig LoadConfig() {
         else if (key == L"unlock_mercenaries") cfg.unlock_mercenaries = (val == L"true" || val == L"1");
         else if (key == L"unlock_boutique") cfg.unlock_boutique = (val == L"true" || val == L"1");
         else if (key == L"unlock_epilogues") cfg.unlock_epilogues = (val == L"true" || val == L"1");
-        else if (key == L"jill_skin" || key == L"skin") cfg.jill_skin = val;
     }
     return cfg;
-}
-
-int SkinToComboIndex(const std::wstring& skin) {
-    if (skin == L"default") return 0;
-    if (skin == L"bryan") return 1;
-    if (skin == L"police") return 2;
-    if (skin == L"biker") return 3;
-    if (skin == L"disco") return 4;
-    if (skin == L"regina") return 5;
-    if (skin == L"stars") return 6;
-    if (skin == L"wetsuit") return 7;
-    return 0; // Default: Jill Original
-}
-
-std::wstring ComboIndexToSkin(int idx) {
-    switch (idx) {
-        case 0: return L"default";
-        case 1: return L"bryan";
-        case 2: return L"police";
-        case 3: return L"biker";
-        case 4: return L"disco";
-        case 5: return L"regina";
-        case 6: return L"stars";
-        case 7: return L"wetsuit";
-        default: return L"default";
-    }
-}
-
-void ApplySkinState(const std::wstring& skin) {
-    // Generate state.toml for PSXRecomp mod runtime
-    std::wstring modState = L"format_version = 2\n\n[[package]]\nid = \"re3.skins.jill\"\nversion = \"1.0.0\"\n";
-    if (skin != L"default" && !skin.empty()) {
-        modState += L"\n[[feature]]\npackage_id = \"re3.skins.jill\"\nid = \"skin-" + skin + L"\"\nenabled = true\n";
-    }
-
-    std::vector<std::wstring> dirs = {
-        GetBuildDir() + L"\\mods",
-        GetProjectRootDir() + L"\\mods"
-    };
-
-    for (const auto& d : dirs) {
-        CreateDirectoryW(d.c_str(), NULL);
-        std::wstring p = d + L"\\state.toml";
-        std::wofstream sf(p.c_str());
-        if (sf.is_open()) {
-            sf << modState;
-            sf.close();
-        }
-    }
 }
 
 bool SaveConfig(const GameConfig& cfg) {
@@ -759,8 +702,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"fast_doors          = " << (cfg.fast_doors ? L"true" : L"false") << L"\n";
         sFile << L"vsync               = \"on\"\n";
         sFile << L"low_latency_input   = true\n";
-        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n";
-        sFile << L"pan_scan            = " << ((cfg.aspect_ratio == L"16:9_pan_scan") ? L"true" : L"false") << L"\n\n";
+        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n\n";
         sFile << L"[audio]\n";
         sFile << L"frequency = 48000\n";
         sFile << L"spu_hq = " << (cfg.spu_hq ? L"true" : L"false") << L"\n\n";
@@ -777,9 +719,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"all_weapons_box       = " << (cfg.all_weapons_box ? L"true" : L"false") << L"\n";
         sFile << L"unlock_mercenaries    = " << (cfg.unlock_mercenaries ? L"true" : L"false") << L"\n";
         sFile << L"unlock_boutique       = " << (cfg.unlock_boutique ? L"true" : L"false") << L"\n";
-        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n\n";
-        sFile << L"[skins]\n";
-        sFile << L"jill_skin             = \"" << cfg.jill_skin << L"\"\n";
+        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n";
         sFile.close();
     }
 
@@ -829,7 +769,6 @@ bool SaveConfig(const GameConfig& cfg) {
         outFile.close();
     }
 
-    ApplySkinState(cfg.jill_skin);
     return true;
 }
 
@@ -838,9 +777,7 @@ GameConfig GetGuiConfig() {
     cfg.language = g_currentLang;
 
     int idxAspect = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
-    if (idxAspect == 0) cfg.aspect_ratio = L"16:9";
-    else if (idxAspect == 1) cfg.aspect_ratio = L"4:3";
-    else if (idxAspect == 2) cfg.aspect_ratio = L"16:9_pan_scan";
+    if (idxAspect == 1) cfg.aspect_ratio = L"4:3";
     else cfg.aspect_ratio = L"16:9";
 
     int idxDisp = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
@@ -898,11 +835,6 @@ GameConfig GetGuiConfig() {
     int idxCtrl = (int)SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0);
     cfg.modern_controls = (idxCtrl == 0);
 
-    if (g_hComboSkins) {
-        int idxSkin = (int)SendMessageW(g_hComboSkins, CB_GETCURSEL, 0, 0);
-        cfg.jill_skin = ComboIndexToSkin(idxSkin);
-    }
-
     cfg.geometry_correction = (SendMessageW(g_hChkPgxpGeom, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.perspective_texturing = (SendMessageW(g_hChkPgxpTex, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.antialiasing = (SendMessageW(g_hChkAntialiasing, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -945,15 +877,12 @@ void ApplyLanguage(const std::wstring& lang) {
         if (lang == L"es") {
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Predeterminado / Estable)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clásico Original (Barras Negras Laterales)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinámico (Experimental)");
         } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Padrão / Estável)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Esticado (Padrão / Estável)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clássico Original (Tarjas Laterais)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinâmico (Experimental)");
         } else {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Default / Rock Solid)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Default / Stable)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Classic Original (Side Black Bars)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Dynamic Pan & Scan (Experimental)");
         }
         SendMessageW(g_hComboAspect, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -1092,9 +1021,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hGrpInput) {
-        if (lang == L"es") SetWindowTextW(g_hGrpInput, L"  Jugabilidad, Trajes y Controles  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpInput, L"  Jogabilidade, Trajes && Controles  ");
-        else SetWindowTextW(g_hGrpInput, L"  Gameplay, Skins && Controls  ");
+        if (lang == L"es") SetWindowTextW(g_hGrpInput, L"  Jugabilidad y Controles  ");
+        else if (lang == L"pt-br") SetWindowTextW(g_hGrpInput, L"  Jogabilidade && Controles  ");
+        else SetWindowTextW(g_hGrpInput, L"  Gameplay && Controls  ");
     }
 
     if (g_hLblCtrlMode) {
@@ -1119,45 +1048,6 @@ void ApplyLanguage(const std::wstring& lang) {
         SendMessageW(g_hComboControls, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
 
-    if (g_hLblSkins) {
-        if (lang == L"es") SetWindowTextW(g_hLblSkins, L"Traje / Skin Jill:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblSkins, L"Skin / Traje da Jill:");
-        else SetWindowTextW(g_hLblSkins, L"Jill Skin / Costume:");
-    }
-
-    if (g_hComboSkins) {
-        int cur = (int)SendMessageW(g_hComboSkins, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboSkins, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Predeterminada)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Película Resident Evil) [Exclusivo]");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Policía R.P.D. (Minifalda)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Motorista Biker (Traje de Cuero)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco 70s (Atuendo Retro)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"S.T.A.R.S. Clásica (Resident Evil 1)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Traje de Buceo Táctico (Wetsuit)");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Padrão)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Filme Resident Evil) [Exclusivo]");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Policial R.P.D. (Minissaia)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Motoqueira Biker (Couro)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco Anos 70 (Balada Retro)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"S.T.A.R.S. Clássica (Resident Evil 1)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Traje Tático de Mergulho (Wetsuit)");
-        } else {
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Default)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Resident Evil Movie) [Exclusive]");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"R.P.D. Police (Miniskirt)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Biker Leather (Motorcycle Suit)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco 70s (Nightclub Outfit)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Classic S.T.A.R.S. (Resident Evil 1)");
-            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Tactical Wetsuit (Diving Suit)");
-        }
-        SendMessageW(g_hComboSkins, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
 
     if (g_hBtnInput) {
         if (lang == L"es") SetWindowTextW(g_hBtnInput, L"Editar Teclas (input.ini)");
@@ -2504,8 +2394,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 460, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        // Grupo 2: Jogabilidade, Trajes & Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay, Skins && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 498, 508, 134, hWnd, NULL, g_hInst, NULL);
+        // Grupo 2: Jogabilidade e Controles
+        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 498, 508, 96, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 32, 522, 150, 20, hWnd, NULL, g_hInst, NULL);
@@ -2513,44 +2403,39 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 520, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
         SendMessageW(g_hComboControls, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblSkins = CreateWindowW(L"STATIC", L"Jill Skin / Costume:", WS_VISIBLE | WS_CHILD, 32, 550, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblSkins, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboSkins = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 548, 324, 180, hWnd, (HMENU)ID_COMBO_SKINS, g_hInst, NULL);
-        SendMessageW(g_hComboSkins, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 584, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
+        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 554, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
         SendMessageW(g_hBtnInput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 584, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
+        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 554, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 640, 508, 98, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 604, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 664, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
+        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 626, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
         SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 686, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
+        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 648, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 708, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 670, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
         SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 746, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 712, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 746, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 712, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 794, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 760, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 794, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 760, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 834, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 800, 508, 16, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
@@ -2567,10 +2452,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Aplicar idioma ativo e preencher comboboxes
         ApplyLanguage(g_currentLang);
 
-        int aspectSel = 0;
-        if (cfg.aspect_ratio == L"16:9_pan_scan") aspectSel = 2;
-        else if (cfg.aspect_ratio == L"4:3") aspectSel = 1;
-        else aspectSel = 0;
+        int aspectSel = (cfg.aspect_ratio == L"4:3") ? 1 : 0;
         SendMessageW(g_hComboAspect, CB_SETCURSEL, aspectSel, 0);
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, cfg.fullscreen ? 1 : 0, 0);
         SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cfg.renderer == L"software") ? 1 : 0, 0);
@@ -2594,7 +2476,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         SendMessageW(g_hComboControls, CB_SETCURSEL, cfg.modern_controls ? 0 : 1, 0);
-        SendMessageW(g_hComboSkins, CB_SETCURSEL, SkinToComboIndex(cfg.jill_skin), 0);
         SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, cfg.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkPgxpTex, BM_SETCHECK, cfg.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkAntialiasing, BM_SETCHECK, cfg.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -2660,10 +2541,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             else g_currentLang = L"en";
             ApplyLanguage(g_currentLang);
             // Salvar automaticamente a preferencia de idioma
-            GameConfig cfg = GetGuiConfig();
-            SaveConfig(cfg);
-        } else if (id == ID_COMBO_SKINS && HIWORD(wParam) == CBN_SELCHANGE) {
-            // Salvar automaticamente a skin selecionada e atualizar state.toml
             GameConfig cfg = GetGuiConfig();
             SaveConfig(cfg);
         } else if (id == ID_BTN_LAUNCH) {
@@ -2814,7 +2691,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     int width = 560;
-    int height = 910;
+    int height = 865;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int posX = (screenW - width) / 2;
@@ -2823,7 +2700,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     g_hWndMain = CreateWindowExW(
         0,
         wc.lpszClassName,
-        L"Project RE: Visited - Resident Evil 3",
+        L"Project RE: Visited - Resident Evil 3 (v1.3.1)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, width, height,
         NULL, NULL, hInstance, NULL

@@ -88,8 +88,8 @@ Todas las opciones enumeradas a continuación están **100% implementadas, audit
 | **Controles Modernos 3D (360°)** | Control analógico real en el stick izquierdo con zona muerta calibrada (0.26), ángulos relativos a la cámara en tiempo real, carrera automática al inclinar más del 82% y rotación suave. La cruceta (D-Pad) mantiene 100% los controles clásicos de tanque. |
 | **Fluidez en Altas Tasas (hasta 240 FPS)** | Interpolación poligonal temporal continua (`linear blend` + `flip-aware source`) que sincroniza los modelos 3D con la tasa de refresco del monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz o Auto-Sync). |
 | **Corrección Geométrica PGXP** | Elimina la oscilación poligonal (*polygon jitter/wobble*) clásica de PS1 mediante cálculo de vértices en coma flotante sub-píxel de alta precisión. |
-| **16:9 Pan & Scan Dinámico (Estilo RE Remaster)** | Desplazamiento vertical dinámico en tiempo real idéntico al implementado por Capcom en *Resident Evil HD Remaster (2015)*. Sigue a Jill y actores 3D con corte instantáneo en cambios de cámara y proporción 1:1 perfecta (sin deformación ni bandas negras). También admite 16:9 Estirado y 4:3 Clásico Original. |
-| **Omitir Animación de Puertas / Door Skip (Versión Inestable)** | Omite las clásicas animaciones 3D de apertura de puertas y tiempos de carga, entrando de inmediato a la acción en la siguiente sala. Configurable desde el Launcher o en `settings.toml` (`fast_doors = true`). Nota: Función actualmente en desarrollo activo. |
+| **Modos de Pantalla Panorámica y Clásica** | Soporte nativo para 16:9 Panorámico Estirado (pantalla completa para monitores modernos) y 4:3 Clásico Original con bandas laterales auténticas. Configurable desde el Launcher o en `settings.toml`. |
+| **Omitir Animación de Puertas / Door Skip** | Omite las clásicas animaciones 3D de apertura de puertas y tiempos de carga, entrando de inmediato a la acción en la siguiente sala. Configurable desde el Launcher o en `settings.toml` (`fast_doors = true`). |
 | **Texturizado con Corrección de Perspectiva** | Mapeo de textura con corrección de perspectiva PGXP, eliminando distorsiones angulares en paredes y suelos. |
 | **Resolución Interna 3D Escalable** | Renderizado interno de mallas poligonales en alta definición (1080p, 1440p y 4K Ultra HD) mediante supersampling (SSAA). |
 | **Anti-Aliasing FXAA** | Filtro de postprocesamiento suave para bordes poligonales limpios y sin dientes de sierra perceptibles. |
@@ -107,7 +107,7 @@ Para preservar la estabilidad técnica y la fidelidad histórica del juego:
 
 1. **Integración Segura de Memoria Nativa (Sin Corrupción de Partidas)**: El selector de trucos interactúa directamente con los flags nativos de Capcom (`0x800D1F32` / Clear Mode) y buffers activos del jugador. No altera slots de forma destructiva, no genera armas fantasma y es 100% reversible (desmarque en cualquier momento para restaurar la experiencia original).
 2. **Sin Texture Packs**: La fidelidad visual se mejora matemáticamente mediante PGXP y SSAA sobre las texturas auténticas de 1999, respetando el tono sombrío original de Capcom.
-3. **Sin Cámara Libre 3D en Fondos Prerenderizados**: Los escenarios de *Resident Evil 3* son pinturas bidimensionales prerenderizadas en 4:3. El modo 16:9 adapta la presentación visual sin romper las colisiones invisibles del juego.
+3. **Sin Cámara Libre 3D en Fondos Prerenderizados**: Los escenarios de *Resident Evil 3* son pinturas bidimensionais prerenderizadas en 4:3. La presentación visual adapta la pantalla sin romper las colisiones invisibles del juego.
 
 ---
 
