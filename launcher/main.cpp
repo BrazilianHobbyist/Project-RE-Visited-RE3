@@ -1185,7 +1185,7 @@ void LaunchGame() {
     if (success) {
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-        ShowWindow(g_hWndMain, SW_MINIMIZE);
+        DestroyWindow(g_hWndMain);
     } else {
         std::wstring msg = (g_currentLang == L"es") ? L"No se pudo iniciar el juego.\nCompruebe que el ejecutable esté en la carpeta." :
                            (g_currentLang == L"pt-br") ? L"Não foi possível iniciar o jogo.\nVerifique se o executável está na pasta." :
@@ -2700,7 +2700,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     g_hWndMain = CreateWindowExW(
         0,
         wc.lpszClassName,
-        L"Project RE: Visited - Resident Evil 3 (v1.3.1)",
+        L"Project RE: Visited - Resident Evil 3 (v1.3.2)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, width, height,
         NULL, NULL, hInstance, NULL
