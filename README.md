@@ -88,8 +88,8 @@ Every feature listed below is **100% implemented, audited, and functional**:
 | **Built-in Setup Wizard** | Native ISO 9660 Mode 2 Form 1 sector parser. Automatically extracts the original `SLUS_009.23` executable from `.bin` / `.iso` disc images in milliseconds without external tools. |
 | **Modern 3D Controls (360°)** | True camera-relative analog motion on the left stick with calibrated deadzone (0.26), auto-run when pushing past 82%, and smooth in-place rotation. The D-Pad retains 100% authentic classic tank controls. |
 | **Smooth Motion & Interpolation (up to 240 FPS)** | Continuous temporal polygon interpolation (`linear blend` + `flip-aware source`) matching modern high-refresh displays (60Hz, 120Hz, 144Hz, 165Hz, 240Hz, or Auto-Sync). |
-| **16:9 Dynamic Pan & Scan (RE Remaster Style)** | Intelligent real-time vertical camera scroll identical to Capcom's implementation in *Resident Evil HD Remaster (2015)*. Tracks Jill and 3D actors continuously with instant snap on camera cuts and flawless 1:1 pixel squareness (zero stretching and no pillarboxing). Also supports 16:9 Stretched and 4:3 Classic Original. |
-| **Door Skipping / Instant Room Transitions (Unstable Preview)** | Bypasses the classic 3D door-opening animations and loading sequences, jumping straight into gameplay in the next room. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). Note: This feature is currently in active development. |
+| **Widescreen & Classic Aspect Ratios** | Native support for 16:9 Stretched (full widescreen display for modern monitors) and authentic 4:3 Classic Original with clean pillarboxing. Configurable via the Launcher or in `settings.toml`. |
+| **Door Skipping / Instant Room Transitions** | Bypasses the classic 3D door-opening animations and loading sequences, jumping straight into gameplay in the next room. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). |
 | **PGXP Sub-Pixel Geometry Correction** | Eliminates classic PS1 polygon wobbling and vertex jitter using high-precision floating-point vertex coordinates. |
 | **Perspective-Correct Texturing** | PGXP affine texture correction eliminates angular texture distortion and warping on walls and floors. |
 | **Scalable 3D Internal Resolution** | High-definition internal rendering (1080p, 1440p, 4K Ultra HD) via supersampling (SSAA). |
@@ -107,7 +107,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 To preserve technical stability and historical fidelity:
 1. **Safe Native Memory Integration (No Save Corruption)**: Cheats use Capcom's authentic engine flags (`0x800D1F32` / Clear Mode) and monitored active player buffers. They never corrupt item slots, never cause ghost weapons, and are 100% reversible (uncheck anytime to restore authentic vanilla gameplay).
 2. **No Texture Packs**: Backgrounds and textures remain true to the original 1999 dark gothic atmosphere; visual clarity is enhanced mathematically via PGXP and SSAA rather than AI filtering.
-3. **No Free Camera in Pre-rendered Backgrounds**: Resident Evil 3's fixed cameras are 2D artwork designed for cinematic suspense; the 16:9 mode adapts modern displays without breaking invisible collision geometry.
+3. **No Free Camera in Pre-rendered Backgrounds**: Resident Evil 3's fixed cameras are 2D artwork designed for cinematic suspense; the presentation modes adapt modern displays without breaking invisible collision geometry.
 
 ---
 
