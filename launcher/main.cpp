@@ -7,6 +7,16 @@
 #include <shellapi.h>
 #include <shlwapi.h>
 #include <gdiplus.h>
+#include <uxtheme.h>
+
+// Paleta visual do launcher (tema escuro "Raccoon City")
+static const COLORREF CLR_BG        = RGB(22, 22, 26);
+static const COLORREF CLR_TEXT      = RGB(225, 225, 230);
+static const COLORREF CLR_ACCENT    = RGB(200, 40, 40);
+static const COLORREF CLR_MUTED     = RGB(140, 140, 150);
+static const COLORREF CLR_OK        = RGB(90, 210, 110);
+static const COLORREF CLR_WARN      = RGB(240, 150, 60);
+static HBRUSH g_hBrBg = NULL;
 #include <string>
 #include <vector>
 #include <fstream>
@@ -59,7 +69,8 @@ enum ControlID {
     ID_CHK_CHEAT_MERCENARIES = 1034,
     ID_CHK_CHEAT_BOUTIQUE = 1035,
     ID_CHK_CHEAT_EPILOGUES = 1036,
-    ID_CHK_FAST_DOORS = 1037
+    ID_CHK_FAST_DOORS = 1037,
+    ID_COMBO_SKINS = 1038
 };
 
 // Global handles
@@ -67,6 +78,8 @@ HINSTANCE g_hInst = NULL;
 HWND g_hWndMain = NULL;
 HWND g_hComboLanguage = NULL;
 HWND g_hLblLanguage = NULL;
+HWND g_hLblSkins = NULL;
+HWND g_hComboSkins = NULL;
 
 // Cheats Dialog handles
 HWND g_hWndCheats = NULL;
@@ -579,6 +592,7 @@ struct GameConfig {
     bool unlock_mercenaries = false;
     bool unlock_boutique = false;
     bool unlock_epilogues = false;
+    std::wstring jill_skin = L"default";
 };
 
 GameConfig g_cachedConfig;
@@ -660,8 +674,58 @@ GameConfig LoadConfig() {
         else if (key == L"unlock_mercenaries") cfg.unlock_mercenaries = (val == L"true" || val == L"1");
         else if (key == L"unlock_boutique") cfg.unlock_boutique = (val == L"true" || val == L"1");
         else if (key == L"unlock_epilogues") cfg.unlock_epilogues = (val == L"true" || val == L"1");
+        else if (key == L"jill_skin" || key == L"skin") cfg.jill_skin = val;
     }
     return cfg;
+}
+
+int SkinToComboIndex(const std::wstring& skin) {
+    if (skin == L"default") return 0;
+    if (skin == L"bryan") return 1;
+    if (skin == L"police") return 2;
+    if (skin == L"biker") return 3;
+    if (skin == L"disco") return 4;
+    if (skin == L"regina") return 5;
+    if (skin == L"stars") return 6;
+    if (skin == L"wetsuit") return 7;
+    return 0; // Default: Jill Original
+}
+
+std::wstring ComboIndexToSkin(int idx) {
+    switch (idx) {
+        case 0: return L"default";
+        case 1: return L"bryan";
+        case 2: return L"police";
+        case 3: return L"biker";
+        case 4: return L"disco";
+        case 5: return L"regina";
+        case 6: return L"stars";
+        case 7: return L"wetsuit";
+        default: return L"default";
+    }
+}
+
+void ApplySkinState(const std::wstring& skin) {
+    // Generate state.toml for PSXRecomp mod runtime
+    std::wstring modState = L"format_version = 2\n\n[[package]]\nid = \"re3.skins.jill\"\nversion = \"1.0.0\"\n";
+    if (skin != L"default" && !skin.empty()) {
+        modState += L"\n[[feature]]\npackage_id = \"re3.skins.jill\"\nid = \"skin-" + skin + L"\"\nenabled = true\n";
+    }
+
+    std::vector<std::wstring> dirs = {
+        GetBuildDir() + L"\\mods",
+        GetProjectRootDir() + L"\\mods"
+    };
+
+    for (const auto& d : dirs) {
+        CreateDirectoryW(d.c_str(), NULL);
+        std::wstring p = d + L"\\state.toml";
+        std::wofstream sf(p.c_str());
+        if (sf.is_open()) {
+            sf << modState;
+            sf.close();
+        }
+    }
 }
 
 bool SaveConfig(const GameConfig& cfg) {
@@ -713,7 +777,9 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"all_weapons_box       = " << (cfg.all_weapons_box ? L"true" : L"false") << L"\n";
         sFile << L"unlock_mercenaries    = " << (cfg.unlock_mercenaries ? L"true" : L"false") << L"\n";
         sFile << L"unlock_boutique       = " << (cfg.unlock_boutique ? L"true" : L"false") << L"\n";
-        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n";
+        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n\n";
+        sFile << L"[skins]\n";
+        sFile << L"jill_skin             = \"" << cfg.jill_skin << L"\"\n";
         sFile.close();
     }
 
@@ -763,6 +829,7 @@ bool SaveConfig(const GameConfig& cfg) {
         outFile.close();
     }
 
+    ApplySkinState(cfg.jill_skin);
     return true;
 }
 
@@ -830,6 +897,11 @@ GameConfig GetGuiConfig() {
 
     int idxCtrl = (int)SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0);
     cfg.modern_controls = (idxCtrl == 0);
+
+    if (g_hComboSkins) {
+        int idxSkin = (int)SendMessageW(g_hComboSkins, CB_GETCURSEL, 0, 0);
+        cfg.jill_skin = ComboIndexToSkin(idxSkin);
+    }
 
     cfg.geometry_correction = (SendMessageW(g_hChkPgxpGeom, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.perspective_texturing = (SendMessageW(g_hChkPgxpTex, BM_GETCHECK, 0, 0) == BST_CHECKED);
@@ -1020,9 +1092,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hGrpInput) {
-        if (lang == L"es") SetWindowTextW(g_hGrpInput, L"  Jugabilidad y Controles  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpInput, L"  Jogabilidade && Controles  ");
-        else SetWindowTextW(g_hGrpInput, L"  Gameplay && Controls  ");
+        if (lang == L"es") SetWindowTextW(g_hGrpInput, L"  Jugabilidad, Trajes y Controles  ");
+        else if (lang == L"pt-br") SetWindowTextW(g_hGrpInput, L"  Jogabilidade, Trajes && Controles  ");
+        else SetWindowTextW(g_hGrpInput, L"  Gameplay, Skins && Controls  ");
     }
 
     if (g_hLblCtrlMode) {
@@ -1045,6 +1117,46 @@ void ApplyLanguage(const std::wstring& lang) {
             SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Classic Tank (Original Stick and D-Pad)");
         }
         SendMessageW(g_hComboControls, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
+    }
+
+    if (g_hLblSkins) {
+        if (lang == L"es") SetWindowTextW(g_hLblSkins, L"Traje / Skin Jill:");
+        else if (lang == L"pt-br") SetWindowTextW(g_hLblSkins, L"Skin / Traje da Jill:");
+        else SetWindowTextW(g_hLblSkins, L"Jill Skin / Costume:");
+    }
+
+    if (g_hComboSkins) {
+        int cur = (int)SendMessageW(g_hComboSkins, CB_GETCURSEL, 0, 0);
+        SendMessageW(g_hComboSkins, CB_RESETCONTENT, 0, 0);
+        if (lang == L"es") {
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Predeterminada)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Película Resident Evil) [Exclusivo]");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Policía R.P.D. (Minifalda)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Motorista Biker (Traje de Cuero)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco 70s (Atuendo Retro)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"S.T.A.R.S. Clásica (Resident Evil 1)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Traje de Buceo Táctico (Wetsuit)");
+        } else if (lang == L"pt-br") {
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Padrão)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Filme Resident Evil) [Exclusivo]");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Policial R.P.D. (Minissaia)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Motoqueira Biker (Couro)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco Anos 70 (Balada Retro)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"S.T.A.R.S. Clássica (Resident Evil 1)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Traje Tático de Mergulho (Wetsuit)");
+        } else {
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Jill Valentine (Original 1999 Default)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"★ Bryan (Resident Evil Movie) [Exclusive]");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"R.P.D. Police (Miniskirt)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Biker Leather (Motorcycle Suit)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Disco 70s (Nightclub Outfit)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Regina (Dino Crisis S.O.R.T.)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Classic S.T.A.R.S. (Resident Evil 1)");
+            SendMessageW(g_hComboSkins, CB_ADDSTRING, 0, (LPARAM)L"Tactical Wetsuit (Diving Suit)");
+        }
+        SendMessageW(g_hComboSkins, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
 
     if (g_hBtnInput) {
@@ -2392,8 +2504,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 460, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        // Grupo 2: Jogabilidade & Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 498, 508, 104, hWnd, NULL, g_hInst, NULL);
+        // Grupo 2: Jogabilidade, Trajes & Controles
+        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay, Skins && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 498, 508, 134, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 32, 522, 150, 20, hWnd, NULL, g_hInst, NULL);
@@ -2401,39 +2513,44 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 520, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
         SendMessageW(g_hComboControls, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 556, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
+        g_hLblSkins = CreateWindowW(L"STATIC", L"Jill Skin / Costume:", WS_VISIBLE | WS_CHILD, 32, 550, 150, 20, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hLblSkins, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+        g_hComboSkins = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 548, 324, 180, hWnd, (HMENU)ID_COMBO_SKINS, g_hInst, NULL);
+        SendMessageW(g_hComboSkins, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+
+        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 584, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
         SendMessageW(g_hBtnInput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 556, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
+        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 584, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 610, 508, 98, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 640, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 634, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
+        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 664, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
         SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 656, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
+        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 686, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 678, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 708, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
         SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 716, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 746, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 716, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 746, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 764, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 794, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 764, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 794, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 804, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 834, 508, 16, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
@@ -2477,12 +2594,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         }
 
         SendMessageW(g_hComboControls, CB_SETCURSEL, cfg.modern_controls ? 0 : 1, 0);
+        SendMessageW(g_hComboSkins, CB_SETCURSEL, SkinToComboIndex(cfg.jill_skin), 0);
         SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, cfg.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkPgxpTex, BM_SETCHECK, cfg.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkAntialiasing, BM_SETCHECK, cfg.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSkipFmv, BM_SETCHECK, cfg.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkFastDoors, BM_SETCHECK, cfg.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSpuHq, BM_SETCHECK, cfg.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
+
+        // Tema escuro: checkboxes e group boxes com visual styles ignoram
+        // WM_CTLCOLOR*, entao removemos o tema apenas desses controles.
+        EnumChildWindows(hWnd, [](HWND hChild, LPARAM) -> BOOL {
+            wchar_t cls[32] = { 0 };
+            GetClassNameW(hChild, cls, 32);
+            if (_wcsicmp(cls, L"BUTTON") == 0) {
+                LONG style = GetWindowLongW(hChild, GWL_STYLE) & BS_TYPEMASK;
+                if (style == BS_GROUPBOX || style == BS_AUTOCHECKBOX || style == BS_CHECKBOX) {
+                    SetWindowTheme(hChild, L"", L"");
+                }
+            }
+            return TRUE;
+        }, 0);
 
         break;
     }
@@ -2530,6 +2662,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // Salvar automaticamente a preferencia de idioma
             GameConfig cfg = GetGuiConfig();
             SaveConfig(cfg);
+        } else if (id == ID_COMBO_SKINS && HIWORD(wParam) == CBN_SELCHANGE) {
+            // Salvar automaticamente a skin selecionada e atualizar state.toml
+            GameConfig cfg = GetGuiConfig();
+            SaveConfig(cfg);
         } else if (id == ID_BTN_LAUNCH) {
             LaunchGame();
         } else if (id == ID_BTN_SAVE) {
@@ -2568,24 +2704,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         HDC hdcStatic = (HDC)wParam;
         HWND hwndStatic = (HWND)lParam;
         SetBkMode(hdcStatic, TRANSPARENT);
-        SetBkColor(hdcStatic, GetSysColor(COLOR_BTNFACE));
+        SetBkColor(hdcStatic, CLR_BG);
+        LONG btnType = GetWindowLongW(hwndStatic, GWL_STYLE) & BS_TYPEMASK;
+        wchar_t cls[16] = { 0 };
+        GetClassNameW(hwndStatic, cls, 16);
+        bool isButton = (_wcsicmp(cls, L"BUTTON") == 0);
         if (hwndStatic == g_hLblInstallStatus) {
             InstallStatus st = CheckInstallationStatus();
-            if (st.isFullyInstalled) {
-                SetTextColor(hdcStatic, RGB(0, 140, 20));
-            } else {
-                SetTextColor(hdcStatic, RGB(190, 80, 0));
-            }
+            SetTextColor(hdcStatic, st.isFullyInstalled ? CLR_OK : CLR_WARN);
+        } else if (isButton && btnType == BS_GROUPBOX) {
+            SetTextColor(hdcStatic, CLR_ACCENT);
+        } else if (hwndStatic == g_hLblLegalNote) {
+            SetTextColor(hdcStatic, CLR_MUTED);
         } else {
-            SetTextColor(hdcStatic, GetSysColor(COLOR_WINDOWTEXT));
+            SetTextColor(hdcStatic, CLR_TEXT);
         }
-        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        return (LRESULT)g_hBrBg;
     }
     case WM_CTLCOLORBTN: {
         HDC hdcBtn = (HDC)wParam;
         SetBkMode(hdcBtn, TRANSPARENT);
-        SetBkColor(hdcBtn, GetSysColor(COLOR_BTNFACE));
-        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+        SetBkColor(hdcBtn, CLR_BG);
+        SetTextColor(hdcBtn, CLR_TEXT);
+        return (LRESULT)g_hBrBg;
     }
     case WM_KEYDOWN: {
         if (wParam == VK_F1) {
@@ -2661,7 +2802,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursorW(NULL, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
+    g_hBrBg = CreateSolidBrush(CLR_BG);
+    wc.hbrBackground = g_hBrBg;
     wc.lpszClassName = L"RE3RecompLauncherClass";
     wc.hIcon = g_hAppIcon ? g_hAppIcon : LoadIconW(NULL, IDI_APPLICATION);
     wc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, 0);
@@ -2672,7 +2814,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     int width = 560;
-    int height = 880;
+    int height = 910;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int posX = (screenW - width) / 2;
