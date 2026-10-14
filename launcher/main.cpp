@@ -768,9 +768,10 @@ GameConfig GetGuiConfig() {
     cfg.language = g_currentLang;
 
     int idxAspect = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
-    if (idxAspect == 0) cfg.aspect_ratio = L"16:9_pan_scan";
-    else if (idxAspect == 1) cfg.aspect_ratio = L"16:9";
-    else cfg.aspect_ratio = L"4:3";
+    if (idxAspect == 0) cfg.aspect_ratio = L"16:9";
+    else if (idxAspect == 1) cfg.aspect_ratio = L"4:3";
+    else if (idxAspect == 2) cfg.aspect_ratio = L"16:9_pan_scan";
+    else cfg.aspect_ratio = L"16:9";
 
     int idxDisp = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
     cfg.fullscreen = (idxDisp == 1);
@@ -867,17 +868,17 @@ void ApplyLanguage(const std::wstring& lang) {
         int cur = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
         SendMessageW(g_hComboAspect, CB_RESETCONTENT, 0, 0);
         if (lang == L"es") {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinámico (Estilo RE Remaster)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Pantalla Completa)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Predeterminado / Estable)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clásico Original (Barras Negras Laterales)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinámico (Experimental)");
         } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinâmico (Estilo RE Remaster)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Tela Cheia Imersiva)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Padrão / Estável)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clássico Original (Tarjas Laterais)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Pan & Scan Dinâmico (Experimental)");
         } else {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Dynamic Pan & Scan (RE Remaster Style)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Full Immersive Screen)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Default / Rock Solid)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Classic Original (Side Black Bars)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Dynamic Pan & Scan (Experimental)");
         }
         SendMessageW(g_hComboAspect, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -2447,9 +2448,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         ApplyLanguage(g_currentLang);
 
         int aspectSel = 0;
-        if (cfg.aspect_ratio == L"16:9_pan_scan") aspectSel = 0;
-        else if (cfg.aspect_ratio == L"16:9") aspectSel = 1;
-        else if (cfg.aspect_ratio == L"4:3") aspectSel = 2;
+        if (cfg.aspect_ratio == L"16:9_pan_scan") aspectSel = 2;
+        else if (cfg.aspect_ratio == L"4:3") aspectSel = 1;
+        else aspectSel = 0;
         SendMessageW(g_hComboAspect, CB_SETCURSEL, aspectSel, 0);
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, cfg.fullscreen ? 1 : 0, 0);
         SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cfg.renderer == L"software") ? 1 : 0, 0);

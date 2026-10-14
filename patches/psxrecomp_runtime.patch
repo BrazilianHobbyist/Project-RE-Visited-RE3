@@ -80,7 +80,7 @@ index 2a74dd5c..ae3127dd 100644
  #elif defined(PSX_SDL3)
          if (!SDL_SetWindowFullscreen(window, true)) return -1;
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index dbd827d0..ea7eff19 100644
+index dbd827d0..8759511d 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
 @@ -50,6 +50,7 @@
@@ -160,7 +160,7 @@ index dbd827d0..ea7eff19 100644
      if (gp0_cmd_source_addr == 0xFFFFFFFFu) { s_texcorr.no_source++; return; }
      int indices[3] = { i0, i1, i2 };
      uint16_t z[3];
-@@ -4668,6 +4673,124 @@ static void raster_triangle(int32_t x0, int32_t y0,
+@@ -4668,6 +4673,80 @@ static void raster_triangle(int32_t x0, int32_t y0,
      #undef UNFP
  }
  
@@ -206,14 +206,11 @@ index dbd827d0..ea7eff19 100644
 +}
 +
 +int gpu_get_actor_vertical_centroid(void) {
-+    if (s_actor_prim_count >= 20) {
++    if (s_actor_prim_count >= 4) {
 +        s_last_valid_centroid = (int)(s_actor_y_sum / s_actor_prim_count);
 +        return s_last_valid_centroid;
 +    }
-+    if (s_gameplay_latch > 0) {
-+        return s_last_valid_centroid;
-+    }
-+    return -1;
++    return s_last_valid_centroid;
 +}
 +
 +uint64_t gpu_get_actor_prim_count(void) {
@@ -221,48 +218,7 @@ index dbd827d0..ea7eff19 100644
 +}
 +
 +int gpu_is_in_3d_gameplay(void) {
-+    extern uint8_t psx_read_byte(uint32_t addr);
-+    uint8_t max_slots = psx_read_byte(0x000D225E);
-+    if (max_slots != 8 && max_slots != 10) {
-+        s_gameplay_latch = 0;
-+        s_no_actor_frames = 0;
-+        return 0;
-+    }
-+
-+    uint8_t cur_room = psx_read_byte(0x000D1F09);
-+    uint8_t cur_cut  = psx_read_byte(0x000D1F0A);
-+
-+    if (s_actor_prim_count >= 20 || (ws_gte_count >= 25 && ws_gte_prev_verts >= 25)) {
-+        s_gameplay_latch = 45;
-+        s_no_actor_frames = 0;
-+        s_gpu_last_room = cur_room;
-+        s_gpu_last_cut  = cur_cut;
-+        return 1;
-+    }
-+
-+    /* Keep gameplay active during dialogues, door messages, or Live Selection */
-+    if (s_msg_box_countdown > 0) {
-+        s_gameplay_latch = 25;
-+        s_no_actor_frames = 0;
-+        return 1;
-+    }
-+
-+    /* Camera cut or door load transition: preserve the 45-frame latch */
-+    if (cur_room != s_gpu_last_room || cur_cut != s_gpu_last_cut) {
-+        s_no_actor_frames = 0;
-+        return (s_gameplay_latch > 0) ? 1 : 0;
-+    }
-+
-+    /* In the same room and camera cut: Jill is always present during gameplay.
-+     * If Jill disappears for > 3 consecutive frames, player opened a menu/inventory/status.
-+     * Immediately drop latch so menu displays in clean 4:3 without delay or morphing! */
-+    s_no_actor_frames++;
-+    if (s_no_actor_frames > 3) {
-+        s_gameplay_latch = 0;
-+        return 0;
-+    }
-+
-+    return (s_gameplay_latch > 0) ? 1 : 0;
++    return 1;
 +}
 +
 +int gpu_is_message_box_active(void) {
@@ -285,7 +241,7 @@ index dbd827d0..ea7eff19 100644
  /* Execute mono triangle (GP0 0x20-0x23) */
  static void gp0_exec_mono_tri(void) {
      int semi_trans = (gp0_cmd_buf[0] >> 25) & 1;
-@@ -4993,6 +5116,7 @@ static void gp0_exec_textured_tri(void) {
+@@ -4993,6 +5072,7 @@ static void gp0_exec_textured_tri(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 3)) return;
@@ -293,7 +249,7 @@ index dbd827d0..ea7eff19 100644
  
      setup_textured_draw(color24, semi_trans, raw_texture);
      prepare_precise_triangle(1, 3, 5,
-@@ -5064,6 +5188,9 @@ static void gp0_exec_textured_quad(void) {
+@@ -5064,6 +5144,9 @@ static void gp0_exec_textured_quad(void) {
              pgxp_note_rect_bypass(0);
          }
      }
@@ -303,7 +259,7 @@ index dbd827d0..ea7eff19 100644
      if (as_rect) {
          int x = vx[0] < vx[1] ? vx[0] : vx[1];
          int y = vy[0] < vy[2] ? vy[0] : vy[2];
-@@ -5141,6 +5268,7 @@ static void gp0_exec_shaded_textured_tri(void) {
+@@ -5141,6 +5224,7 @@ static void gp0_exec_shaded_textured_tri(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 3)) return;
@@ -311,7 +267,7 @@ index dbd827d0..ea7eff19 100644
  
      uint16_t host_bank = mod_texture_packet_bank(gp0_cmd_source_addr, gp0_cmd_buf, 9u);
      if (host_bank && (gr_backend() != GR_BACKEND_OPENGL ||
-@@ -5212,6 +5340,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+@@ -5212,6 +5296,7 @@ static void gp0_exec_shaded_textured_quad(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 4)) return;
@@ -319,7 +275,7 @@ index dbd827d0..ea7eff19 100644
  
      gr_set_semi_transparency(semi_trans, (int)semi_transparency);
      if (!rej_a) {
-@@ -5298,6 +5427,12 @@ static void gp0_exec_mono_rect(void) {
+@@ -5298,6 +5383,12 @@ static void gp0_exec_mono_rect(void) {
      int h = (gp0_cmd_buf[2] >> 16) & 0xFFFFu;
      if (w > 1023) w = 1023;
      if (h > 511)  h = 511;
@@ -332,7 +288,7 @@ index dbd827d0..ea7eff19 100644
      if (ws_local_viewport_divider(x0, y0, x0 + w, y0 + h, color, semi_trans)) {
          gr_wide_disable_target();
          gr_set_semi_transparency(0, (int)semi_transparency);
-@@ -5365,6 +5500,12 @@ static void gp0_exec_textured_rect(void) {
+@@ -5365,6 +5456,12 @@ static void gp0_exec_textured_rect(void) {
      int h = (gp0_cmd_buf[3] >> 16) & 0x1FF;
      if (w > 1023) w = 1023;
      if (h > 511)  h = 511;
@@ -345,7 +301,7 @@ index dbd827d0..ea7eff19 100644
      ws_clear_tagged_rect_reveal(y0 + draw_offset_y, h);
  
      /* Widescreen: tagged sprite parts squash around their projected anchor;
-@@ -5442,6 +5583,11 @@ static void gp0_exec_textured_8x8(void) {
+@@ -5442,6 +5539,11 @@ static void gp0_exec_textured_8x8(void) {
      int raw_texture = (gp0_cmd_buf[0] >> 24) & 1;
      int32_t x0, y0;
      parse_vertex(gp0_cmd_buf[1], &x0, &y0);
@@ -357,7 +313,7 @@ index dbd827d0..ea7eff19 100644
      int ws_w = ws_sprt_fixed_transform(&x0, y0, 8);
      x0 += ws_nw_hud_shift(x0, 8);   /* native-wide HUD corner re-anchor (no-op else) */
      x0 += draw_offset_x; y0 += draw_offset_y;
-@@ -5487,6 +5633,11 @@ static void gp0_exec_textured_16x16(void) {
+@@ -5487,6 +5589,11 @@ static void gp0_exec_textured_16x16(void) {
      int raw_texture = (gp0_cmd_buf[0] >> 24) & 1;
      int32_t x0, y0;
      parse_vertex(gp0_cmd_buf[1], &x0, &y0);
@@ -370,7 +326,7 @@ index dbd827d0..ea7eff19 100644
       * classifier cannot distinguish an authored layer entering the reveal from
       * a stale ring slot; suppressing here caused the stage-start black flicker. */
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index 09fca3e0..89722769 100644
+index 09fca3e0..727fa305 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
 @@ -94,6 +94,7 @@
@@ -483,11 +439,11 @@ index 09fca3e0..89722769 100644
 +
 +/* Dynamic Pan & Scan vertical camera scroll (Capcom RE HD Remaster 2015 style) */
 +static int     s_pan_scan_enabled = 0;
-+static int     s_pan_scan_height = 196;          /* Default: 196 (Balanced). 180 = Full 16:9 */
-+static float   s_pan_scan_deadzone = 16.0f;       /* Vertical deadzone in pixels to eliminate footstep bobbing */
-+static float   s_pan_scan_speed = 0.10f;          /* Responsive exponential camera tracking rate (10% per frame) */
++static int     s_pan_scan_height = 180;          /* Default: 180 (Full 16:9). 196 = Balanced */
++static float   s_pan_scan_deadzone = 4.0f;       /* Vertical deadzone in pixels to eliminate footstep bobbing */
++static float   s_pan_scan_speed = 0.12f;         /* Responsive exponential camera tracking rate (12% per frame) */
 +
-+static float   s_pan_scan_cur_y = 22.0f;
++static float   s_pan_scan_cur_y = 30.0f;
 +static uint8_t s_pan_scan_last_room = 0xFF;
 +static uint8_t s_pan_scan_last_cut  = 0xFF;
 +static int     s_pan_scan_has_last = 0;
@@ -607,16 +563,14 @@ index 09fca3e0..89722769 100644
          s_last_present_path == GL_PRES_VRAM &&
          s_last_dx == disp_x && s_last_dy == disp_y &&
          s_last_dw == w && s_last_dh == h &&
-@@ -7641,12 +7737,112 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7641,12 +7737,99 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
          return;
      }
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
 +
 +    int use_disp_y = disp_y;
 +    int use_h = h;
-+    extern int gpu_is_in_3d_gameplay(void);
-+    int in_gameplay = gpu_is_in_3d_gameplay();
-+    int pan_active = s_pan_scan_enabled && in_gameplay && (w >= 280 && w <= 360) && (h >= 200 && h <= 260);
++    int pan_active = s_pan_scan_enabled && !force_4_3 && (w >= 280 && w <= 360) && (h >= 200 && h <= 260);
 +    if (pan_active) {
 +        int pan_h = s_pan_scan_height;
 +        if (pan_h < 160) pan_h = 160;
@@ -635,6 +589,8 @@ index 09fca3e0..89722769 100644
 +            s_pan_scan_cut_pending = 1;
 +            s_pan_scan_cut_wait_frames = 0;
 +        } else if (cur_room != s_pan_scan_last_room || cur_cut != s_pan_scan_last_cut) {
++            s_pan_scan_last_room = cur_room;
++            s_pan_scan_last_cut  = cur_cut;
 +            s_pan_scan_cut_pending = 1;
 +            s_pan_scan_cut_wait_frames = 0;
 +        }
@@ -645,52 +601,38 @@ index 09fca3e0..89722769 100644
 +        extern int gpu_is_message_box_active(void);
 +        int msg_active = gpu_is_message_box_active();
 +
++        float target_y = (float)max_pan_y / 2.0f;
 +        if (msg_active) {
 +            /* Dialogue, interaction prompt, subtitle or Live Selection active:
 +             * Immediately frame down to the bottom safe zone so all choices,
 +             * countdown timer, and message text are 100% visible and uncropped! */
-+            float target_y = (float)max_pan_y;
-+            if (s_pan_scan_cut_pending) {
++            target_y = (float)max_pan_y;
++        } else if (centroid >= 0) {
++            target_y = (float)(centroid - (pan_h / 2));
++            if (target_y < 0.0f) target_y = 0.0f;
++            if (target_y > (float)max_pan_y) target_y = (float)max_pan_y;
++        } else {
++            target_y = s_pan_scan_cur_y;
++        }
++
++        if (s_pan_scan_cut_pending) {
++            if (cur_prim_count >= 4 || s_pan_scan_cut_wait_frames > 15) {
 +                s_pan_scan_cur_y = target_y;
-+                s_pan_scan_last_room = cur_room;
-+                s_pan_scan_last_cut  = cur_cut;
 +                s_pan_scan_cut_pending = 0;
++                s_pan_scan_cut_wait_frames = 0;
 +            } else {
-+                float diff = target_y - s_pan_scan_cur_y;
-+                float step = diff * 0.25f;
++                s_pan_scan_cut_wait_frames++;
++            }
++        } else {
++            float diff = target_y - s_pan_scan_cur_y;
++            float dz = (s_pan_scan_deadzone >= 0.0f) ? s_pan_scan_deadzone : 4.0f;
++            if (fabsf(diff) > dz) {
++                float desired_y = (diff > 0.0f) ? (target_y - dz) : (target_y + dz);
++                float step = (desired_y - s_pan_scan_cur_y) * (s_pan_scan_speed > 0.0f ? s_pan_scan_speed : 0.12f);
 +                if (fabsf(step) > 0.02f) {
 +                    s_pan_scan_cur_y += step;
 +                } else {
-+                    s_pan_scan_cur_y = target_y;
-+                }
-+            }
-+        } else if (centroid >= 0) {
-+            float raw_target_y = (float)(centroid - (pan_h / 2));
-+            if (raw_target_y < 0.0f) raw_target_y = 0.0f;
-+            if (raw_target_y > (float)max_pan_y) raw_target_y = (float)max_pan_y;
-+
-+            if (s_pan_scan_cut_pending) {
-+                s_pan_scan_cut_wait_frames++;
-+                /* Only snap to the new camera angle once the new angle has ACTUALLY rendered Jill's 3D model!
-+                 * This prevents snapping to stale centroids from the previous angle or lerping into the new view. */
-+                if (cur_prim_count >= 20 || s_pan_scan_cut_wait_frames > 30) {
-+                    s_pan_scan_cur_y = raw_target_y;
-+                    s_pan_scan_last_room = cur_room;
-+                    s_pan_scan_last_cut  = cur_cut;
-+                    s_pan_scan_cut_pending = 0;
-+                }
-+            } else {
-+                /* Relative deadzone tracking directly against CURRENT camera position.
-+                 * When Jill is within the deadzone: delta is 0 -> rock-solid, ZERO drift!
-+                 * When Jill moves outside the deadzone: smooth exponential tracking. */
-+                float diff = raw_target_y - s_pan_scan_cur_y;
-+                if (fabsf(diff) > s_pan_scan_deadzone) {
-+                    float desired_y = (diff > 0.0f) ? (raw_target_y - s_pan_scan_deadzone)
-+                                                    : (raw_target_y + s_pan_scan_deadzone);
-+                    float step = (desired_y - s_pan_scan_cur_y) * s_pan_scan_speed;
-+                    if (fabsf(step) > 0.02f) {
-+                        s_pan_scan_cur_y += step;
-+                    }
++                    s_pan_scan_cur_y = desired_y;
 +                }
 +            }
 +        }
@@ -711,22 +653,23 @@ index 09fca3e0..89722769 100644
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
 -    if (force_4_3)
-+    if (pan_active) {
-+        letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
-+    } else if (force_4_3 && !s_aspect_stretch)
++    if (force_4_3) {
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
-     else
--        letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-+        letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+-    else
++    } else if (pan_active) {
++        letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++    } else {
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
++    }
 +
      /* No short-band adjustment on the 15-bit FBO path: a game's native short
       * display mode (e.g. 216/224-line menus) must fill the rect as before.
       * The FMV band fix lives in the depth24/CPU present paths only. */
-@@ -7675,26 +7871,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7675,26 +7858,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      if (lx != 0 || ly != 0 || lw != ww || lh != wh) {
          glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
      }
-+    int eff_force_4_3 = s_pan_scan_enabled ? (pan_active ? 0 : 1) : force_4_3;
++    int eff_force_4_3 = force_4_3;
      int interp_pair = interp_capture(
 -        interp_fbo, src_x, disp_y, w, h, linear, force_4_3, GL_PRES_VRAM,
 -        disp_x, disp_y,
@@ -757,7 +700,7 @@ index 09fca3e0..89722769 100644
      gpu_timeline_note(GTL_PRESENT, GTL_PATH_VRAM_FBO,
                        (uint32_t)disp_x | ((uint32_t)disp_y << 16));
      hold_capture_drawable();
-@@ -7706,7 +7904,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7706,7 +7891,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      present_dirty_rect(disp_x, disp_y, disp_x + w - 1, disp_y + h - 1, 0);
      present_force_consumed();
      s_last_present_path = GL_PRES_VRAM;
