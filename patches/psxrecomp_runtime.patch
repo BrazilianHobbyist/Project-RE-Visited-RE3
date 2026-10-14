@@ -326,7 +326,7 @@ index dbd827d0..8759511d 100644
       * classifier cannot distinguish an authored layer entering the reveal from
       * a stale ring slot; suppressing here caused the stage-start black flicker. */
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index 09fca3e0..727fa305 100644
+index 09fca3e0..047619c5 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
 @@ -94,6 +94,7 @@
@@ -518,21 +518,18 @@ index 09fca3e0..727fa305 100644
      }
      /* This is the low-res source path (24-bit FMV, and the forced-CPU present
       * diagnostic): a 320x192-class image blown up to fill the window, so how it
-@@ -5928,7 +6011,12 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
+@@ -5928,7 +6011,9 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
      uint64_t present_t0 = SDL_GetPerformanceCounter();
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
 -    if (s_interp_force_4_3)
 +    if (s_pan_scan_enabled) {
-+        if (s_interp_force_4_3)
-+            letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
-+        else
-+            letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++        letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
 +    } else if (s_interp_force_4_3 && !s_aspect_stretch)
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -7475,6 +7563,8 @@ static void present_target_quad(GLuint tex, int tex_w, int tex_h,
+@@ -7475,6 +7560,8 @@ static void present_target_quad(GLuint tex, int tex_w, int tex_h,
      } else {
          present_set_sharp(0, 0, 0, 0, 0);
      }
@@ -541,21 +538,18 @@ index 09fca3e0..727fa305 100644
      /* Scanline at the native line grid. v_uv is normalized against tex_h (the
       * full VRAM/FBO texture), and one texel row is one PS1 scanline, so tex_h is
       * the phase pitch; h is the displayed line count for the output-scale gate.
-@@ -7598,7 +7688,12 @@ int gl_renderer_present_hold_last(void) {
+@@ -7598,7 +7685,9 @@ int gl_renderer_present_hold_last(void) {
          present_target_quad(s_hold_tex, s_hold_tw, s_hold_th,
                              0, 0, s_hold_tw, s_hold_th, 0, lx, ly, lw, lh, 0, 0, 1);
      } else {
 -        if (s_hold_force_4_3)
 +        if (s_pan_scan_enabled) {
-+            if (s_hold_force_4_3)
-+                letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
-+            else
-+                letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++            letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
 +        } else if (s_hold_force_4_3 && !s_aspect_stretch)
              letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
          else
              letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -7626,6 +7721,7 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7626,6 +7715,7 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      flush_cpu_upload();
      if (stereo_present(w, h)) return;
      if (!s_native_surface_enabled && s_force_present_remaining <= 0 &&
@@ -563,14 +557,14 @@ index 09fca3e0..727fa305 100644
          s_last_present_path == GL_PRES_VRAM &&
          s_last_dx == disp_x && s_last_dy == disp_y &&
          s_last_dw == w && s_last_dh == h &&
-@@ -7641,12 +7737,99 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7641,12 +7731,99 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
          return;
      }
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
 +
 +    int use_disp_y = disp_y;
 +    int use_h = h;
-+    int pan_active = s_pan_scan_enabled && !force_4_3 && (w >= 280 && w <= 360) && (h >= 200 && h <= 260);
++    int pan_active = s_pan_scan_enabled && (w >= 280 && w <= 360) && (h >= 200 && h <= 260);
 +    if (pan_active) {
 +        int pan_h = s_pan_scan_height;
 +        if (pan_h < 160) pan_h = 160;
@@ -653,11 +647,11 @@ index 09fca3e0..727fa305 100644
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
 -    if (force_4_3)
-+    if (force_4_3) {
++    if (s_pan_scan_enabled) {
++        letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++    } else if (force_4_3 && !s_aspect_stretch) {
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
 -    else
-+    } else if (pan_active) {
-+        letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
 +    } else {
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
 +    }
@@ -665,11 +659,11 @@ index 09fca3e0..727fa305 100644
      /* No short-band adjustment on the 15-bit FBO path: a game's native short
       * display mode (e.g. 216/224-line menus) must fill the rect as before.
       * The FMV band fix lives in the depth24/CPU present paths only. */
-@@ -7675,26 +7858,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7675,26 +7852,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      if (lx != 0 || ly != 0 || lw != ww || lh != wh) {
          glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
      }
-+    int eff_force_4_3 = force_4_3;
++    int eff_force_4_3 = s_pan_scan_enabled ? 0 : force_4_3;
      int interp_pair = interp_capture(
 -        interp_fbo, src_x, disp_y, w, h, linear, force_4_3, GL_PRES_VRAM,
 -        disp_x, disp_y,
@@ -700,7 +694,7 @@ index 09fca3e0..727fa305 100644
      gpu_timeline_note(GTL_PRESENT, GTL_PATH_VRAM_FBO,
                        (uint32_t)disp_x | ((uint32_t)disp_y << 16));
      hold_capture_drawable();
-@@ -7706,7 +7891,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7706,7 +7885,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      present_dirty_rect(disp_x, disp_y, disp_x + w - 1, disp_y + h - 1, 0);
      present_force_consumed();
      s_last_present_path = GL_PRES_VRAM;
@@ -711,7 +705,7 @@ index 09fca3e0..727fa305 100644
  }
  
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 77907729..f331c71d 100644
+index 77907729..62124d29 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1390,7 +1390,7 @@ extern "C" int psx_presentation_fast_forward(void) {
@@ -779,7 +773,7 @@ index 77907729..f331c71d 100644
          p.rumble_known = false;
          p.rumble_warned = false;
      }
-@@ -5215,6 +5216,467 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5215,6 +5216,480 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -1138,6 +1132,8 @@ index 77907729..f331c71d 100644
 +    std::ifstream f(path);
 +    if (!f.is_open()) return;
 +    std::string line;
++    std::string setting_aspect_ratio;
++    int setting_pan_scan = -1;
 +    while (std::getline(f, line)) {
 +        size_t first = line.find_first_not_of(" \t\r\n");
 +        if (first == std::string::npos || line[first] == '#') continue;
@@ -1177,8 +1173,7 @@ index 77907729..f331c71d 100644
 +            gl_renderer_set_aspect_stretch(stretch);
 +        }
 +        else if (key == "pan_scan") {
-+            int ps = (val == "true" || val == "1") ? 1 : 0;
-+            gl_renderer_set_pan_scan(ps);
++            setting_pan_scan = (val == "true" || val == "1") ? 1 : 0;
 +        }
 +        else if (key == "pan_scan_height" || key == "pan_scan_crop_height") {
 +            int h = std::atoi(val.c_str());
@@ -1193,15 +1188,7 @@ index 77907729..f331c71d 100644
 +            if (spd >= 0.01f && spd <= 0.3f) gl_renderer_set_pan_scan_speed(spd);
 +        }
 +        else if (key == "aspect_ratio") {
-+            if (val.find("pan_scan_balanced") != std::string::npos) {
-+                gl_renderer_set_pan_scan(1);
-+                gl_renderer_set_pan_scan_height(196);
-+            } else if (val.find("pan_scan") != std::string::npos) {
-+                gl_renderer_set_pan_scan(1);
-+                gl_renderer_set_pan_scan_height(180);
-+            } else {
-+                gl_renderer_set_pan_scan(0);
-+            }
++            setting_aspect_ratio = val;
 +        }
 +        else if (key == "frame_interpolation_blend") {
 +            if (val == "motion_adaptive" || val == "1") {
@@ -1231,6 +1218,26 @@ index 77907729..f331c71d 100644
 +        }
 +    }
 +
++    int pan_scan_enabled = 0;
++    int pan_scan_h = 180;
++    if (setting_aspect_ratio.find("pan_scan_balanced") != std::string::npos) {
++        pan_scan_enabled = 1;
++        pan_scan_h = 196;
++    } else if (setting_aspect_ratio.find("pan_scan") != std::string::npos) {
++        pan_scan_enabled = 1;
++        pan_scan_h = 180;
++    }
++    if (setting_pan_scan != -1) {
++        pan_scan_enabled = setting_pan_scan;
++    }
++    gl_renderer_set_pan_scan(pan_scan_enabled);
++    if (pan_scan_enabled) {
++        gl_renderer_set_pan_scan_height(pan_scan_h);
++    }
++    std::fprintf(stdout, "psxrecomp: [Video] aspect_ratio=%s, pan_scan=%d (height=%d)\n",
++                 setting_aspect_ratio.empty() ? "default" : setting_aspect_ratio.c_str(),
++                 pan_scan_enabled, gl_renderer_get_pan_scan() ? pan_scan_h : 0);
++
 +    if (g_fast_doors) {
 +        g_turbo_loads_enabled = 1;
 +        g_turbo_load_release_frames = 90;
@@ -1247,7 +1254,7 @@ index 77907729..f331c71d 100644
  /* Build the active-low PSX button word from a controller's input.ini map. When
   * suppress_stick_axes is set (the pad is presenting as analog this frame), the
   * left/right analog-stick axes do NOT contribute button bits — see
-@@ -5229,6 +5691,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5229,6 +5704,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
      for (const auto& entry : map) {
          for (const auto& source : entry.sources) {
              if (suppress_stick_axes && source_is_stick_axis(source)) continue;
@@ -1258,7 +1265,7 @@ index 77907729..f331c71d 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5237,6 +5703,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5237,6 +5716,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -1319,7 +1326,7 @@ index 77907729..f331c71d 100644
      return buttons;
  }
  
-@@ -6764,6 +7284,8 @@ static void depth24_cutover_tick(int depth24) {
+@@ -6764,6 +7297,8 @@ static void depth24_cutover_tick(int depth24) {
   *
   * Optional short cutover blank: full-frame black for 1–2 presents on movie
   * start / long idle resume only (see depth24_cutover_tick). */
@@ -1328,7 +1335,7 @@ index 77907729..f331c71d 100644
  static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
                                            uint32_t display_x) {
      if (!buf || w < 8u || h == 0u) return;
-@@ -6776,14 +7298,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+@@ -6776,14 +7311,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
          return;
      }
  
@@ -1357,7 +1364,7 @@ index 77907729..f331c71d 100644
      for (uint32_t y = 0; y < h; y++) {
          for (uint32_t x = start; x < w; x++)
              buf[y * w + x] = 0xFF000000u;
-@@ -6799,6 +7330,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
+@@ -6799,6 +7343,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
      if (!di || !buf || w == 0u || di->screen_height == 0u)
          return;
  
@@ -1371,7 +1378,7 @@ index 77907729..f331c71d 100644
      const size_t count = (size_t)w * di->screen_height;
      for (size_t i = 0; i < count; i++)
          buf[i] = 0xFF000000u;
-@@ -7410,6 +7948,17 @@ static bool drain_host_events() {
+@@ -7410,6 +7961,17 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -1389,7 +1396,7 @@ index 77907729..f331c71d 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -7840,6 +8389,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7840,6 +8402,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -1397,7 +1404,7 @@ index 77907729..f331c71d 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -8175,7 +8725,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8175,7 +8738,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * from the displayed buffer's surface. FMV/menu frames stay 4:3. */
          bool wide_present = (!fmv_frame && !di.depth24 && g_ws_engaged &&
                               ws_native_wide_active() && gr_wide_supported() &&
@@ -1407,7 +1414,7 @@ index 77907729..f331c71d 100644
          if (wide_present) {
              present_w = local_viewport_wide
                  ? (uint32_t)gpu_ws_netplay_local_viewport_width()
-@@ -8247,6 +8798,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8247,6 +8811,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -1415,7 +1422,7 @@ index 77907729..f331c71d 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -8438,9 +8990,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8438,9 +9003,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * right-edge jump the old comment describes is 0 with filtering on.
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
@@ -1427,7 +1434,7 @@ index 77907729..f331c71d 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -8481,11 +9034,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8481,11 +9047,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -1442,7 +1449,7 @@ index 77907729..f331c71d 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -14214,9 +14768,9 @@ namespace {
+@@ -14214,9 +14781,9 @@ namespace {
  #endif
  
  int main(int argc, char** argv) {
@@ -1455,7 +1462,7 @@ index 77907729..f331c71d 100644
      std::fprintf(stderr, "psxrecomp: main() entered\n");
      std::fflush(stderr);
  #if defined(RECOMP_LAUNCHER)
-@@ -14463,11 +15017,7 @@ int main(int argc, char** argv) {
+@@ -14463,11 +15030,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1467,7 +1474,7 @@ index 77907729..f331c71d 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -14478,8 +15028,8 @@ int main(int argc, char** argv) {
+@@ -14478,8 +15041,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -1478,7 +1485,7 @@ index 77907729..f331c71d 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -15141,20 +15691,10 @@ int main(int argc, char** argv) {
+@@ -15141,20 +15704,10 @@ int main(int argc, char** argv) {
                                        "(must be a number > 0 and <= 8)\n", fov_env);
          }
          if (us.has_auto_skip_fmv)  g_auto_skip_fmv   = us.auto_skip_fmv ? 1 : 0;
@@ -1503,7 +1510,7 @@ index 77907729..f331c71d 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -15254,6 +15794,22 @@ int main(int argc, char** argv) {
+@@ -15254,6 +15807,22 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1526,7 +1533,7 @@ index 77907729..f331c71d 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -15284,14 +15840,9 @@ int main(int argc, char** argv) {
+@@ -15284,14 +15853,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1543,7 +1550,7 @@ index 77907729..f331c71d 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -15301,20 +15852,13 @@ int main(int argc, char** argv) {
+@@ -15301,20 +15865,13 @@ int main(int argc, char** argv) {
       * the final mod-plan commit. */
      if (g_turbo_loads_enabled) {
          std::fprintf(stdout,
@@ -1567,7 +1574,7 @@ index 77907729..f331c71d 100644
      }
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
-@@ -15348,6 +15892,21 @@ int main(int argc, char** argv) {
+@@ -15348,6 +15905,21 @@ int main(int argc, char** argv) {
          int fps = atoi(e);
          if (fps == 0 || fps >= 90) g_frame_interpolation_fps = fps;
      }
@@ -1589,7 +1596,7 @@ index 77907729..f331c71d 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -17250,21 +17809,19 @@ session_reboot:
+@@ -17250,21 +17822,19 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");

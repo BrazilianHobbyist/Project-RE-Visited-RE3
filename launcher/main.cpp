@@ -621,6 +621,9 @@ GameConfig LoadConfig() {
             else cfg.language = L"en";
         }
         else if (key == L"aspect_ratio") cfg.aspect_ratio = val;
+        else if (key == L"pan_scan") {
+            if (val == L"true" || val == L"1") cfg.aspect_ratio = L"16:9_pan_scan";
+        }
         else if (key == L"fullscreen") {
             cfg.fullscreen = (val == L"1" || val == L"2" || val == L"true");
         }
