@@ -1,0 +1,50 @@
+--- a/generated/SLUS_009.23_full_01.c
++++ b/generated/SLUS_009.23_full_01.c
+@@ -17706,7 +17706,8 @@ block_80016160:
+ #ifdef PSX_COSIM
+     cosim_instr(0x80016164u);
+ #endif
+-    if (_bc_80016160) {
++    extern int g_fast_doors;
++    if (_bc_80016160 || g_fast_doors) {
+ #ifdef PSX_ENABLE_BLOCK_CYCLES
+         psx_cyc_bb_defer_flush();
+ #endif
+@@ -17853,8 +17854,9 @@ block_80016178:
+ #ifdef PSX_ENABLE_BLOCK_CYCLES
+     psx_cyc_step(cpu, 0x5u);
+ #endif
+-    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = 16;
+-    PGXP_ALU(0x24020010u, cpu->gpr[2], _pgx1, 0x00000010u); }  /* 0x80016190: 0x24020010 */
++    extern int g_fast_doors;
++    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = g_fast_doors ? 5 : 16;
++    PGXP_ALU(0x24020010u, cpu->gpr[2], _pgx1, (uint32_t)cpu->gpr[2]); }  /* 0x80016190: 0x24020010 */
+ #ifdef PSX_COSIM
+     cosim_instr(0x80016190u);
+ #endif
+--- a/generated/SLUS_009.23_full_31.c
++++ b/generated/SLUS_009.23_full_31.c
+@@ -32693,8 +32693,9 @@ block_8006FEF0:
+ #ifdef PSX_ENABLE_BLOCK_CYCLES
+     psx_cyc_step(cpu, 0x5u);
+ #endif
+-    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = 8;
+-    PGXP_ALU(0x24020008u, cpu->gpr[2], _pgx1, 0x00000008u); }  /* 0x8006FEF0: 0x24020008 */
++    extern int g_fast_doors;
++    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = g_fast_doors ? 4 : 8;
++    PGXP_ALU(0x24020008u, cpu->gpr[2], _pgx1, (uint32_t)cpu->gpr[2]); }  /* 0x8006FEF0: 0x24020008 */
+ #ifdef PSX_COSIM
+     cosim_instr(0x8006FEF0u);
+ #endif
+@@ -33200,8 +33201,9 @@ block_8006FF8C:
+ #ifdef PSX_ENABLE_BLOCK_CYCLES
+     psx_cyc_step(cpu, 0x5u);
+ #endif
+-    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = 8;
+-    PGXP_ALU(0x24020008u, cpu->gpr[2], _pgx1, 0x00000008u); }  /* 0x8006FF8C: 0x24020008 */
++    extern int g_fast_doors;
++    { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = g_fast_doors ? 4 : 8;
++    PGXP_ALU(0x24020008u, cpu->gpr[2], _pgx1, (uint32_t)cpu->gpr[2]); }  /* 0x8006FF8C: 0x24020008 */
+ #ifdef PSX_COSIM
+     cosim_instr(0x8006FF8Cu);
+ #endif

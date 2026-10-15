@@ -32,7 +32,7 @@ strict = true
 [runtime]
 window_title = "Project RE: Visited - Resident Evil 3"
 memcard_dir = "saves"
-controller = "digital"
+controller = "dualshock"
 overlay_cache = true
 idle_skip = false
 bios_hle = false
@@ -50,7 +50,7 @@ auto_skip_fmv = false
 native_wide = false
 
 [controller]
-default_mode = "digital"
+default_mode = "analog"
 default_p1_device = "auto"
 
 [netplay]
