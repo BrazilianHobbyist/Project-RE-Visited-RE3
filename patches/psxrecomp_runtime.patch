@@ -705,7 +705,7 @@ index 09fca3e0..047619c5 100644
  }
  
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 77907729..62124d29 100644
+index 77907729..2b6348cf 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1390,7 +1390,7 @@ extern "C" int psx_presentation_fast_forward(void) {
@@ -765,7 +765,7 @@ index 77907729..62124d29 100644
      return 0;
  }
  
-@@ -5022,6 +5022,7 @@ static void open_player(PlayerInput& p, int self_slot) {
+@@ -5022,11 +5022,14 @@ static void open_player(PlayerInput& p, int self_slot) {
          const char* name = SDL_GameControllerName(p.handle);
          std::fprintf(stdout, "psxrecomp runtime: opened controller for slot: %s\n",
                       name ? name : "(unnamed)");
@@ -773,7 +773,85 @@ index 77907729..62124d29 100644
          p.rumble_known = false;
          p.rumble_warned = false;
      }
-@@ -5215,6 +5216,480 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+ }
+ 
++static float g_rumble_intensity = 2.0f; /* 1.0 = baseline, 2.0 = strong (default) */
++
+ /* Forward the emulated DualShock's two motors to the SDL controller assigned
+  * to the same PSX port. The large motor is variable-strength/low-frequency;
+  * the small motor is fixed-strength/high-frequency. Active effects are renewed
+@@ -5051,17 +5054,42 @@ static void update_controller_rumble(void) {
+         const bool changed = !p.rumble_known || p.rumble_small != small ||
+                              p.rumble_large != large;
+         if (small || large || (changed && p.rumble_known)) {
+-            const Uint16 low_frequency = (Uint16)((unsigned)large * 257u);
+-            const Uint16 high_frequency = small ? 0xFFFFu : 0u;
+-#if defined(PSX_SDL3)
+-            const int rc = SDL_GameControllerRumble(
+-                p.handle, low_frequency, high_frequency,
+-                (small || large) ? 100u : 0u) ? 0 : -1;
+-#else
++            Uint16 low_frequency = 0;
++            Uint16 high_frequency = 0;
++
++            if (small || large) {
++                float intensity = g_rumble_intensity;
++                if (intensity < 0.0f) intensity = 0.0f;
++
++                // Heavy motor (low-frequency):
++                // Modern controller weights need a solid floor and boosted curve
++                float low_val = 0.0f;
++                if (large > 0) {
++                    float norm = (float)large / 255.0f;
++                    low_val = (22000.0f + norm * 43535.0f) * (intensity / 1.5f);
++                }
++                // When small motor fires (e.g. handgun, quick hits), add punch to the heavy motor too
++                if (small > 0) {
++                    float small_kick = 32000.0f * (intensity / 1.5f);
++                    if (small_kick > low_val) low_val = small_kick;
++                }
++                if (low_val > 65535.0f) low_val = 65535.0f;
++                low_frequency = (Uint16)low_val;
++
++                // Light motor (high-frequency)
++                float high_val = 0.0f;
++                if (small > 0) {
++                    high_val = 65535.0f * (intensity >= 1.0f ? 1.0f : intensity);
++                } else if (large > 0) {
++                    high_val = ((float)large / 255.0f) * 55000.0f * (intensity / 1.5f);
++                }
++                if (high_val > 65535.0f) high_val = 65535.0f;
++                high_frequency = (Uint16)high_val;
++            }
++
+             const int rc = SDL_GameControllerRumble(
+                 p.handle, low_frequency, high_frequency,
+-                (small || large) ? 100u : 0u);
+-#endif
++                (small || large) ? 120u : 0u);
+             if (rc != 0 && !p.rumble_warned) {
+                 std::fprintf(stderr,
+                     "psxrecomp runtime: controller for slot %d rejected rumble: %s\n",
+@@ -5111,15 +5139,10 @@ static int assert_sio_pad_profile(int s, bool dev_here) {
+     const ModControllerPresentationPolicy& policy = g_mod_controller_policy[s];
+     const int boot_mode = policy.callback ? policy.initial_mode : mode;
+     sio_set_pad_connected(s, (p.kind != 0 || dev_here) ? 1 : 0);
+-    /* DIGITAL mode == a plain digital controller that ignores the DualShock
+-     * config-mode commands (real SCPH-1080 behaviour); ANALOG or an
+-     * explicitly config-capable mod policy == a config-capable DualShock.
+-     * A digital pad that wrongly answered 0x43 sent Tomba 2's pad driver
+-     * down the config path -> phantom 0x00 reads.
+-     * Multitap taps are always digital (see sio_pad_on_multitap). */
++    /* In RE3, ensure pads are always DualShock config-capable so vibration (rumble)
++     * is always negotiated and available to the game. */
+     sio_set_pad_config_capable(
+-        s, policy.callback ? policy.config_capable
+-                           : mode != PSXRecompV4::PAD_MODE_DIGITAL);
++        s, policy.callback ? policy.config_capable : 1);
+     return boot_mode;
+ }
+ 
+@@ -5215,6 +5238,486 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -1059,12 +1137,18 @@ index 77907729..62124d29 100644
 +
 +    // Door Skipping: bypass 3D door animation & camera sequence (Stage 1: 0x80015754)
 +    // and jump directly to Stage 2 (0x80016150: finalize room transition and restore gameplay).
++    // Also null out Stage 2 (table[2]) so the transition loop terminates without running Stage 2 twice.
 +    uint32_t* p_door_stage1 = (uint32_t*)(ram + 0x000979F4);
++    uint32_t* p_door_stage2 = (uint32_t*)(ram + 0x000979F8);
 +    if (g_fast_doors) {
 +        *p_door_stage1 = 0x80016150u;
++        *p_door_stage2 = 0x00000000u;
 +    } else {
 +        if (*p_door_stage1 == 0x80016150u) {
 +            *p_door_stage1 = 0x80015754u;
++        }
++        if (*p_door_stage2 == 0x00000000u) {
++            *p_door_stage2 = 0x80016150u;
 +        }
 +    }
 +
@@ -1154,6 +1238,10 @@ index 77907729..62124d29 100644
 +        else if (key == "quick_reload") g_quick_reload = (val == "true" || val == "1");
 +        else if (key == "uncapped_ammo_stacks") g_uncapped_ammo_stacks = (val == "true" || val == "1");
 +        else if (key == "modern_controls") g_modern_controls = (val == "true" || val == "1");
++        else if (key == "rumble_intensity" || key == "vibration_intensity" || key == "vibration_strength") {
++            float r = (float)std::atof(val.c_str());
++            if (r >= 0.0f && r <= 5.0f) g_rumble_intensity = r;
++        }
 +        else if (key == "infinite_health") g_infinite_health = (val == "true" || val == "1");
 +        else if (key == "infinite_ammo") g_infinite_ammo = (val == "true" || val == "1");
 +        else if (key == "infinite_ink_ribbons") g_infinite_ink_ribbons = (val == "true" || val == "1");
@@ -1238,10 +1326,6 @@ index 77907729..62124d29 100644
 +                 setting_aspect_ratio.empty() ? "default" : setting_aspect_ratio.c_str(),
 +                 pan_scan_enabled, gl_renderer_get_pan_scan() ? pan_scan_h : 0);
 +
-+    if (g_fast_doors) {
-+        g_turbo_loads_enabled = 1;
-+        g_turbo_load_release_frames = 90;
-+    }
 +
 +    if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
 +        g_all_weapons_box || g_unlock_mercenaries || g_unlock_boutique || g_unlock_epilogues) {
@@ -1254,18 +1338,18 @@ index 77907729..62124d29 100644
  /* Build the active-low PSX button word from a controller's input.ini map. When
   * suppress_stick_axes is set (the pad is presenting as analog this frame), the
   * left/right analog-stick axes do NOT contribute button bits — see
-@@ -5229,6 +5704,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5229,6 +5732,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
      for (const auto& entry : map) {
          for (const auto& source : entry.sources) {
              if (suppress_stick_axes && source_is_stick_axis(source)) continue;
-+            if (g_modern_controls && !suppress_stick_axes && source_is_stick_axis(source)) {
++            if (g_modern_controls && source_is_stick_axis(source)) {
 +                // Stick axes are processed via modern 3D camera-relative controls algorithm below
 +                continue;
 +            }
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5237,6 +5716,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5237,6 +5744,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -1274,7 +1358,7 @@ index 77907729..62124d29 100644
 +     * Supports calibrated 8-way symmetric sectors, solid 0.26 deadzone (zero resting drift),
 +     * smooth walk vs full push auto-run, and clean in-place turning without accidental forward movement.
 +     * The physical D-pad remains classic tank controls 100% untouched. */
-+    if (g_modern_controls && !suppress_stick_axes && h) {
++    if (g_modern_controls && h) {
 +        int16_t lx = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTX);
 +        int16_t ly = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTY);
 +        double mag = std::sqrt((double)lx * lx + (double)ly * ly) / 32767.0;
@@ -1326,7 +1410,40 @@ index 77907729..62124d29 100644
      return buttons;
  }
  
-@@ -6764,6 +7297,8 @@ static void depth24_cutover_tick(int depth24) {
+@@ -5358,6 +5919,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+             apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
+                                  &out[2], &out[3]);
+         }
++        if (g_modern_controls) {
++            out[0] = 0x80;
++            out[1] = 0x80;
++        }
+     }
+ }
+ 
+@@ -5829,6 +6394,10 @@ static int capture_pad_slot(int s, PsxNetPad* out, bool guarded) {
+     if (!eff_analog) {
+         st[0] = st[1] = st[2] = st[3] = 0x80;
+     }
++    if (g_modern_controls) {
++        st[0] = 0x80;
++        st[1] = 0x80;
++    }
+ 
+     out->buttons = btn;
+     out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
+@@ -5875,6 +6444,10 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+     if (!eff_analog) {
+         st[0] = st[1] = st[2] = st[3] = 0x80;
+     }
++    if (g_modern_controls) {
++        st[0] = 0x80;
++        st[1] = 0x80;
++    }
+ 
+     out->buttons = btn;
+     out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
+@@ -6764,6 +7337,8 @@ static void depth24_cutover_tick(int depth24) {
   *
   * Optional short cutover blank: full-frame black for 1–2 presents on movie
   * start / long idle resume only (see depth24_cutover_tick). */
@@ -1335,7 +1452,7 @@ index 77907729..62124d29 100644
  static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
                                            uint32_t display_x) {
      if (!buf || w < 8u || h == 0u) return;
-@@ -6776,14 +7311,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+@@ -6776,14 +7351,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
          return;
      }
  
@@ -1364,7 +1481,7 @@ index 77907729..62124d29 100644
      for (uint32_t y = 0; y < h; y++) {
          for (uint32_t x = start; x < w; x++)
              buf[y * w + x] = 0xFF000000u;
-@@ -6799,6 +7343,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
+@@ -6799,6 +7383,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
      if (!di || !buf || w == 0u || di->screen_height == 0u)
          return;
  
@@ -1378,7 +1495,7 @@ index 77907729..62124d29 100644
      const size_t count = (size_t)w * di->screen_height;
      for (size_t i = 0; i < count; i++)
          buf[i] = 0xFF000000u;
-@@ -7410,6 +7961,17 @@ static bool drain_host_events() {
+@@ -7410,6 +8001,17 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -1396,7 +1513,25 @@ index 77907729..62124d29 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -7840,6 +8402,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7766,6 +8368,17 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * old fast_boot snapshot restore; all guest timing is authentic. */
+     if (psx_bios_hle_boot_turbo_active())
+         turbo_loads_active = 1;
++
++    /* RE3 Door Skip room transition load acceleration:
++     * When Door Skip is active and the CD-ROM drive is actively reading data sectors
++     * for room assets (reading && !xa_stream_active), run unpaced so the disc sectors
++     * load near-instantaneously.
++     * Crucially, cdrom_data_read_active() is NEVER true during dialogue text or speech,
++     * so Jill's voice clips, examine text, and cutscene dialogues stay at authentic speed. */
++    if (g_fast_doors && cdrom_data_read_active()) {
++        turbo_loads_active = 1;
++    }
++
+     probe_turbo = turbo_loads_active;
+ 
+     load_transition_note(cdrom_data_read_active(), logical_load_active,
+@@ -7840,6 +8453,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -1404,7 +1539,7 @@ index 77907729..62124d29 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -8175,7 +8738,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8175,7 +8789,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * from the displayed buffer's surface. FMV/menu frames stay 4:3. */
          bool wide_present = (!fmv_frame && !di.depth24 && g_ws_engaged &&
                               ws_native_wide_active() && gr_wide_supported() &&
@@ -1414,7 +1549,7 @@ index 77907729..62124d29 100644
          if (wide_present) {
              present_w = local_viewport_wide
                  ? (uint32_t)gpu_ws_netplay_local_viewport_width()
-@@ -8247,6 +8811,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8247,6 +8862,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -1422,7 +1557,7 @@ index 77907729..62124d29 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -8438,9 +9003,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8438,9 +9054,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * right-edge jump the old comment describes is 0 with filtering on.
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
@@ -1434,7 +1569,7 @@ index 77907729..62124d29 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -8481,11 +9047,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8481,11 +9098,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -1449,7 +1584,7 @@ index 77907729..62124d29 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -14214,9 +14781,9 @@ namespace {
+@@ -14214,9 +14832,9 @@ namespace {
  #endif
  
  int main(int argc, char** argv) {
@@ -1462,7 +1597,7 @@ index 77907729..62124d29 100644
      std::fprintf(stderr, "psxrecomp: main() entered\n");
      std::fflush(stderr);
  #if defined(RECOMP_LAUNCHER)
-@@ -14463,11 +15030,7 @@ int main(int argc, char** argv) {
+@@ -14463,11 +15081,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1474,7 +1609,7 @@ index 77907729..62124d29 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -14478,8 +15041,8 @@ int main(int argc, char** argv) {
+@@ -14478,8 +15092,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -1485,7 +1620,7 @@ index 77907729..62124d29 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -15141,20 +15704,10 @@ int main(int argc, char** argv) {
+@@ -15141,20 +15755,10 @@ int main(int argc, char** argv) {
                                        "(must be a number > 0 and <= 8)\n", fov_env);
          }
          if (us.has_auto_skip_fmv)  g_auto_skip_fmv   = us.auto_skip_fmv ? 1 : 0;
@@ -1510,7 +1645,7 @@ index 77907729..62124d29 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -15254,6 +15807,22 @@ int main(int argc, char** argv) {
+@@ -15254,6 +15858,29 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1527,13 +1662,20 @@ index 77907729..62124d29 100644
 +                        else
 +                            g_modern_controls = true;
 +                    }
++                    if (sline.find("rumble_intensity") != std::string::npos || sline.find("vibration_intensity") != std::string::npos) {
++                        size_t eq = sline.find('=');
++                        if (eq != std::string::npos) {
++                            float r = (float)std::atof(sline.substr(eq + 1).c_str());
++                            if (r >= 0.0f && r <= 5.0f) g_rumble_intensity = r;
++                        }
++                    }
 +                }
 +            }
 +        }
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -15284,14 +15853,9 @@ int main(int argc, char** argv) {
+@@ -15284,14 +15911,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1550,7 +1692,7 @@ index 77907729..62124d29 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -15301,20 +15865,13 @@ int main(int argc, char** argv) {
+@@ -15301,20 +15923,13 @@ int main(int argc, char** argv) {
       * the final mod-plan commit. */
      if (g_turbo_loads_enabled) {
          std::fprintf(stdout,
@@ -1574,7 +1716,7 @@ index 77907729..62124d29 100644
      }
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
-@@ -15348,6 +15905,21 @@ int main(int argc, char** argv) {
+@@ -15348,6 +15963,21 @@ int main(int argc, char** argv) {
          int fps = atoi(e);
          if (fps == 0 || fps >= 90) g_frame_interpolation_fps = fps;
      }
@@ -1596,7 +1738,15 @@ index 77907729..62124d29 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -17250,21 +17822,19 @@ session_reboot:
+@@ -16690,6 +17320,7 @@ int main(int argc, char** argv) {
+     };
+     start_mod_session(net_cfg.enabled);
+ 
++
+     /* Re-apply the resolved language to the translation layer. text_xlate_init
+      * (at config load) only saw the game.toml default; this folds in the
+      * settings.toml override and the launcher's choice. No-op when unchanged. */
+@@ -17250,21 +17881,19 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
