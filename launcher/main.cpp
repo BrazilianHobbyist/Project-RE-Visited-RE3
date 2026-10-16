@@ -2701,7 +2701,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     g_hWndMain = CreateWindowExW(
         0,
         wc.lpszClassName,
-        L"Project RE: Visited - Resident Evil 3 (v1.4.1)",
+        L"Project RE: Visited - Resident Evil 3 (v1.4.3)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         posX, posY, width, height,
         NULL, NULL, hInstance, NULL
