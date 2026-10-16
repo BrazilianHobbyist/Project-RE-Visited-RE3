@@ -2,7 +2,7 @@
 ## Relatório de Estado, Memória e Progresso do Projeto
 
 > **Data de Atualização**: 15 de Outubro de 2026  
-> **Status Geral**: Executável funcional, auditado e saneado (`Resident_Evil_3__Nemesis_Recompiled.exe`), código morto de GPU/UI removido, binários e launcher perfeitamente sincronizados.
+> **Status Geral**: Executável funcional, auditado e estabilizado (v1.4.3 — `Resident_Evil_3__Nemesis_Recompiled.exe`), timing e velocidade autêntica de diálogos preservados, transições de porta e cortes de câmera suaves a 60 FPS estáveis.
 
 ---
 
