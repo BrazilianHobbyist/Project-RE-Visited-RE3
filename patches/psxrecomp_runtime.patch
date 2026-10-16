@@ -80,7 +80,7 @@ index 2a74dd5c..ae3127dd 100644
  #elif defined(PSX_SDL3)
          if (!SDL_SetWindowFullscreen(window, true)) return -1;
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index dbd827d0..1e34e658 100644
+index dbd827d0..8759511d 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
 @@ -50,6 +50,7 @@
@@ -160,7 +160,7 @@ index dbd827d0..1e34e658 100644
      if (gp0_cmd_source_addr == 0xFFFFFFFFu) { s_texcorr.no_source++; return; }
      int indices[3] = { i0, i1, i2 };
      uint16_t z[3];
-@@ -4668,6 +4673,69 @@ static void raster_triangle(int32_t x0, int32_t y0,
+@@ -4668,6 +4673,80 @@ static void raster_triangle(int32_t x0, int32_t y0,
      #undef UNFP
  }
  
@@ -169,7 +169,12 @@ index dbd827d0..1e34e658 100644
 +static int64_t  s_actor_y_sum = 0;
 +static int32_t  s_actor_y_min = 9999;
 +static int32_t  s_actor_y_max = -9999;
++static int      s_gameplay_latch = 0;
 +static int      s_last_valid_centroid = 120;
++static int      s_msg_box_countdown = 0;
++static uint8_t  s_gpu_last_room = 0xFF;
++static uint8_t  s_gpu_last_cut  = 0xFF;
++static int      s_no_actor_frames = 0;
 +
 +static void note_3d_actor_polygon(const int32_t *vx, const int32_t *vy, int n) {
 +    if (n < 3 || n > 4) return;
@@ -217,10 +222,16 @@ index dbd827d0..1e34e658 100644
 +}
 +
 +int gpu_is_message_box_active(void) {
-+    return 0;
++    return (s_msg_box_countdown > 0) ? 1 : 0;
 +}
 +
 +void gpu_reset_actor_vertical_tracking(void) {
++    if (s_actor_prim_count < 20 && s_gameplay_latch > 0) {
++        s_gameplay_latch--;
++    }
++    if (s_msg_box_countdown > 0) {
++        s_msg_box_countdown--;
++    }
 +    s_actor_prim_count = 0;
 +    s_actor_y_sum = 0;
 +    s_actor_y_min = 9999;
@@ -230,7 +241,7 @@ index dbd827d0..1e34e658 100644
  /* Execute mono triangle (GP0 0x20-0x23) */
  static void gp0_exec_mono_tri(void) {
      int semi_trans = (gp0_cmd_buf[0] >> 25) & 1;
-@@ -4993,6 +5061,7 @@ static void gp0_exec_textured_tri(void) {
+@@ -4993,6 +5072,7 @@ static void gp0_exec_textured_tri(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 3)) return;
@@ -238,7 +249,7 @@ index dbd827d0..1e34e658 100644
  
      setup_textured_draw(color24, semi_trans, raw_texture);
      prepare_precise_triangle(1, 3, 5,
-@@ -5064,6 +5133,9 @@ static void gp0_exec_textured_quad(void) {
+@@ -5064,6 +5144,9 @@ static void gp0_exec_textured_quad(void) {
              pgxp_note_rect_bypass(0);
          }
      }
@@ -248,7 +259,7 @@ index dbd827d0..1e34e658 100644
      if (as_rect) {
          int x = vx[0] < vx[1] ? vx[0] : vx[1];
          int y = vy[0] < vy[2] ? vy[0] : vy[2];
-@@ -5141,6 +5213,7 @@ static void gp0_exec_shaded_textured_tri(void) {
+@@ -5141,6 +5224,7 @@ static void gp0_exec_shaded_textured_tri(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 3)) return;
@@ -256,7 +267,7 @@ index dbd827d0..1e34e658 100644
  
      uint16_t host_bank = mod_texture_packet_bank(gp0_cmd_source_addr, gp0_cmd_buf, 9u);
      if (host_bank && (gr_backend() != GR_BACKEND_OPENGL ||
-@@ -5212,6 +5285,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+@@ -5212,6 +5296,7 @@ static void gp0_exec_shaded_textured_quad(void) {
          vy[i] += draw_offset_y;
      }
      if (draw_area_out_bbox(vx, vy, 4)) return;
@@ -264,24 +275,58 @@ index dbd827d0..1e34e658 100644
  
      gr_set_semi_transparency(semi_trans, (int)semi_transparency);
      if (!rej_a) {
-@@ -5298,6 +5372,7 @@ static void gp0_exec_mono_rect(void) {
+@@ -5298,6 +5383,12 @@ static void gp0_exec_mono_rect(void) {
      int h = (gp0_cmd_buf[2] >> 16) & 0xFFFFu;
      if (w > 1023) w = 1023;
      if (h > 511)  h = 511;
 +
++    int32_t ly = y0 + draw_offset_y;
++    if (ly >= 240) ly -= 240;
++    if (s_gameplay_latch > 0 && semi_trans && w >= 140 && h >= 14 && ly >= 155 && ly <= 235) {
++        s_msg_box_countdown = 25;
++    }
      if (ws_local_viewport_divider(x0, y0, x0 + w, y0 + h, color, semi_trans)) {
          gr_wide_disable_target();
          gr_set_semi_transparency(0, (int)semi_transparency);
-@@ -5365,6 +5440,7 @@ static void gp0_exec_textured_rect(void) {
+@@ -5365,6 +5456,12 @@ static void gp0_exec_textured_rect(void) {
      int h = (gp0_cmd_buf[3] >> 16) & 0x1FF;
      if (w > 1023) w = 1023;
      if (h > 511)  h = 511;
 +
++    int32_t ly = y0 + draw_offset_y;
++    if (ly >= 240) ly -= 240;
++    if (s_gameplay_latch > 0 && w <= 36 && h <= 36 && ly >= 165 && ly <= 235) {
++        s_msg_box_countdown = 25;
++    }
      ws_clear_tagged_rect_reveal(y0 + draw_offset_y, h);
  
      /* Widescreen: tagged sprite parts squash around their projected anchor;
+@@ -5442,6 +5539,11 @@ static void gp0_exec_textured_8x8(void) {
+     int raw_texture = (gp0_cmd_buf[0] >> 24) & 1;
+     int32_t x0, y0;
+     parse_vertex(gp0_cmd_buf[1], &x0, &y0);
++    int32_t ly = y0 + draw_offset_y;
++    if (ly >= 240) ly -= 240;
++    if (s_gameplay_latch > 0 && ly >= 165 && ly <= 235) {
++        s_msg_box_countdown = 25;
++    }
+     int ws_w = ws_sprt_fixed_transform(&x0, y0, 8);
+     x0 += ws_nw_hud_shift(x0, 8);   /* native-wide HUD corner re-anchor (no-op else) */
+     x0 += draw_offset_x; y0 += draw_offset_y;
+@@ -5487,6 +5589,11 @@ static void gp0_exec_textured_16x16(void) {
+     int raw_texture = (gp0_cmd_buf[0] >> 24) & 1;
+     int32_t x0, y0;
+     parse_vertex(gp0_cmd_buf[1], &x0, &y0);
++    int32_t ly = y0 + draw_offset_y;
++    if (ly >= 240) ly -= 240;
++    if (s_gameplay_latch > 0 && ly >= 165 && ly <= 235) {
++        s_msg_box_countdown = 25;
++    }
+     /* Never suppress MMX6 BG packets at a guessed finite-map boundary. The
+      * classifier cannot distinguish an authored layer entering the reveal from
+      * a stale ring slot; suppressing here caused the stage-start black flicker. */
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index 09fca3e0..d1595902 100644
+index 09fca3e0..047619c5 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
 @@ -94,6 +94,7 @@
@@ -512,7 +557,7 @@ index 09fca3e0..d1595902 100644
          s_last_present_path == GL_PRES_VRAM &&
          s_last_dx == disp_x && s_last_dy == disp_y &&
          s_last_dw == w && s_last_dh == h &&
-@@ -7641,12 +7731,92 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7641,12 +7731,99 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
          return;
      }
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
@@ -547,9 +592,16 @@ index 09fca3e0..d1595902 100644
 +        extern uint64_t gpu_get_actor_prim_count(void);
 +        uint64_t cur_prim_count = gpu_get_actor_prim_count();
 +        int centroid = gpu_get_actor_vertical_centroid();
++        extern int gpu_is_message_box_active(void);
++        int msg_active = gpu_is_message_box_active();
 +
 +        float target_y = (float)max_pan_y / 2.0f;
-+        if (centroid >= 0) {
++        if (msg_active) {
++            /* Dialogue, interaction prompt, subtitle or Live Selection active:
++             * Immediately frame down to the bottom safe zone so all choices,
++             * countdown timer, and message text are 100% visible and uncropped! */
++            target_y = (float)max_pan_y;
++        } else if (centroid >= 0) {
 +            target_y = (float)(centroid - (pan_h / 2));
 +            if (target_y < 0.0f) target_y = 0.0f;
 +            if (target_y > (float)max_pan_y) target_y = (float)max_pan_y;
@@ -558,7 +610,7 @@ index 09fca3e0..d1595902 100644
 +        }
 +
 +        if (s_pan_scan_cut_pending) {
-+            if (cur_prim_count >= 4 || s_pan_scan_cut_wait_frames > 4) {
++            if (cur_prim_count >= 4 || s_pan_scan_cut_wait_frames > 15) {
 +                s_pan_scan_cur_y = target_y;
 +                s_pan_scan_cut_pending = 0;
 +                s_pan_scan_cut_wait_frames = 0;
@@ -607,7 +659,7 @@ index 09fca3e0..d1595902 100644
      /* No short-band adjustment on the 15-bit FBO path: a game's native short
       * display mode (e.g. 216/224-line menus) must fill the rect as before.
       * The FMV band fix lives in the depth24/CPU present paths only. */
-@@ -7675,26 +7845,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7675,26 +7852,28 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      if (lx != 0 || ly != 0 || lw != ww || lh != wh) {
          glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
      }
@@ -642,7 +694,7 @@ index 09fca3e0..d1595902 100644
      gpu_timeline_note(GTL_PRESENT, GTL_PATH_VRAM_FBO,
                        (uint32_t)disp_x | ((uint32_t)disp_y << 16));
      hold_capture_drawable();
-@@ -7706,7 +7878,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
+@@ -7706,7 +7885,8 @@ void gl_renderer_present_vram(int disp_x, int disp_y, int w, int h, int linear,
      present_dirty_rect(disp_x, disp_y, disp_x + w - 1, disp_y + h - 1, 0);
      present_force_consumed();
      s_last_present_path = GL_PRES_VRAM;
@@ -653,7 +705,7 @@ index 09fca3e0..d1595902 100644
  }
  
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 77907729..29a688be 100644
+index 77907729..2b6348cf 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1390,7 +1390,7 @@ extern "C" int psx_presentation_fast_forward(void) {
@@ -799,7 +851,7 @@ index 77907729..29a688be 100644
      return boot_mode;
  }
  
-@@ -5215,6 +5238,295 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5215,6 +5238,486 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -807,12 +859,15 @@ index 77907729..29a688be 100644
 +
 +static bool g_modern_controls = true;
 +extern "C" int g_fast_doors = 1;
++static bool g_quick_weapon_switch = false;
++static bool g_quick_reload = false;
 +static bool g_infinite_ink_ribbons = false;
++static bool g_unlock_boutique = false;
++static bool g_uncapped_ammo_stacks = false;
 +static bool g_infinite_health = false;
 +static bool g_infinite_ammo = false;
 +static bool g_all_weapons_box = false;
 +static bool g_unlock_mercenaries = false;
-+static bool g_unlock_boutique = false;
 +static bool g_unlock_epilogues = false;
 +
 +struct RE3ItemSlot {
@@ -862,6 +917,191 @@ index 77907729..29a688be 100644
 +
 +static inline bool re3_is_ammo(uint8_t id) {
 +    return (id >= 0x15 && id <= 0x1B) || id == 0x1F || id == 0x22 || id == 0x23 || id == 0x24 || id == 0x25;
++}
++
++static void re3_quick_weapon_switch(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int weapon_indices[10];
++    int weapon_count = 0;
++    for (int i = 0; i < max_slots; ++i) {
++        if (re3_is_weapon(slots[i].id)) {
++            weapon_indices[weapon_count++] = i;
++        }
++    }
++
++    if (weapon_count == 0) {
++        host_osd_push("Nenhuma arma no inventario!", 1200);
++        return;
++    }
++    if (weapon_count == 1) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Apenas 1 arma: %s (%d)",
++                      re3_get_item_name(slots[weapon_indices[0]].id),
++                      (int)slots[weapon_indices[0]].count);
++        host_osd_push(msg, 1200);
++        return;
++    }
++
++    int target_idx = -1;
++    for (int w = 1; w < weapon_count; ++w) {
++        if (weapon_indices[w] > 0) {
++            target_idx = weapon_indices[w];
++            break;
++        }
++    }
++    if (target_idx == -1) target_idx = weapon_indices[1];
++
++    RE3ItemSlot temp = slots[0];
++    slots[0] = slots[target_idx];
++    slots[target_idx] = temp;
++
++    slots[0].attr = 0x80;
++    if (slots[target_idx].attr == 0x80) slots[target_idx].attr = 0x00;
++    ram[0x000D2535] = slots[0].id;
++
++    char msg[64];
++    std::snprintf(msg, sizeof(msg), "Equipado: %s (%d)",
++                  re3_get_item_name(slots[0].id), (int)slots[0].count);
++    host_osd_push(msg, 1500);
++}
++
++static void re3_quick_reload(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int wep_idx = -1;
++    if (re3_is_weapon(slots[0].id)) {
++        wep_idx = 0;
++    } else {
++        for (int i = 0; i < max_slots; ++i) {
++            if (re3_is_weapon(slots[i].id)) {
++                wep_idx = i;
++                break;
++            }
++        }
++    }
++
++    if (wep_idx == -1) {
++        host_osd_push("Nenhuma arma no inventario!", 1000);
++        return;
++    }
++
++    uint8_t wep_id = slots[wep_idx].id;
++    if (wep_id == 0x01) {
++        host_osd_push("Faca de combate nao usa municao!", 1000);
++        return;
++    }
++    if (wep_id == 0x0A || wep_id == 0x0B) {
++        host_osd_push("Arma pesada com municao infinita!", 1000);
++        return;
++    }
++
++    uint8_t ammo_id1 = 0, ammo_id2 = 0;
++    int max_ammo = 0;
++    if (wep_id == 0x02 || wep_id == 0x03 || wep_id == 0x0D) {
++        ammo_id1 = 0x15; // Handgun Bullets
++        ammo_id2 = 0x24; // Enhanced Handgun Bullets
++        max_ammo = 15;
++    } else if (wep_id == 0x04 || wep_id == 0x0E) {
++        ammo_id1 = 0x17; // Shotgun Shells
++        ammo_id2 = 0x25; // Enhanced Shotgun Shells
++        max_ammo = (wep_id == 0x0E) ? 8 : 7;
++    } else if (wep_id == 0x05) {
++        ammo_id1 = 0x16; // Magnum Bullets
++        max_ammo = 6;
++    } else if (wep_id == 0x06) {
++        ammo_id1 = 0x18; // Grenade normal
++        max_ammo = 6;
++    } else if (wep_id == 0x07) {
++        ammo_id1 = 0x19; // Grenade flame
++        max_ammo = 6;
++    } else if (wep_id == 0x08) {
++        ammo_id1 = 0x1A; // Grenade acid
++        max_ammo = 6;
++    } else if (wep_id == 0x09) {
++        ammo_id1 = 0x1B; // Grenade freeze
++        max_ammo = 6;
++    } else if (wep_id == 0x0C) {
++        ammo_id1 = 0x1F; // Mine Thrower
++        max_ammo = 6;
++    } else if (wep_id == 0x0E || wep_id == 0x0F) {
++        ammo_id1 = 0x22; // Assault rifle
++        max_ammo = 100;
++    }
++
++    if (max_ammo == 0) return;
++    if (slots[wep_idx].count >= max_ammo) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Arma ja cheia! (%d/%d)", (int)slots[wep_idx].count, max_ammo);
++        host_osd_push(msg, 1000);
++        return;
++    }
++
++    int needed = max_ammo - (int)slots[wep_idx].count;
++    int reloaded = 0;
++
++    for (int i = 0; i < max_slots; ++i) {
++        if (i == wep_idx) continue;
++        if ((slots[i].id == ammo_id1 || (ammo_id2 && slots[i].id == ammo_id2)) && slots[i].count > 0) {
++            int take = (slots[i].count < needed) ? slots[i].count : needed;
++            slots[wep_idx].count += (uint8_t)take;
++            slots[i].count -= (uint8_t)take;
++            needed -= take;
++            reloaded += take;
++            if (slots[i].count == 0) {
++                slots[i].id = 0;
++                slots[i].count = 0;
++                slots[i].attr = 0;
++                slots[i].pad = 0;
++            }
++            if (needed <= 0) break;
++        }
++    }
++
++    if (reloaded > 0) {
++        char msg[64];
++        std::snprintf(msg, sizeof(msg), "Recarregado: %s (%d/%d)",
++                      re3_get_item_name(wep_id), (int)slots[wep_idx].count, max_ammo);
++        host_osd_push(msg, 1500);
++    } else {
++        host_osd_push("Sem municao no inventario!", 1200);
++    }
++}
++
++static void re3_combine_ammo_stacks(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    for (int i = 0; i < max_slots; ++i) {
++        if (slots[i].id == 0 || !re3_is_ammo(slots[i].id)) continue;
++        for (int j = i + 1; j < max_slots; ++j) {
++            if (slots[j].id == slots[i].id && slots[j].count > 0) {
++                int space = 255 - (int)slots[i].count;
++                if (space > 0) {
++                    int take = (slots[j].count <= space) ? slots[j].count : space;
++                    slots[i].count += (uint8_t)take;
++                    slots[j].count -= (uint8_t)take;
++                    if (slots[j].count == 0) {
++                        slots[j].id = 0;
++                        slots[j].count = 0;
++                        slots[j].attr = 0;
++                        slots[j].pad = 0;
++                    }
++                }
++            }
++        }
++    }
 +}
 +
 +static void re3_max_out_ammo(void) {
@@ -994,6 +1234,9 @@ index 77907729..29a688be 100644
 +        trim(key);
 +        trim(val);
 +        if (key == "fast_doors" || key == "door_skip") g_fast_doors = (val == "true" || val == "1" || val == "instant") ? 1 : 0;
++        else if (key == "quick_weapon_switch") g_quick_weapon_switch = (val == "true" || val == "1");
++        else if (key == "quick_reload") g_quick_reload = (val == "true" || val == "1");
++        else if (key == "uncapped_ammo_stacks") g_uncapped_ammo_stacks = (val == "true" || val == "1");
 +        else if (key == "modern_controls") g_modern_controls = (val == "true" || val == "1");
 +        else if (key == "rumble_intensity" || key == "vibration_intensity" || key == "vibration_strength") {
 +            float r = (float)std::atof(val.c_str());
@@ -1095,7 +1338,7 @@ index 77907729..29a688be 100644
  /* Build the active-low PSX button word from a controller's input.ini map. When
   * suppress_stick_axes is set (the pad is presenting as analog this frame), the
   * left/right analog-stick axes do NOT contribute button bits — see
-@@ -5229,6 +5541,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5229,6 +5732,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
      for (const auto& entry : map) {
          for (const auto& source : entry.sources) {
              if (suppress_stick_axes && source_is_stick_axis(source)) continue;
@@ -1106,7 +1349,7 @@ index 77907729..29a688be 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5237,6 +5553,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5237,6 +5744,60 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -1167,7 +1410,7 @@ index 77907729..29a688be 100644
      return buttons;
  }
  
-@@ -5358,6 +5728,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -5358,6 +5919,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -1178,7 +1421,7 @@ index 77907729..29a688be 100644
      }
  }
  
-@@ -5829,6 +6203,10 @@ static int capture_pad_slot(int s, PsxNetPad* out, bool guarded) {
+@@ -5829,6 +6394,10 @@ static int capture_pad_slot(int s, PsxNetPad* out, bool guarded) {
      if (!eff_analog) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1189,7 +1432,7 @@ index 77907729..29a688be 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -5875,6 +6253,10 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -5875,6 +6444,10 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1200,7 +1443,7 @@ index 77907729..29a688be 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6764,6 +7146,8 @@ static void depth24_cutover_tick(int depth24) {
+@@ -6764,6 +7337,8 @@ static void depth24_cutover_tick(int depth24) {
   *
   * Optional short cutover blank: full-frame black for 1–2 presents on movie
   * start / long idle resume only (see depth24_cutover_tick). */
@@ -1209,7 +1452,7 @@ index 77907729..29a688be 100644
  static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
                                            uint32_t display_x) {
      if (!buf || w < 8u || h == 0u) return;
-@@ -6776,14 +7160,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+@@ -6776,14 +7351,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
          return;
      }
  
@@ -1238,7 +1481,7 @@ index 77907729..29a688be 100644
      for (uint32_t y = 0; y < h; y++) {
          for (uint32_t x = start; x < w; x++)
              buf[y * w + x] = 0xFF000000u;
-@@ -6799,6 +7192,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
+@@ -6799,6 +7383,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
      if (!di || !buf || w == 0u || di->screen_height == 0u)
          return;
  
@@ -1252,7 +1495,7 @@ index 77907729..29a688be 100644
      const size_t count = (size_t)w * di->screen_height;
      for (size_t i = 0; i < count; i++)
          buf[i] = 0xFF000000u;
-@@ -7410,6 +7810,17 @@ static bool drain_host_events() {
+@@ -7410,6 +8001,17 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -1270,7 +1513,7 @@ index 77907729..29a688be 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -7766,6 +8177,17 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7766,6 +8368,17 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * old fast_boot snapshot restore; all guest timing is authentic. */
      if (psx_bios_hle_boot_turbo_active())
          turbo_loads_active = 1;
@@ -1288,7 +1531,7 @@ index 77907729..29a688be 100644
      probe_turbo = turbo_loads_active;
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
-@@ -7840,6 +8262,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7840,6 +8453,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -1296,7 +1539,7 @@ index 77907729..29a688be 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -8175,7 +8598,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8175,7 +8789,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * from the displayed buffer's surface. FMV/menu frames stay 4:3. */
          bool wide_present = (!fmv_frame && !di.depth24 && g_ws_engaged &&
                               ws_native_wide_active() && gr_wide_supported() &&
@@ -1306,7 +1549,7 @@ index 77907729..29a688be 100644
          if (wide_present) {
              present_w = local_viewport_wide
                  ? (uint32_t)gpu_ws_netplay_local_viewport_width()
-@@ -8247,6 +8671,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8247,6 +8862,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -1314,7 +1557,7 @@ index 77907729..29a688be 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -8438,9 +8863,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8438,9 +9054,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * right-edge jump the old comment describes is 0 with filtering on.
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
@@ -1326,7 +1569,7 @@ index 77907729..29a688be 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -8481,11 +8907,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8481,11 +9098,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -1341,7 +1584,7 @@ index 77907729..29a688be 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -14214,9 +14641,9 @@ namespace {
+@@ -14214,9 +14832,9 @@ namespace {
  #endif
  
  int main(int argc, char** argv) {
@@ -1354,7 +1597,7 @@ index 77907729..29a688be 100644
      std::fprintf(stderr, "psxrecomp: main() entered\n");
      std::fflush(stderr);
  #if defined(RECOMP_LAUNCHER)
-@@ -14463,11 +14890,7 @@ int main(int argc, char** argv) {
+@@ -14463,11 +15081,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1366,7 +1609,7 @@ index 77907729..29a688be 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -14478,8 +14901,8 @@ int main(int argc, char** argv) {
+@@ -14478,8 +15092,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -1377,7 +1620,7 @@ index 77907729..29a688be 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -15141,20 +15564,10 @@ int main(int argc, char** argv) {
+@@ -15141,20 +15755,10 @@ int main(int argc, char** argv) {
                                        "(must be a number > 0 and <= 8)\n", fov_env);
          }
          if (us.has_auto_skip_fmv)  g_auto_skip_fmv   = us.auto_skip_fmv ? 1 : 0;
@@ -1402,7 +1645,7 @@ index 77907729..29a688be 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -15254,6 +15667,29 @@ int main(int argc, char** argv) {
+@@ -15254,6 +15858,29 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1432,7 +1675,7 @@ index 77907729..29a688be 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -15284,14 +15720,9 @@ int main(int argc, char** argv) {
+@@ -15284,14 +15911,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1449,7 +1692,7 @@ index 77907729..29a688be 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -15301,20 +15732,13 @@ int main(int argc, char** argv) {
+@@ -15301,20 +15923,13 @@ int main(int argc, char** argv) {
       * the final mod-plan commit. */
      if (g_turbo_loads_enabled) {
          std::fprintf(stdout,
@@ -1473,7 +1716,7 @@ index 77907729..29a688be 100644
      }
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
-@@ -15348,6 +15772,21 @@ int main(int argc, char** argv) {
+@@ -15348,6 +15963,21 @@ int main(int argc, char** argv) {
          int fps = atoi(e);
          if (fps == 0 || fps >= 90) g_frame_interpolation_fps = fps;
      }
@@ -1495,16 +1738,7 @@ index 77907729..29a688be 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -16650,7 +17089,7 @@ int main(int argc, char** argv) {
-         g_turbo_audio_sink_enabled = g_turbo_audio_sink_config_enabled;
-         g_turbo_load_wall_multiplier = 0;
-         g_turbo_load_release_frames = TURBO_LOADS_RELEASE_FRAMES;
--        if (!turbo_loads_offered)
-+        if (!turbo_loads_offered && !g_fast_doors)
-             g_turbo_loads_enabled = 0;
-         /* The helper restores interpolation and Skip FMVs to their
-          * pre-activation values, which is only right while no launcher
-@@ -16690,6 +17129,7 @@ int main(int argc, char** argv) {
+@@ -16690,6 +17320,7 @@ int main(int argc, char** argv) {
      };
      start_mod_session(net_cfg.enabled);
  
@@ -1512,7 +1746,7 @@ index 77907729..29a688be 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -17250,21 +17690,19 @@ session_reboot:
+@@ -17250,21 +17881,19 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");

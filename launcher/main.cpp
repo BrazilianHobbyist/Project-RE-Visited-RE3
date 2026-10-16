@@ -700,7 +700,6 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"antialiasing        = " << (cfg.antialiasing ? L"true" : L"false") << L"\n";
         sFile << L"auto_skip_fmv       = " << (cfg.auto_skip_fmv ? L"true" : L"false") << L"\n";
         sFile << L"fast_doors          = " << (cfg.fast_doors ? L"true" : L"false") << L"\n";
-        sFile << L"turbo_loads         = " << (cfg.fast_doors ? L"true" : L"false") << L"\n";
         sFile << L"vsync               = \"on\"\n";
         sFile << L"low_latency_input   = true\n";
         sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n\n";

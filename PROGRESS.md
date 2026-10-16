@@ -56,10 +56,10 @@ Estes são os endereços estáticos descobertos e utilizados no código dos patc
   - `table[0]` (`0x80015498`): **Stage 0 (Carregamento de Dados)**: Leitura de dados do cenário e modelos do CD-ROM.
   - `table[1]` (`0x80015754`): **Stage 1 (Animação 3D de Porta e Áudio)**: No Door Skip, redirecionado diretamente para `0x80016150`.
   - `table[2]` (`0x80016150`): **Stage 2 (Finalização e Fade-in)**: No Door Skip, zerado (`0x00000000`) para evitar execução duplicada de Stage 2.
-- **`0x800D442C`** — **Fase de Transição de Sala da Capcom**:
-  - `0`: Jogabilidade normal ativa.
-  - `1`: Transição de sala em andamento (leitura de CD ativa). Aceleração instantânea (*turbo load unpaced*) atua exclusivamente aqui.
-  - `2`: Fade-in suave de 16 frames ativo a 60 FPS estáveis, restaurando o ritmo de apresentação original.
+- **Aceleração de Carregamento Estrita (`cdrom_data_read_active`)**:
+  - A aceleração unpaced do Door Skip atua **exclusivamente** durante a leitura física de setores do CD (`cdrom_data_read_active() = reading && !xa_stream_active`), terminando no instante exato em que os setores são entregues.
+  - O sistema genérico de `turbo_loads` do PSXRecomp é mantido explicitamente desativado (`g_turbo_loads_enabled = 0`), impedindo que a janela de tolerância de 30 frames (`CD_BURST_GAP_FRAMES`) e os frames de liberação acelerem indevidamente os diálogos da Jill ao carregar saves ou arremessem a personagem bruscamente nas transições de cena/ângulo.
+  - Fade-in de 5 frames restaurado a 60 FPS estáveis, garantindo apresentação visual suave e polida.
 
 ### Desbloqueios Nativos da Capcom (Clear Mode / Segredos)
 - **`0x800D1F32`** — **Clear Mode / Secret Flag**:
