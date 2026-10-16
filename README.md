@@ -86,11 +86,11 @@ Every feature listed below is **100% implemented, audited, and functional**:
 | Feature | Description |
 |---|---|
 | **Built-in Setup Wizard** | Native ISO 9660 Mode 2 Form 1 sector parser. Automatically extracts the original `SLUS_009.23` executable from `.bin` / `.iso` disc images in milliseconds without external tools. |
-| **Modern 3D Controls (360°)** | True camera-relative analog motion on the left stick with calibrated deadzone (0.26), auto-run when pushing past 82%, and smooth in-place rotation. The D-Pad retains 100% authentic classic tank controls. |
+| **Agile Analog Controls with Auto-Run** | Responsive analog stick movement with reduced deadzone (0.26), automatic sprint on full stick deflection, and smooth in-place turning without direction inversion on fixed camera cuts. The D-Pad retains 100% authentic classic tank controls. |
 | **Smooth Motion & Interpolation (up to 240 FPS)** | Continuous temporal polygon interpolation (`linear blend` + `flip-aware source`) matching modern high-refresh displays (60Hz, 120Hz, 144Hz, 165Hz, 240Hz, or Auto-Sync). |
-| **Widescreen & Classic Aspect Ratios** | Native support for 16:9 Stretched (full widescreen display for modern monitors) and authentic 4:3 Classic Original with clean pillarboxing. Configurable via the Launcher or in `settings.toml`. |
-| **Door Skipping / Instant Room Transitions** | Bypasses the classic 3D door-opening animations with a snappy (~0.3s) transition, smooth brief fade in/out, and unpaced sector loading, preserving natural dialogue and voice speed. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). |
-| **DualShock Force Feedback & Vibration** | Authentic rumble support on modern gamepads (Xbox, DualShock 4, DualSense, etc.) for gunfire, damage, explosions, and Nemesis footsteps, with customizable intensity in the Launcher and `settings.toml`. |
+| **Widescreen & Classic Aspect Ratios** | Native support for 16:9 Stretched (full widescreen display for modern monitors without subtitle or HUD cropping) and authentic 4:3 Classic Original with clean pillarboxing. Configurable via the Launcher or in `settings.toml`. |
+| **Door Skipping / Instant Room Transitions** | Bypasses the classic 3D door-opening animations with a snappy (~0.3s) transition, accelerated fade in/out, and unpaced sector loading, preserving natural dialogue and voice speed. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). |
+| **DualShock Force Feedback & Vibration** | Authentic rumble support on modern gamepads (Xbox, DualShock 4, DualSense, etc.) for gunfire, damage, explosions, and Nemesis footsteps via SDL GameController Force Feedback (calibrated in `settings.toml`). |
 | **PGXP Sub-Pixel Geometry Correction** | Eliminates classic PS1 polygon wobbling and vertex jitter using high-precision floating-point vertex coordinates. |
 | **Perspective-Correct Texturing** | PGXP affine texture correction eliminates angular texture distortion and warping on walls and floors. |
 | **Scalable 3D Internal Resolution** | High-definition internal rendering (1080p, 1440p, 4K Ultra HD) via supersampling (SSAA). |
