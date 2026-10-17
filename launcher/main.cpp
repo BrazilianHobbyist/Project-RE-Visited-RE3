@@ -168,7 +168,7 @@ void ShowSetupDialog(HWND hWndParent);
 void ShowCheatsDialog(HWND hWndParent);
 void UpdateCheatsButtonText();
 
-std::wstring GetProjectRootDir() {
+std::wstring GetExeDir() {
     wchar_t exePath[MAX_PATH];
     GetModuleFileNameW(NULL, exePath, MAX_PATH);
     std::wstring path = exePath;
@@ -176,8 +176,13 @@ std::wstring GetProjectRootDir() {
     if (lastSlash != std::wstring::npos) {
         path = path.substr(0, lastSlash);
     }
+    return path;
+}
+
+std::wstring GetProjectRootDir() {
+    std::wstring path = GetExeDir();
     // Check if we are inside launcher/ folder, go one up
-    if (path.length() >= 9 && path.substr(path.length() - 8) == L"launcher") {
+    if (path.length() >= 8 && _wcsicmp(path.substr(path.length() - 8).c_str(), L"launcher") == 0) {
         size_t upSlash = path.find_last_of(L"\\/");
         if (upSlash != std::wstring::npos) {
             path = path.substr(0, upSlash);
@@ -186,20 +191,45 @@ std::wstring GetProjectRootDir() {
     return path;
 }
 
+static bool HasGameExe(const std::wstring& dir) {
+    return GetFileAttributesW((dir + L"\\Resident_Evil_3__Nemesis_Recompiled.exe").c_str()) != INVALID_FILE_ATTRIBUTES ||
+           GetFileAttributesW((dir + L"\\ResidentEvil3.exe").c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 std::wstring GetBuildDir() {
+    // 1. Same directory as the launcher executable (e.g., ResidentEvil3-PCPort/ or standalone release)
+    std::wstring exeDir = GetExeDir();
+    if (HasGameExe(exeDir)) {
+        return exeDir;
+    }
+
+    // 2. Project root or immediate subdirectories
     std::wstring root = GetProjectRootDir();
-    if (GetFileAttributesW((root + L"\\Resident_Evil_3__Nemesis_Recompiled.exe").c_str()) != INVALID_FILE_ATTRIBUTES ||
-        GetFileAttributesW((root + L"\\ResidentEvil3.exe").c_str()) != INVALID_FILE_ATTRIBUTES) {
+    if (HasGameExe(root + L"\\ResidentEvil3-PCPort")) {
+        return root + L"\\ResidentEvil3-PCPort";
+    }
+    if (HasGameExe(root)) {
         return root;
     }
-    std::wstring pcPort = root + L"\\ResidentEvil3-PCPort";
-    if (GetFileAttributesW((pcPort + L"\\Resident_Evil_3__Nemesis_Recompiled.exe").c_str()) != INVALID_FILE_ATTRIBUTES) {
-        return pcPort;
+    if (HasGameExe(root + L"\\build")) {
+        return root + L"\\build";
     }
-    std::wstring sub = root + L"\\RE3Recomp\\build";
-    if (GetFileAttributesW((sub + L"\\Resident_Evil_3__Nemesis_Recompiled.exe").c_str()) != INVALID_FILE_ATTRIBUTES) {
-        return sub;
+    if (HasGameExe(root + L"\\RE3Recomp\\build")) {
+        return root + L"\\RE3Recomp\\build";
     }
+
+    // 3. If running from RE3Recomp/launcher, check parent workspace root
+    size_t parentSlash = root.find_last_of(L"\\/");
+    if (parentSlash != std::wstring::npos) {
+        std::wstring parentRoot = root.substr(0, parentSlash);
+        if (HasGameExe(parentRoot + L"\\ResidentEvil3-PCPort")) {
+            return parentRoot + L"\\ResidentEvil3-PCPort";
+        }
+        if (HasGameExe(parentRoot)) {
+            return parentRoot;
+        }
+    }
+
     return root;
 }
 
@@ -693,7 +723,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"supersampling       = " << supersampling << L"\n";
         sFile << L"frame_interpolation = " << (cfg.frame_interpolation ? L"true" : L"false") << L"\n";
         sFile << L"frame_interpolation_fps = " << cfg.frame_interpolation_fps << L"\n";
-        sFile << L"frame_interpolation_blend = \"linear\"\n";
+        sFile << L"frame_interpolation_blend = \"motion_adaptive\"\n";
         sFile << L"frame_interpolation_source = \"flip\"\n";
         sFile << L"geometry_correction = " << (cfg.geometry_correction ? L"true" : L"false") << L"\n";
         sFile << L"perspective_texturing = " << (cfg.perspective_texturing ? L"true" : L"false") << L"\n";
