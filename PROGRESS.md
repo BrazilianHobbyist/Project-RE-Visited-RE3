@@ -1,8 +1,8 @@
 # Project RE: Visited — Resident Evil 3: Nemesis
-## Relatório de Estado, Memória e Progresso do Projeto
+## Relatório Consolidado de Auditoria, Memória e Progresso do Projeto
 
-> **Data de Atualização**: 15 de Outubro de 2026  
-> **Status Geral**: Executável funcional, auditado e estabilizado (v1.4.3 — `Resident_Evil_3__Nemesis_Recompiled.exe`), timing e velocidade autêntica de diálogos preservados, transições de porta e cortes de câmera suaves a 60 FPS estáveis.
+> **Data da Última Auditoria**: 17 de Outubro de 2026  
+> **Status Geral**: Auditado, sincronizado e consolidado (v1.4.3+ / Build de 17/10/2026). As 3 cópias do executável do jogo e as 3 cópias do Launcher estão 100% idênticas (verificadas via SHA-256). Plano de governança persistente ativo em [`WORKFLOW.md`](WORKFLOW.md) e automatizado por [`tools/manage_project.ps1`](RE3Recomp/tools/manage_project.ps1).
 
 ---
 
@@ -16,109 +16,97 @@
 | **Executável Original** | `disc/SLUS_009.23` (Load: `0x80010000`, Entry: `0x80011B80`, Text Size: `0x000D3800`, Stack: `0x801FFFF0`) |
 | **Disc Checksums** | MD5: `03ccf2f717dad9168640f518dd4e3e80` \| CRC32: `132bb3e6` |
 | **Framework Base** | PSXRecomp (Clean-Room Static Recompiler AOT) + Custom Runtime C/C++ |
+| **Repositório Oficial** | `https://github.com/BrazilianHobbyist/Project-RE-Visited-RE3.git` (localizado em `RE3Recomp/`) |
 
 ---
 
-## 2. Arquitetura do Projeto
+## 2. Arquitetura Real do Workspace (Fonte Única de Verdade vs. Distribuição)
 
 ```
 c:\Users\victo\Documents\Projetos\Decomp - SOTC\
-├── game.toml                     # Configuração central de carregamento, endereços e runtime
-├── settings.toml                 # Preferências de vídeo, áudio, controles e resolução
-├── Resident_Evil_3__Nemesis_Recompiled.exe  # Executável do jogo compilado (45 MB)
-├── Jogar RE3 (Launcher).lnk      # Atalho direto para o launcher
+├── WORKFLOW.md                   # Protocolo obrigatório de 6 etapas (Implementar -> Auditar -> Consolidar -> Organizar -> Registrar -> Release)
+├── PROGRESS.md                   # Este relatório consolidado de estado e auditoria
+├── Jogar RE3 (Launcher).lnk      # Atalho principal -> ResidentEvil3-PCPort\Resident_Evil_3_Launcher.exe
 │
-├── RE3Recomp/                    # Código-fonte e pipeline de compilação
-│   ├── build.ps1                 # Script mestre de compilação (CMake + Ninja)
-│   ├── patches/                  # Patches aplicados no runtime do PSXRecomp
-│   │   └── psxrecomp_runtime.patch  # 80 KB de modificações (Door Skip, Cheats, Vibração, PGXP, UI)
-│   ├── seeds/                    # Mapeamento de funções Ghidra (3.328 rotinas MIPS)
-│   │   └── ghidra_funcs.txt
-│   └── CMakeLists.txt
+├── RE3Recomp/                    # [FONTE ÚNICA DE VERDADE — REPOSITÓRIO GIT]
+│   ├── build.ps1                 # Compilação do executável principal (CMake + Ninja)
+│   ├── launcher/                 # Código-fonte C++ Win32/GDI+ do Launcher e script build.ps1
+│   ├── patches/                  # Patches aplicados no runtime e nos C gerados
+│   │   ├── psxrecomp_runtime.patch     # Modificações do runtime (88 KB)
+│   │   └── re3_door_fade_speedup.patch # Redução de frames de fade nas portas (aplicado em generated/)
+│   ├── generated/                # 57 shards C gerados das 3.328 funções MIPS de SLUS_009.23
+│   ├── seeds/ghidra_funcs.txt    # Mapeamento Ghidra das 3.328 rotinas
+│   └── tools/manage_project.ps1  # Script automatizado de Auditoria, Consolidação e Empacotamento Zero-Asset
 │
-├── ResidentEvil3-PCPort/          # Pasta de distribuição/execução com assets, configs e saves
+├── ResidentEvil3-PCPort/         # [AMBIENTE DE EXECUÇÃO DO USUÁRIO]
 │   ├── Resident_Evil_3_Launcher.exe
-│   ├── input.ini & keybinds.ini
-│   ├── overlay_captures.json     # Rastreamento de overlays de memória
-│   └── psx_last_run_report.json  # Relatório do último encerramento/diagnóstico de freeze
+│   ├── Resident_Evil_3__Nemesis_Recompiled.exe
+│   ├── settings.toml & game.toml # Configurações ativas de vídeo, áudio, controles e cheats
+│   ├── bios/                     # openbios.bin (padrão MIT) + SCPH1001.BIN / SCPH5552.BIN
+│   ├── gamedata/                 # Imagem .bin/.cue do CD de Resident Evil 3
+│   ├── disc/SLUS_009.23          # Executável PS-X EXE extraído do disco
+│   └── saves/                    # Memory Cards (.mcd)
 │
-└── gamedata/ / disc/             # Dados originais extraídos do disco
+└── releases/                     # Pacotes .zip limpos (Zero-Asset) para publicação no GitHub Releases
 ```
 
 ---
 
-## 3. Mapeamento de Memória & Endereços Críticos (Engenharia Reversa)
+## 3. Posição Consolidada e Sincera: O Que Funciona vs. O Que Não Está Ativo
 
-Estes são os endereços estáticos descobertos e utilizados no código dos patches:
-
-### Transições de Cenário & Portas (Door Skip Ultra-Rápido com Fade Suave)
-- **`0x800979F0`** — **Tabela de Estágios de Transição de Sala**:
-  - `table[0]` (`0x80015498`): **Stage 0 (Carregamento de Dados)**: Leitura de dados do cenário e modelos do CD-ROM.
-  - `table[1]` (`0x80015754`): **Stage 1 (Animação 3D de Porta e Áudio)**: No Door Skip, redirecionado diretamente para `0x80016150`.
-  - `table[2]` (`0x80016150`): **Stage 2 (Finalização e Fade-in)**: No Door Skip, zerado (`0x00000000`) para evitar execução duplicada de Stage 2.
-- **Aceleração de Carregamento Estrita (`cdrom_data_read_active`)**:
-  - A aceleração unpaced do Door Skip atua **exclusivamente** durante a leitura física de setores do CD (`cdrom_data_read_active() = reading && !xa_stream_active`), terminando no instante exato em que os setores são entregues.
-  - O sistema genérico de `turbo_loads` do PSXRecomp é mantido explicitamente desativado (`g_turbo_loads_enabled = 0`), impedindo que a janela de tolerância de 30 frames (`CD_BURST_GAP_FRAMES`) e os frames de liberação acelerem indevidamente os diálogos da Jill ao carregar saves ou arremessem a personagem bruscamente nas transições de cena/ângulo.
-  - Fade-in de 5 frames restaurado a 60 FPS estáveis, garantindo apresentação visual suave e polida.
-
-### Desbloqueios Nativos da Capcom (Clear Mode / Segredos)
-- **`0x800D1F32`** — **Clear Mode / Secret Flag**:
-  - Bitmask `0xFFE0`: Ativa o modo limpo nativo da Capcom, liberando a chave da Boutique, todas as roupas extras e abastecendo o baú com armas especiais infinitas (Gatling Gun, Rocket Launcher, M4A1 com munição ilimitada).
-- **`0x000D1F3E`** — **Epilogue Gallery Counter**:
-  - Definido como `8`: desbloqueia todos os 8 epílogos originais na galeria do menu principal.
-
-### Estado do Jogador & Cheats
-- **`0x000CCC97`** — **Health Condition da Jill**:
-  - Byte de status: `0x04` = Condição *Fine* e remoção imediata de veneno (*Poison cleared*). Usado no patch de God Mode.
-
-### IDs de Munição Mapeados
-- Pistola 9mm: `0x15` | Pistola Reforçada: `0x24`
-- Shotgun: `0x17` | Shotgun Reforçada: `0x25`
-- Magnum: `0x16`
-- Lança-Granadas Normal: `0x18` | Flame: `0x19` | Acid: `0x1A` | Freeze: `0x1B`
-- Mine Thrower: `0x1F`
-- Fuzil de Assalto M4A1: `0x22`
+### 3.1. Funcionalidades 100% Implementadas, Conectadas e Validadas
+1. **Recompilação Estática x86_64 Completa (`Resident_Evil_3__Nemesis_Recompiled.exe`)**:
+   - 3.328 funções MIPS compiladas estaticamente em 57 arquivos C (`RE3Recomp/generated/`) + suporte dinâmico a overlays (`0x80165000`, 47 regiões validadas em `overlay_captures.json`).
+   - Última sessão registrada em `psx_last_run_report.json`: **7.969 frames** executados com encerramento limpo (`reason: atexit`, `exit_origin: sdl_window_close`), zero falhas de interpretador e 47/47 overlays válidos.
+2. **Launcher Nativo Win32/GDI+ Dark Mode (`Resident_Evil_3_Launcher.exe`)**:
+   - Tema escuro ("Raccoon City"), multi-idioma dinâmico (Inglês, Português-BR, Espanhol).
+   - **Assistente de Instalação ISO 9660 Mode 2 Form 1**: Extrai `disc/SLUS_009.23` diretamente do `.bin`/`.iso` do usuário e valida a assinatura `PS-X EXE` sem ferramentas externas.
+   - **Detecção de Diretório Blindada**: Resolve automaticamente a pasta do jogo (`ResidentEvil3-PCPort` ou raiz) independentemente de onde o Launcher seja iniciado.
+3. **Door Skip Ágil sem Distorção de Diálogos (`fast_doors = true`)**:
+   - Na tabela `0x800979F0`, redireciona o Stage 1 (`0x80015754`, animação 3D da porta) para o Stage 2 (`0x80016150`, finalização) e zera `table[2]`.
+   - Fade-out de porta reduzido de 8 para 4 frames (`0x8006FEF0`/`0x8006FF8C`) e fade-in reduzido de 16 para 5 frames (`0x80016190`).
+   - Leitura acelerada restrita estritamente a `cdrom_data_read_active()` (`reading && !xa_stream_active`), mantendo `g_turbo_loads_enabled = 0` para que vozes e diálogos rodem sempre na velocidade original.
+4. **Skip Nativo de Diálogos e Cutscenes XA (Novo — Build de 17/10/2026)**:
+   - Implementado `cdrom_skip_current_xa()` em `cdrom.c` e conectado ao loop por frame em `main.cpp`.
+   - Pressionar Ação (`X`/Cruz, Espaço, Enter) ou `Start`/`Select`/`Esc`/`Tab` durante falas/monólogos em streaming XA encerra o stream XA imediatamente e aciona o handler nativo de fim de fala do jogo, sem acelerar o clock nem distorcer o áudio.
+5. **Controles Modernos 3D no Analógico Esquerdo + D-Pad Tanque (`modern_controls = true`)**:
+   - Analógico esquerdo mapeado em 8 setores simétricos com zona morta de `0.26`, caminhada suave e *Auto-Run* ao inclinar acima de `0.82` (exceto ao mirar com `R1`).
+   - Girar para Leste/Oeste roda a personagem no próprio eixo sem passos acidentais para frente. O D-Pad permanece 100% com controle tanque clássico.
+6. **Vibração / Force Feedback DualShock (`update_controller_rumble`)**:
+   - Negociação DualShock forçada ativa (`sio_set_pad_config_capable(..., 1)`) e curva amplificada para motores grave e agudo via SDL2 GameController Rumble (`rumble_intensity` configurável em `settings.toml`).
+7. **Gráficos OpenGL, Resolução Interna até 4K (SSAA), PGXP Perspectiva, FXAA e Cadência 60–240 Hz (`frame_interpolation`)**:
+   - Upscaling interno (`supersampling` 1x a 4x), shader FXAA integrado na apresentação OpenGL, correção de perspectiva de texturas (`perspective_texturing = true`) e proporção 16:9 Esticado ou 4:3 Clássico.
+   - **Sub-Frame Pacer OpenGL 60–240 Hz + Interpolação Temporal Motion-Adaptive (Corrigido — Build de 17/10/2026)**:
+     - Corrigidos 3 bugs críticos deixados em `main.cpp` pela sessão anterior: (1) removido o override hardcoded `PSX_MOD_FRAME_INTERPOLATION_HOLD` que travava `alpha = 1.0f` e impedia qualquer interpolação sem Render Pass; (2) restaurado `if (g_frame_interpolation) return 0;` em `present_effective_swap_interval()` para que o `SDL_GL_SwapWindow` não bloqueie o *pacer* de alta frequência (`interp_present_source_interval`); e (3) reaplicado `load_re3_qol_settings()` após `start_mod_session()` para impedir que `reset_mod_owned_presentation()` sobrescreva as configurações do Launcher.
+8. **Seletor de Cheats Reversível + Atalhos In-Game (`F6`, `F7`, `F8`)**:
+   - **Vida Infinita (`0x000CCC90` = 200, `0x000CCC97` = `0x04` Fine)**, **Munição Infinita**, **Fitas Infinitas (`0x81` = 99)**, **Clear Mode Capcom (`0x000D1F32 |= 0xFFE0` para Armas no Baú / Boutique / Mercenaries)** e **8 Epílogos (`0x000D1F3E = 8`)**.
+   - Atalhos em tempo real funcionando durante o jogo: `F6` (God Mode), `F7` (Munição Infinita) e `F8` (Munição Máxima no inventário).
 
 ---
 
-## 4. Funcionalidades Já Implementadas e Validadas
-
-1. **Recompilação Estática x86_64 Completa**:
-   - 3.328 rotinas MIPS R3000A compiladas em código nativo de máquina via `build.ps1`.
-2. **Door Skip Opcional Instantâneo**:
-   - Bypass automático do carregamento falso de 3 segundos entre portas.
-3. **PGXP (Precision Geometry Transform Pipeline)**:
-   - Elimina o efeito "gelatina" (wobbling de texturas e vértices tremendo) característico do hardware original do PS1.
-   - Texturização com correção de perspectiva e renderização em OpenGL.
-4. **Vibração Háptica Realista**:
-   - Ajuste dinâmico de curvas para controle DualShock / XInput: motor pesado com sustentação para tiros de grosso calibre e motor leve de alta frequência para impactos e tiros rápidos.
-5. **Suporte a Widescreen & Resoluções Modernas**:
-   - Seleção de proporção 16:9 ou 4:3 clássica em tela cheia e modo janela.
-6. **Painel de Configuração & Launcher**:
-   - Executável launcher para mapear botões, alternar filtros visuais e gerenciar saves.
-7. **Sistema de Telemetria de Freeze**:
-   - Geração automática de `psx_freeze_dump_*.json` e `psx_last_run_report.json` para capturar registradores, ponteiros de pilha e scratchpad caso ocorra desvio de fluxo.
+### 3.2. Funcionalidades Presentes no Código, Mas Desativadas ou Pendentes de Próximo Ciclo (Transparência Total)
+1. **Interpolação Geométrica / Esquelética 3D Real via Render Pass (Planejada para o Próximo Ciclo — Etapa 2)**:
+   - **Estado Real**: Atualmente a fluidez de 60–240 Hz opera via **apresentação temporal Motion-Adaptive no OpenGL** (subdividindo os quadros de 30 FPS do jogo na taxa nativa do monitor sem *ghosting* em cortes de câmera). A interpolação poligonal 3D das entidades (`0x800CCC00`, recalculando matrizes GTE e re-submetendo a *Ordering Table* entre `0x80023F38` e `0x80078620`) foi removida na sessão anterior após um conflito com um hook de *tasks* e será reimplementada de forma limpa e isolada no próximo ciclo do `WORKFLOW.md`.
+2. **Funções QoL de Inventário (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`)**:
+   - **Estado Real**: As funções estão escritas em `runtime/src/main.cpp` (linhas 997–1180 do patch) e suas variáveis são lidas no `settings.toml`, **porém não possuem nenhum gatilho de botão/tecla conectado a elas no loop de eventos**. Portanto, hoje são código inativo (*dead code*) até que decidamos atribuir atalhos dedicados ou opções no Launcher.
+3. **Pan & Scan Vertical Dinâmico 16:9 (`s_pan_scan_enabled`)**:
+   - **Estado Real**: Toda a lógica de rastreamento de centroide vertical 3D da Jill (`note_3d_actor_polygon` em `gpu.c`) e deslocamento suave da câmera com proteção de legendas (`gpu_is_message_box_active` em `gpu_gl_renderer.c`) está compilada no executável. Contudo, na tela do Launcher o seletor de proporção oferece apenas **16:9 Esticado** e **4:3 Clássico** (por estabilidade visual). O Pan & Scan só é ativado se o usuário editar manualmente `pan_scan = true` no `settings.toml`.
+4. **Correção Geométrica PGXP (`geometry_correction`)**:
+   - **Estado Real**: Funcional no código, mas marcada no Launcher como *"Não recomendado: deforma personagens"* porque os modelos articulados do RE3 sofrem distorção nos membros quando o GTE força precisão sub-pixel nos vértices. A correção de **perspectiva de texturas** (`perspective_texturing`), por outro lado, funciona perfeitamente e vem ativada por padrão.
+5. **Diagnóstico dos Dumps Antigos de `spin_freeze` na BIOS**:
+   - **Estado Real**: Os 4 arquivos `psx_freeze_dump_*.json` encontrados no workspace ocorreram entre os frames 158 e 274 no endereço `0x1FC0B...` (ROM da BIOS) quando o `bios.cfg` antigo de `RE3Recomp` apontava para a BIOS retail europeia (`SCPH5552.BIN`). Com a padronização para `bios/openbios.bin` em todos os arquivos `bios.cfg`, o boot ocorre sem travamento. Os dumps antigos foram auditados e limpos.
 
 ---
 
-## 5. Como Recompilar e Rodar
-
-Para compilar qualquer alteração futura no código ou nos patches:
+## 4. Comandos Rápidos do Plano de Trabalho (`WORKFLOW.md`)
 
 ```powershell
-# Dentro da pasta RE3Recomp:
-.\build.ps1 -Config Release
+# 1. Auditar estado do Git, paridade SHA-256 dos binários e relatórios de execução:
+powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action audit
+
+# 2. Consolidar (atualizar patch do runtime, compilar Launcher, sincronizar binários e docs, limpar dumps):
+powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action consolidate
+
+# 3. Gerar pacote de Release Zero-Asset (.zip em releases/):
+powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action package -Version "v1.4.4"
 ```
-
-Para executar o jogo:
-- Diretamente pelo executável: `.\Resident_Evil_3__Nemesis_Recompiled.exe`
-- Pelo launcher com menu: `.\ResidentEvil3-PCPort\Resident_Evil_3_Launcher.exe`
-
----
-
-## 6. Backlog para o Retorno
-
-Quando voltarmos a mexer neste projeto, os pontos prioritários em aberto são:
-1. **Monitoramento de Overlays do Modo Mercenaries**: Verificar se todas as salas específicas da missão de evacuação carregam perfeitamente sem congelamento na troca de overlay (`0x80165000`).
-2. **Ajustes de Áudio Específicos**: Validar o comportamento de reverberação de passos e eco de tiros nas salas de subsolo.
-3. **Empacotamento de Release**: Criar instalador limpo para distribuição se desejado.
