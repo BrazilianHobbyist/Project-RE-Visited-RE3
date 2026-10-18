@@ -19,7 +19,7 @@
 * **Resident Evil 2** (Planned)
 * **Resident Evil** (Planned)
 
-Our mission is to deliver the definitive experience of these historic classics on contemporary hardware—combining authentic artistic fidelity with modern quality-of-life (QoL) enhancements, true 360° analog 3D controls, ultra-smooth frame rates (up to 240 FPS / host refresh), and resolutions up to 4K UHD—without relying on traditional emulators or dated, compromised legacy PC ports.
+Our mission is to deliver the definitive experience of these historic classics on contemporary hardware—combining authentic artistic fidelity with modern quality-of-life (QoL) enhancements, true 360° analog 3D controls, rock-steady authentic 30 FPS pacing, and resolutions up to 4K UHD—without relying on traditional emulators or dated, compromised legacy PC ports.
 
 ---
 
@@ -87,7 +87,7 @@ Every feature listed below is **100% implemented, audited, and functional**:
 |---|---|
 | **Built-in Setup Wizard** | Native ISO 9660 Mode 2 Form 1 sector parser. Automatically extracts the original `SLUS_009.23` executable from `.bin` / `.iso` disc images in milliseconds without external tools. |
 | **Agile Analog Controls with Auto-Run** | Responsive analog stick movement with reduced deadzone (0.26), automatic sprint on full stick deflection, and smooth in-place turning without direction inversion on fixed camera cuts. The D-Pad retains 100% authentic classic tank controls. |
-| **Smooth Motion & Interpolation (up to 240 FPS)** | Continuous temporal polygon interpolation (`linear blend` + `flip-aware source`) matching modern high-refresh displays (60Hz, 120Hz, 144Hz, 165Hz, 240Hz, or Auto-Sync). |
+| **Pure 30 FPS Authentic Presentation** | Solid, rock-steady 30 FPS hardware presentation preserving the canonical PS1 timing, pristine 2.5D background masks, and zero ghosting or depth artifacts. |
 | **Widescreen & Classic Aspect Ratios** | Native support for 16:9 Stretched (full widescreen display for modern monitors without subtitle or HUD cropping) and authentic 4:3 Classic Original with clean pillarboxing. Configurable via the Launcher or in `settings.toml`. |
 | **Door Skipping / Instant Room Transitions** | Bypasses the classic 3D door-opening animations with a snappy (~0.3s) transition, accelerated fade in/out, and unpaced sector loading, preserving natural dialogue and voice speed. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). |
 | **DualShock Force Feedback & Vibration** | Authentic rumble support on modern gamepads (Xbox, DualShock 4, DualSense, etc.) for gunfire, damage, explosions, and Nemesis footsteps via SDL GameController Force Feedback (calibrated in `settings.toml`). |

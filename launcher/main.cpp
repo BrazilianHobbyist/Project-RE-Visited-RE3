@@ -41,7 +41,6 @@ enum ControlID {
     ID_COMBO_DISPLAY = 1006,
     ID_COMBO_RENDERER = 1007,
     ID_COMBO_INTERNAL_RES = 1008,
-    ID_COMBO_FPS = 1009,
     ID_COMBO_CONTROLS = 1010,
     ID_CHK_PGXP_GEOM = 1011,
     ID_CHK_PGXP_TEX = 1012,
@@ -124,14 +123,12 @@ HWND g_hGrpAudio = NULL;
 HWND g_hLblAspect = NULL;
 HWND g_hLblDisplay = NULL;
 HWND g_hLblRes = NULL;
-HWND g_hLblFps = NULL;
 HWND g_hLblRend = NULL;
 HWND g_hLblCtrlMode = NULL;
 HWND g_hComboAspect = NULL;
 HWND g_hComboDisplay = NULL;
 HWND g_hComboRenderer = NULL;
 HWND g_hComboInternalRes = NULL;
-HWND g_hComboFps = NULL;
 HWND g_hComboControls = NULL;
 HWND g_hChkPgxpGeom = NULL;
 HWND g_hChkPgxpTex = NULL;
@@ -603,8 +600,6 @@ struct GameConfig {
     bool fullscreen = true;
     std::wstring renderer = L"opengl";
     std::wstring internal_resolution = L"1080p";
-    bool frame_interpolation = true;
-    int frame_interpolation_fps = 0;
     bool modern_controls = true;
     bool geometry_correction = false;
     bool perspective_texturing = true;
@@ -671,16 +666,6 @@ GameConfig LoadConfig() {
         else if (key == L"internal_resolution") {
             cfg.internal_resolution = val;
         }
-        else if (key == L"frame_interpolation") {
-            cfg.frame_interpolation = (val == L"true" || val == L"1");
-        }
-        else if (key == L"frame_interpolation_fps") {
-            try {
-                cfg.frame_interpolation_fps = std::stoi(val);
-            } catch (...) {
-                cfg.frame_interpolation_fps = 0;
-            }
-        }
         else if (key == L"modern_controls") {
             cfg.modern_controls = (val == L"true" || val == L"1");
         }
@@ -721,10 +706,6 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"renderer            = \"" << cfg.renderer << L"\"\n";
         sFile << L"internal_resolution = \"" << cfg.internal_resolution << L"\"\n";
         sFile << L"supersampling       = " << supersampling << L"\n";
-        sFile << L"frame_interpolation = " << (cfg.frame_interpolation ? L"true" : L"false") << L"\n";
-        sFile << L"frame_interpolation_fps = " << cfg.frame_interpolation_fps << L"\n";
-        sFile << L"frame_interpolation_blend = \"motion_adaptive\"\n";
-        sFile << L"frame_interpolation_source = \"flip\"\n";
         sFile << L"geometry_correction = " << (cfg.geometry_correction ? L"true" : L"false") << L"\n";
         sFile << L"perspective_texturing = " << (cfg.perspective_texturing ? L"true" : L"false") << L"\n";
         sFile << L"antialiasing        = " << (cfg.antialiasing ? L"true" : L"false") << L"\n";
@@ -822,42 +803,6 @@ GameConfig GetGuiConfig() {
         case 3: cfg.internal_resolution = L"720p"; break;
         case 4: cfg.internal_resolution = L"native"; break;
         default: cfg.internal_resolution = L"1080p"; break;
-    }
-
-    int idxFps = (int)SendMessageW(g_hComboFps, CB_GETCURSEL, 0, 0);
-    switch (idxFps) {
-        case 0:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 0;
-            break;
-        case 1:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 144;
-            break;
-        case 2:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 120;
-            break;
-        case 3:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 165;
-            break;
-        case 4:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 240;
-            break;
-        case 5:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 60;
-            break;
-        case 6:
-            cfg.frame_interpolation = false;
-            cfg.frame_interpolation_fps = 0;
-            break;
-        default:
-            cfg.frame_interpolation = true;
-            cfg.frame_interpolation_fps = 0;
-            break;
     }
 
     int idxRend = (int)SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0);
@@ -969,46 +914,6 @@ void ApplyLanguage(const std::wstring& lang) {
             SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Native (240p) — Original PS1");
         }
         SendMessageW(g_hComboInternalRes, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-    if (g_hLblFps) {
-        if (lang == L"es") SetWindowTextW(g_hLblFps, L"Fluidez / Frecuencia:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblFps, L"Fluidez / Frequência:");
-        else SetWindowTextW(g_hLblFps, L"Smoothness / Refresh:");
-    }
-
-    if (g_hComboFps) {
-        int cur = (int)SendMessageW(g_hComboFps, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboFps, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            std::wstring autoHz = L"Auto (Frecuencia Nativa — " + std::to_wstring(g_screenHz) + L" Hz)";
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)autoHz.c_str());
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"144 FPS (Fluidez Alta — 144Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"120 FPS (Fluidez Alta — 120Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"165 FPS (Fluidez Alta — 165Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"240 FPS (Fluidez Máxima — 240Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"60 FPS (Estándar Suave — 60Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"Desactivado (30 FPS Original de PS1)");
-        } else if (lang == L"pt-br") {
-            std::wstring autoHz = L"Auto (Taxa Nativa do Monitor — " + std::to_wstring(g_screenHz) + L" Hz)";
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)autoHz.c_str());
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"144 FPS (Fluidez Alta — 144Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"120 FPS (Fluidez Alta — 120Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"165 FPS (Fluidez Alta — 165Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"240 FPS (Fluidez Máxima — 240Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"60 FPS (Padrão Suave — 60Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"Desativado (30 FPS Original de PS1)");
-        } else {
-            std::wstring autoHz = L"Auto (Native Monitor Refresh — " + std::to_wstring(g_screenHz) + L" Hz)";
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)autoHz.c_str());
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"144 FPS (High Smoothness — 144Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"120 FPS (High Smoothness — 120Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"165 FPS (High Smoothness — 165Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"240 FPS (Maximum Smoothness — 240Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"60 FPS (Smooth Standard — 60Hz)");
-            SendMessageW(g_hComboFps, CB_ADDSTRING, 0, (LPARAM)L"Disabled (Original PS1 30 FPS)");
-        }
-        SendMessageW(g_hComboFps, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
 
     if (g_hLblRend) {
@@ -1300,7 +1205,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"[23] MINGW-W64 & GCC — Toolchain de compilación x86_64 para Windows.\r\n";
         t += L"[24] MICROSOFT CORPORATION — Win32 API, GDI+ y Common Controls v6.\r\n";
         t += L"[25] COMUNIDAD R.A.I.D. — Ingeniería inversa retro asistida por IA.\r\n";
-        t += L"[26] MEJORAS DEL PORT — Controles 3D analógicos con auto-run, fluidez hasta 240 FPS, SPU HQ 48kHz y saves .mcd.\r\n";
+        t += L"[26] MEJORAS DEL PORT — Controles 3D analógicos con auto-run, SPU HQ 48kHz, Pan & Scan 16:9 dinámico y saves .mcd.\r\n";
         t += L"================================================================================\r\n";
         return t;
     }
@@ -1379,7 +1284,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"[23] MINGW-W64 & GCC — Toolchain de compilação C/C++ x86_64.\r\n";
         t += L"[24] MICROSOFT CORPORATION — Win32 API, GDI+ e Common Controls v6.\r\n";
         t += L"[25] COMUNIDADE R.A.I.D. — Engenharia reversa retro assistida por IA.\r\n";
-        t += L"[26] MELHORIAS DESTE PORT — Controles 3D analógicos com auto-run, fluidez até 240 FPS, SPU HQ 48kHz e saves .mcd.\r\n";
+        t += L"[26] MELHORIAS DESTE PORT — Controles 3D analógicos com auto-run, SPU HQ 48kHz, Pan & Scan 16:9 dinâmico e saves .mcd.\r\n";
         t += L"================================================================================\r\n";
         return t;
     }
@@ -1470,7 +1375,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
     t += L"[23] MINGW-W64 & GCC — Toolchain used to compile the native x86_64 executables.\r\n";
     t += L"[24] MICROSOFT CORPORATION — Windows Win32 API, GDI+, and Common Controls v6.\r\n";
     t += L"[25] R.A.I.D. (RETRO AI DEVELOPMENT) — Retro AI-assisted reverse engineering and preservation community.\r\n";
-    t += L"[26] PORT ENHANCEMENTS — Modern 3D camera-relative controls, high-refresh rate interpolation up to 240Hz, SPU HQ 48kHz resampling, and native .mcd memory cards.\r\n";
+    t += L"[26] PORT ENHANCEMENTS — Modern 3D camera-relative controls, SPU HQ 48kHz resampling, dynamic 16:9 Pan & Scan, and native .mcd memory cards.\r\n";
     t += L"================================================================================\r\n";
 
     return t;
@@ -1592,8 +1497,14 @@ void ShowCreditsDialog(HWND hWndParent) {
     GetWindowRect(hWndParent, &rcParent);
     int pW = rcParent.right - rcParent.left;
     int pH = rcParent.bottom - rcParent.top;
-    int width = 720;
-    int height = 650;
+
+    DWORD dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX;
+    DWORD dwExStyle = WS_EX_DLGMODALFRAME;
+    RECT rcCredits = { 0, 0, 720, 650 };
+    AdjustWindowRectEx(&rcCredits, dwStyle, FALSE, dwExStyle);
+    int width = rcCredits.right - rcCredits.left;
+    int height = rcCredits.bottom - rcCredits.top;
+
     int posX = rcParent.left + (pW - width) / 2;
     int posY = rcParent.top + (pH - height) / 2;
     if (posX < 0) posX = 0;
@@ -1604,10 +1515,10 @@ void ShowCreditsDialog(HWND hWndParent) {
                             L"Project Credits & Legal Disclaimer";
 
     g_hWndCredits = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        dwExStyle,
         L"RE3CreditsWindowClass",
         dlgTitle.c_str(),
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX,
+        dwStyle,
         posX, posY, width, height,
         hWndParent, NULL, g_hInst, NULL
     );
@@ -1810,8 +1721,14 @@ void ShowCheatsDialog(HWND hWndParent) {
     GetWindowRect(hWndParent, &rcParent);
     int pW = rcParent.right - rcParent.left;
     int pH = rcParent.bottom - rcParent.top;
-    int width = 580;
-    int height = 470;
+
+    DWORD dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD dwExStyle = WS_EX_DLGMODALFRAME;
+    RECT rcCheats = { 0, 0, 580, 470 };
+    AdjustWindowRectEx(&rcCheats, dwStyle, FALSE, dwExStyle);
+    int width = rcCheats.right - rcCheats.left;
+    int height = rcCheats.bottom - rcCheats.top;
+
     int posX = rcParent.left + (pW - width) / 2;
     int posY = rcParent.top + (pH - height) / 2;
     if (posX < 0) posX = 0;
@@ -1822,10 +1739,10 @@ void ShowCheatsDialog(HWND hWndParent) {
                             L"Game Modifiers & Cheat Selector";
 
     g_hWndCheats = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        dwExStyle,
         L"RE3CheatsWindowClass",
         dlgTitle.c_str(),
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        dwStyle,
         posX, posY, width, height,
         hWndParent, NULL, g_hInst, NULL
     );
@@ -2324,8 +2241,14 @@ void ShowSetupDialog(HWND hWndParent) {
     GetWindowRect(hWndParent, &rcParent);
     int pW = rcParent.right - rcParent.left;
     int pH = rcParent.bottom - rcParent.top;
-    int width = 660;
-    int height = 600;
+
+    DWORD dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    DWORD dwExStyle = WS_EX_DLGMODALFRAME;
+    RECT rcSetup = { 0, 0, 660, 570 };
+    AdjustWindowRectEx(&rcSetup, dwStyle, FALSE, dwExStyle);
+    int width = rcSetup.right - rcSetup.left;
+    int height = rcSetup.bottom - rcSetup.top;
+
     int posX = rcParent.left + (pW - width) / 2;
     int posY = rcParent.top + (pH - height) / 2;
     if (posX < 0) posX = 0;
@@ -2336,10 +2259,10 @@ void ShowSetupDialog(HWND hWndParent) {
                             L"Installation & Setup Wizard — Project RE: Visited - Resident Evil 3";
 
     g_hWndSetup = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        dwExStyle,
         L"RE3SetupWindowClass",
         dlgTitle.c_str(),
-        WS_POPUP | WS_CAPTION | WS_SYSMENU,
+        dwStyle,
         posX, posY, width, height,
         hWndParent, NULL, g_hInst, NULL
     );
@@ -2388,7 +2311,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hBtnOpenSetup, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         // Grupo 1: Graficos HD & Desempenho Visual
-        g_hGrpVideo = CreateWindowW(L"BUTTON", L"  HD Graphics && Visual Performance  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 256, 508, 234, hWnd, NULL, g_hInst, NULL);
+        g_hGrpVideo = CreateWindowW(L"BUTTON", L"  HD Graphics && Visual Performance  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 256, 508, 208, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpVideo, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblAspect = CreateWindowW(L"STATIC", L"Aspect Ratio:", WS_VISIBLE | WS_CHILD, 32, 280, 150, 20, hWnd, NULL, g_hInst, NULL);
@@ -2406,67 +2329,62 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hComboInternalRes = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 330, 324, 140, hWnd, (HMENU)ID_COMBO_INTERNAL_RES, g_hInst, NULL);
         SendMessageW(g_hComboInternalRes, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hLblFps = CreateWindowW(L"STATIC", L"Smoothness / Refresh:", WS_VISIBLE | WS_CHILD, 32, 358, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblFps, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboFps = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 356, 324, 160, hWnd, (HMENU)ID_COMBO_FPS, g_hInst, NULL);
-        SendMessageW(g_hComboFps, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hLblRend = CreateWindowW(L"STATIC", L"GPU Renderer:", WS_VISIBLE | WS_CHILD, 32, 384, 150, 20, hWnd, NULL, g_hInst, NULL);
+        g_hLblRend = CreateWindowW(L"STATIC", L"GPU Renderer:", WS_VISIBLE | WS_CHILD, 32, 358, 150, 20, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblRend, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboRenderer = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 382, 324, 120, hWnd, (HMENU)ID_COMBO_RENDERER, g_hInst, NULL);
+        g_hComboRenderer = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 356, 324, 120, hWnd, (HMENU)ID_COMBO_RENDERER, g_hInst, NULL);
         SendMessageW(g_hComboRenderer, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkPgxpGeom = CreateWindowW(L"BUTTON", L"PGXP Geometry Correction (Not recommended)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 412, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_GEOM, g_hInst, NULL);
+        g_hChkPgxpGeom = CreateWindowW(L"BUTTON", L"PGXP Geometry Correction (Not recommended)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 386, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_GEOM, g_hInst, NULL);
         SendMessageW(g_hChkPgxpGeom, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkPgxpTex = CreateWindowW(L"BUTTON", L"Perspective-Correct Texturing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 436, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_TEX, g_hInst, NULL);
+        g_hChkPgxpTex = CreateWindowW(L"BUTTON", L"Perspective-Correct Texturing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 410, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_TEX, g_hInst, NULL);
         SendMessageW(g_hChkPgxpTex, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 460, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
+        g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 434, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 2: Jogabilidade e Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 498, 508, 96, hWnd, NULL, g_hInst, NULL);
+        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 472, 508, 96, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 32, 522, 150, 20, hWnd, NULL, g_hInst, NULL);
+        g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 32, 496, 150, 20, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCtrlMode, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 520, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
+        g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 494, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
         SendMessageW(g_hComboControls, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 554, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
+        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 528, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
         SendMessageW(g_hBtnInput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 554, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
+        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 528, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 604, 508, 98, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 578, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 626, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
+        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 600, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
         SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 648, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
+        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 622, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 670, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 644, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
         SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 712, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 686, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 712, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 686, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 760, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 734, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 760, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 734, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 800, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 774, 508, 16, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
@@ -2494,17 +2412,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         else if (cfg.internal_resolution == L"720p") curResIdx = 3;
         else if (cfg.internal_resolution == L"native") curResIdx = 4;
         SendMessageW(g_hComboInternalRes, CB_SETCURSEL, curResIdx, 0);
-
-        if (!cfg.frame_interpolation) {
-            SendMessageW(g_hComboFps, CB_SETCURSEL, 6, 0);
-        } else {
-            if (cfg.frame_interpolation_fps == 144) SendMessageW(g_hComboFps, CB_SETCURSEL, 1, 0);
-            else if (cfg.frame_interpolation_fps == 120) SendMessageW(g_hComboFps, CB_SETCURSEL, 2, 0);
-            else if (cfg.frame_interpolation_fps == 165) SendMessageW(g_hComboFps, CB_SETCURSEL, 3, 0);
-            else if (cfg.frame_interpolation_fps == 240) SendMessageW(g_hComboFps, CB_SETCURSEL, 4, 0);
-            else if (cfg.frame_interpolation_fps == 60) SendMessageW(g_hComboFps, CB_SETCURSEL, 5, 0);
-            else SendMessageW(g_hComboFps, CB_SETCURSEL, 0, 0);
-        }
 
         SendMessageW(g_hComboControls, CB_SETCURSEL, cfg.modern_controls ? 0 : 1, 0);
         SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, cfg.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -2721,18 +2628,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
         return 0;
     }
 
-    int width = 560;
-    int height = 865;
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    RECT rcMain = { 0, 0, 560, 808 };
+    AdjustWindowRectEx(&rcMain, dwStyle, FALSE, 0);
+    int width = rcMain.right - rcMain.left;
+    int height = rcMain.bottom - rcMain.top;
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int posX = (screenW - width) / 2;
     int posY = (screenH - height) / 2;
+    if (posX < 0) posX = 0;
+    if (posY < 0) posY = 0;
 
     g_hWndMain = CreateWindowExW(
         0,
         wc.lpszClassName,
-        L"Project RE: Visited - Resident Evil 3 (v1.4.3)",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        L"Project RE: Visited - Resident Evil 3 (v1.5.0)",
+        dwStyle,
         posX, posY, width, height,
         NULL, NULL, hInstance, NULL
     );

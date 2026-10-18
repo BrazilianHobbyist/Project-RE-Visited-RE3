@@ -87,7 +87,7 @@ Todas as opções listadas abaixo estão **100% implementadas, auditadas e funci
 |---|---|
 | **Assistente de Instalação Integrado** | Extração nativa de setores ISO 9660 Mode 2 Form 1. Detecta e extrai o executável original `SLUS_009.23` de imagens `.bin` / `.iso` em milissegundos sem ferramentas externas. |
 | **Controles Analógicos Ágeis com Auto-Run** | Controle analógico no stick esquerdo com zona morta reduzida (0.26), corrida automática ao inclinar totalmente e rotação suave sem inversões de direção na troca de câmeras fixas. O D-Pad mantém 100% dos controles clássicos de tanque. |
-| **Fluidez em Altas Taxas (até 240 FPS)** | Interpolação poligonal temporal contínua (`linear blend` + `flip-aware source`) que sincroniza os modelos 3D com a taxa de atualização do monitor (60Hz, 120Hz, 144Hz, 165Hz, 240Hz ou Auto-Sync). |
+| **Apresentação Autêntica a 30 FPS Nativos** | Renderização pura e estável a 30 FPS preservando a cadência original do PS1, máscaras 2.5D perfeitas e zero artefatos de ghosting ou sobreposição. |
 | **Formatos de Tela Widescreen & Clássico** | Suporte nativo a 16:9 Widescreen Esticado (tela cheia para monitores modernos sem cortes de texto ou legendas) e 4:3 Clássico Original com barras laterais pretas autênticas. Configurável pelo Launcher ou em `settings.toml`. |
 | **Pular Animação de Portas / Door Skip** | Pula as clássicas animações 3D de portas com transição rápida (~0,3s), fade in/out acelerado e carregamento de CD sem atraso artificial, preservando os diálogos. Configurável pelo Launcher ou em `settings.toml` (`fast_doors = true`). |
 | **Vibração / Force Feedback (DualShock)** | Suporte autêntico a vibração em controles modernos (Xbox, DualShock 4, DualSense, etc.) para tiros, danos, explosões e passos de Nemesis via SDL GameController Force Feedback (intensidade calibrada em `settings.toml`). |
@@ -129,7 +129,7 @@ Se for sua primeira inicialização, o Launcher informará `[!] STATUS: Instala�
 4. Clique em **`Iniciar Instalação & Extração`**. O Launcher validará os arquivos e **extrairá o executável `SLUS_009.23` diretamente da imagem do disco** em instantes.
 
 ### Passo 3: Configurar e Jogar
-1. Ajuste a proporção de tela (**16:9** ou **4:3**), resolução interna 3D (até **4K**), taxa de fluidez (até **240 FPS**), modo de controle (**Moderno 3D** ou **Clássico Tanque**) e filtros (PGXP e FXAA).
+1. Ajuste a proporção de tela (**16:9** ou **4:3**), resolução interna 3D (até **4K**), modo de controle (**Moderno 3D** ou **Clássico Tanque**) e filtros (PGXP e FXAA).
 2. Clique em **`JOGAR RESIDENT EVIL 3`**!
 
 ---
