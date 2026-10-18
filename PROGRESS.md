@@ -111,4 +111,7 @@ powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -A
 
 # 3. Gerar pacote de Release Zero-Asset (.zip em releases/):
 powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action package -Version "v1.5.0"
+
+# 4. Publicar Release oficial no GitHub com upload de binario Zero-Asset:
+powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action publish -Version "v1.5.0"
 ```

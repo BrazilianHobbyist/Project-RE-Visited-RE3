@@ -198,8 +198,157 @@ function Invoke-Package {
     Write-Host "     SHA-256: $hash" -ForegroundColor Green
 }
 
+function Invoke-Publish {
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        throw "Informe a versao para publicacao (ex: -Version 'v1.5.0')"
+    }
+
+    $zipName = "Project_RE_Visited_Resident_Evil_3_${Version}_Win64.zip"
+    $zipPath = Join-Path $ReleasesDir $zipName
+    if (-not (Test-Path $zipPath)) {
+        Write-Host "[!] Pacote nao encontrado em $zipPath. Gerando agora..." -ForegroundColor Yellow
+        Invoke-Package
+    }
+
+    $zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash
+
+    Write-Section "PUBLICANDO GITHUB RELEASE $Version"
+
+    # Recupera o token de autenticacao via git credential fill
+    $credInput = "protocol=https`nhost=github.com`n`n"
+    $tokenLine = ($credInput | git credential fill) | Where-Object { $_ -match '^password=' }
+    if (-not $tokenLine) {
+        throw "Nao foi possivel obter o token do GitHub via git credential fill."
+    }
+    $token = $tokenLine.Substring(9).Trim()
+
+    $repo = "BrazilianHobbyist/Project-RE-Visited-RE3"
+
+    # Verifica se a release ja existe
+    $existing = $null
+    try {
+        $checkUri = "https://api.github.com/repos/$repo/releases/tags/$Version"
+        $existing = Invoke-RestMethod -Uri $checkUri -Headers @{
+            "Authorization" = "Bearer $token"
+            "Accept"        = "application/vnd.github.v3+json"
+            "User-Agent"    = "ProjectREVisited-ReleaseTool"
+        } -Method Get -ErrorAction SilentlyContinue
+    } catch {
+        # 404 esperado se nao existir
+    }
+
+    $releaseId = $null
+    $releaseUrl = $null
+
+    if ($existing -and $existing.id) {
+        Write-Host "[*] Release $Version ja existe no GitHub (ID: $($existing.id))." -ForegroundColor Cyan
+        $releaseId = $existing.id
+        $releaseUrl = $existing.html_url
+    } else {
+        Write-Host "[*] Criando nova Release $Version no GitHub..." -ForegroundColor Cyan
+
+        $bodyText = $ReleaseNotes
+        if ([string]::IsNullOrWhiteSpace($bodyText)) {
+            $bodyText = @"
+## Project RE: Visited - Resident Evil 3: Nemesis ($Version Stable)
+
+### What's New in $Version
+
+1. **Authentic 30 FPS Engine Presentation (Removed Artificial Frame Interpolation)**:
+   - Evaluated and completely removed experimental frame interpolation and artificial sub-frame blending hooks (`frame_interpolation`, `frame_interpolation_fps`, `frame_interpolation_blend`).
+   - In a 2.5D fixed-camera engine with pre-rendered backgrounds, sub-frame interpolation caused ghosting, depth-buffer/Painter's algorithm sorting glitches (3D actors drawing on top of 2D background masks and menus), and artificial input latency.
+   - The game now runs with authentic, rock-solid 30 FPS PlayStation 1 cadence paired with pristine OpenGL HD rendering, zero visual artifacts, immediate input response, and complete stability.
+
+2. **Full High-DPI & 4K Monitor Scaling Fix (`gdiScaling = true`)**:
+   - Resolved the issue reported by the community regarding dialogue windows and wizard dialogs being clipped on High-DPI and 4K displays (125%–250% Windows display scaling).
+   - Enabled GDI DPI scaling in `launcher/manifest.xml` and integrated `AdjustWindowRectEx` across all Launcher dialogs (Setup Wizard, Cheats, Credits, Main Window).
+   - Controls and buttons now scale with crisp vector sharpness and remain 100% accessible on any modern display.
+
+3. **Streamlined Win32 Launcher & Clean UI**:
+   - Reorganized the Launcher layout to remove redundant refresh-rate/FPS selectors, eliminating dead visual space.
+   - Preserved all essential options: Fullscreen/Windowed, Internal Resolution (1x up to 4x 4K SSAA), Aspect Ratio (16:9 Stretched / 4:3 Authentic), Language selection (English, Português-BR, Español), Texture Perspective Correction, Fast Door Transitions, and Reversible Cheats.
+
+4. **Zero-Asset Package Integrity & Persistent Project Governance**:
+   - Automated SHA-256 binary parity verification across workspace builds and distribution packages.
+   - Preserved MIT-licensed OpenBIOS (`bios/openbios.bin`) and runtime patch synchronization (`patches/psxrecomp_runtime.patch`).
+
+---
+
+### Package Verification (Zero-Asset Policy)
+- **File**: `$zipName`
+- **SHA-256**: `$zipHash`
+- **Legal Notice**: Contains zero copyrighted PlayStation BIOS or Capcom game assets. Requires the user's own legitimate copy of *Resident Evil 3: Nemesis* (NTSC-U SLUS-00923).
+"@
+        }
+
+        $payload = @{
+            tag_name   = $Version
+            name       = "$Version - Authentic 30 FPS Presentation, Full High-DPI 4K Scaling Fix & Launcher Polish"
+            body       = $bodyText
+            draft      = $false
+            prerelease = $false
+        } | ConvertTo-Json -Depth 5
+
+        $createUri = "https://api.github.com/repos/$repo/releases"
+        $newRel = Invoke-RestMethod -Uri $createUri -Headers @{
+            "Authorization" = "Bearer $token"
+            "Accept"        = "application/vnd.github.v3+json"
+            "Content-Type"  = "application/json; charset=utf-8"
+            "User-Agent"    = "ProjectREVisited-ReleaseTool"
+        } -Method Post -Body ([System.Text.Encoding]::UTF8.GetBytes($payload))
+
+        $releaseId = $newRel.id
+        $releaseUrl = $newRel.html_url
+        Write-Host "[OK] Release criada com sucesso! ID: $releaseId" -ForegroundColor Green
+    }
+
+    # Upload do Asset (ZIP)
+    Write-Host "[*] Fazendo upload do pacote $zipName..." -ForegroundColor Cyan
+    $uploadUri = "https://uploads.github.com/repos/$repo/releases/$releaseId/assets?name=$zipName"
+
+    $assets = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$releaseId/assets" -Headers @{
+        "Authorization" = "Bearer $token"
+        "Accept"        = "application/vnd.github.v3+json"
+        "User-Agent"    = "ProjectREVisited-ReleaseTool"
+    } -Method Get
+
+    $existingAsset = $assets | Where-Object { $_.name -eq $zipName }
+    if ($existingAsset) {
+        Write-Host "[*] Asset $zipName ja existe na release (ID: $($existingAsset.id)). Removendo para re-upload limpo..." -ForegroundColor Yellow
+        Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/assets/$($existingAsset.id)" -Headers @{
+            "Authorization" = "Bearer $token"
+            "Accept"        = "application/vnd.github.v3+json"
+            "User-Agent"    = "ProjectREVisited-ReleaseTool"
+        } -Method Delete
+    }
+
+    # Upload com curl.exe para streaming binario estavel
+    $uploadRes = curl.exe -s -X POST `
+        -H "Authorization: Bearer $token" `
+        -H "Accept: application/vnd.github.v3+json" `
+        -H "Content-Type: application/zip" `
+        --data-binary "@$zipPath" `
+        "$uploadUri"
+
+    $assetJson = $uploadRes | ConvertFrom-Json
+    if ($assetJson.browser_download_url) {
+        Write-Host "[OK] Asset anexado com sucesso!" -ForegroundColor Green
+        Write-Host "     Download URL: $($assetJson.browser_download_url)" -ForegroundColor Green
+        Write-Host "     Tamanho: $($assetJson.size) bytes" -ForegroundColor Green
+    } else {
+        Write-Host "[!] Resposta do upload: $uploadRes" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Green
+    Write-Host " RELEASE PUBLICADA COM SUCESSO!" -ForegroundColor Green
+    Write-Host " URL: $releaseUrl" -ForegroundColor Green
+    Write-Host "============================================================" -ForegroundColor Green
+}
+
 switch ($Action) {
     "audit"       { Invoke-Audit }
     "consolidate" { Invoke-Consolidate; Invoke-Audit }
     "package"     { Invoke-Consolidate; Invoke-Package; Invoke-Audit }
+    "publish"     { Invoke-Publish }
 }

@@ -76,3 +76,7 @@ Este documento estabelece o **Plano de Trabalho Íntegro, Auditável e Persisten
      git -C "RE3Recomp" tag -a "vX.Y.Z" -m "Release vX.Y.Z"
      git -C "RE3Recomp" push origin main --tags
      ```
+  3. Publicar a Release oficial no GitHub com upload do pacote Zero-Asset:
+     ```powershell
+     powershell -ExecutionPolicy Bypass -File "RE3Recomp\tools\manage_project.ps1" -Action publish -Version "vX.Y.Z"
+     ```
