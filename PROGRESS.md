@@ -1,8 +1,8 @@
 # Project RE: Visited — Resident Evil 3: Nemesis
 ## Relatório Consolidado de Auditoria, Memória e Progresso do Projeto
 
-> **Data da Última Auditoria**: 17 de Outubro de 2026  
-> **Status Geral**: Auditado, sincronizado e consolidado (**v1.5.0** / Build de 17/10/2026). As 3 cópias do executável do jogo e as 3 cópias do Launcher estão 100% idênticas (verificadas via SHA-256). Plano de governança persistente ativo em [`WORKFLOW.md`](WORKFLOW.md) e automatizado por [`tools/manage_project.ps1`](RE3Recomp/tools/manage_project.ps1).
+> **Data da Última Auditoria**: 18 de Outubro de 2026  
+> **Status Geral**: Auditado, sincronizado e consolidado (**v1.5.1** / Build de 18/10/2026). As 3 cópias do executável do jogo e as 3 cópias do Launcher estão 100% idênticas (verificadas via SHA-256). Plano de governança persistente ativo em [`WORKFLOW.md`](WORKFLOW.md) e automatizado por [`tools/manage_project.ps1`](RE3Recomp/tools/manage_project.ps1).
 
 ---
 
@@ -68,14 +68,23 @@ c:\Users\victo\Documents\Projetos\Decomp - SOTC\
    - Na tabela `0x800979F0`, redireciona o Stage 1 (`0x80015754`, animação 3D da porta) para o Stage 2 (`0x80016150`, finalização) e zera `table[2]`.
    - Fade-out de porta reduzido de 8 para 4 frames (`0x8006FEF0`/`0x8006FF8C`) e fade-in reduzido de 16 para 5 frames (`0x80016190`).
    - Leitura acelerada restrita estritamente a `cdrom_data_read_active()` (`reading && !xa_stream_active`), mantendo `g_turbo_loads_enabled = 0` para que vozes e diálogos rodem sempre na velocidade original.
-4. **Skip Ágil de Cutscenes, FMVs e Diálogos Sem Travamentos**:
-   - **FMVs (Vídeos e Abertura)**: Pressionar qualquer botão de pulo (`Start`, `Select`, `Ação`, `Esc`, `Espaço`, `Enter`, `Tab`) segura `PAD_START | PAD_SELECT` na porta SIO por 15 frames, acionando o encerramento nativo e limpo do player MDEC do jogo. O leitor de CD-ROM permanece lendo os setores do fluxo normalmente durante o encerramento, eliminando por completo a inanição de buffer que causava o congelamento da imagem em tela.
-   - **Cutscenes e Rádios In-Engine**: Pressionar `Select` (botão nativo do RE3 para pular cenas), `Start`, `Esc` ou `Tab` injeta `PAD_SELECT | PAD_CROSS | PAD_START` por 10 frames contínuos no SIO, garantindo que o interpretador de eventos do jogo detecte o comando e avance para o fim da cena.
-   - **Entrega Imediata de `CDIRQ_DATA_END` em `cdrom.c`**: Quando um áudio XA é pulado via `cdrom_skip_current_xa()`, o INT4 (`CDIRQ_DATA_END`) é despachado imediatamente (se `irq_flag` for 0 ou `CDIRQ_DATA_READY`) ou no ciclo exato em que a CPU termina de reconhecer o IRQ anterior (`irq_flag == 0`), além de limpar `CDSTAT_READ` no `stat_reg`. Isso elimina a perda de interrupções que fazia a rotina de fala travar em timeout por 3 a 5 segundos antes de pular.
-   - **Proteção do Gameplay**: Teclas de ação (`Espaço`, `Enter`, `Cruz`) só avançam diálogos quando há fala XA ou caixa de texto ativa (`is_xa_speaking || is_msg_active`), evitando abertura indesejada de mapa durante exploração e combate.
-5. **Controles Modernos 3D no Analógico Esquerdo + D-Pad Tanque (`modern_controls = true`)**:
-   - Analógico esquerdo mapeado em 8 setores simétricos com zona morta de `0.26`, caminhada suave e *Auto-Run* ao inclinar acima de `0.82` (exceto ao mirar com `R1`).
-   - Girar para Leste/Oeste roda a personagem no próprio eixo sem passos acidentais para frente. O D-Pad permanece 100% com controle tanque clássico.
+4. **Skip Ágil de Cutscenes, FMVs e Diálogos Sem Conflito de Pausa/Select (Restaurado e Blindado em v1.5.1)**:
+   - **Diagnóstico da Causa Raiz do Bug de Pausa/Select com Analógico UP + A**:
+     Ao investigar paredes/objetos ou ler caixas de diálogo pressionando `A` (Cruz) repetidamente enquanto corria com o analógico inclinado, o jogo pausava ou abria o mapa (`Select`). A causa raiz residia em três fatores interconectados:
+     1. **Decodificação MDEC em Gameplay**: No PlayStation 1, o chip MDEC é utilizado tanto para FMVs em tela cheia quanto para a descompressão de blocos de cenários pré-renderizados 2D. Ao correr perto de paredes e alterar ângulos de câmera, `mdec_recently_active()` tornava-se momentaneamente verdadeiro em pleno gameplay.
+     2. **Falso Positivo de FMV**: A condição `is_fmv` utilizava disjunção fraca (`gpu_display_is_depth24() || mdec_recently_active(10)`), fazendo com que as decodificações de cenários classificassem o gameplay como um filme FMV.
+     3. **Botão de Ação no Pulo de FMV**: A condição `fmv_skip_requested` continha `pad_action_down` (`A` / Cruz). Pressionar `A` enquanto o cenário decodificava disparava `s_re3_fmv_skip_frames = 20;`, que injetava forçadamente a máscara `~(PAD_START | PAD_SELECT)` no SIO por 20 frames contínuos — fazendo o jogo pausar (`Start`) ou abrir o mapa (`Select`).
+   - **Solução Definitiva Implementada**:
+     1. **Isolamento de FMVs em 24-bit**: Um FMV autêntico no PS1 opera estritamente em modo de cor 24-bit (`gpu_display_is_depth24() != 0`) e com MDEC ativo concomitantemente (`mdec_recently_active(8) != 0`). Como o gameplay roda em 15 bits, o gameplay nunca mais é classificado como FMV.
+     2. **Remoção de Botões de Ação do Skip de FMV**: Filmes só podem ser pulados por `Start`, `Select`, `Esc` ou `Tab`. Botões de ação (`A`/Cruz, `B`/Círculo) foram completamente removidos de `fmv_skip_requested`.
+     3. **Desarme Imediato Fora de FMV**: Caso `!is_fmv`, `s_re3_fmv_skip_frames` é zerado imediatamente (`s_re3_fmv_skip_frames = 0;`), e as funções de entrega (`capture_pad_slot`, `capture_pad_slot_exclusive`, `apply_pad_slot_to_sio`) exigem `gpu_display_is_depth24()` para injetar botões de FMV.
+     4. **Cutscenes In-Engine Cirúrgicas**: O pulo de cutscenes in-engine é acionado unicamente por `Select` (controle) ou `Esc` / `Tab` (teclado), injetando **estritamente `~PAD_SELECT`**.
+     5. **Diálogos e Investigação Limpos**: Ao ler textos ou examinar objetos, o botão `A` (Cruz) atua de forma 100% nativa sem nenhuma injeção sintética de botões. Se houver áudio de voz XA ativo, `cdrom_skip_current_xa()` encerra a faixa suavemente sem jamais pausar ou abrir o mapa.
+   - **FMVs (Vídeos e Abertura)**: Pressionar `Start` ou `Select` no controle ou `Esc`/`Tab` no teclado aborta o player MDEC de forma limpa enquanto o CD-ROM continua alimentando o buffer sem starvation.
+   - **Canal de Entrega Blindado**: As injeções necessárias permanecem protegidas em `apply_pad_slot_to_sio()`, `capture_pad_slot()` e `capture_pad_slot_exclusive()`, garantindo imunidade a re-amostragens de baixa latência (`low_latency_input = true`).
+5. **Controles Modernos 3D no Analógico Esquerdo + Auto-Run + D-Pad Tanque (Restaurado em v1.5.1)**:
+   - **Diagnóstico da Causa Raiz**: Na consolidação anterior, o bloco de controle analógico 3D e autorun em `controller_pad_buttons()` havia sido acidentalmente substituído por uma rotina de câmera de outro projeto, deixando o analógico esquerdo sem mapeamento direcional e sem injeção do botão de corrida (`Square`). Adicionalmente, faltava a centralização neutra dos eixos analógicos (`out[0]=0x80; out[1]=0x80;`) em `pad_sticks_for()` e nos seletores de captura.
+   - **Solução Implementada**: Restaurado o algoritmo completo de 8 setores simétricos com zona morta circular de `0.26`, giro no próprio eixo (Leste/Oeste) sem passos à frente, e *Auto-Run* automático ao inclinar o analógico acima de `0.82` (injetando `PAD_SQUARE` se não estiver mirando com `R1`). Os eixos analógicos brutos são neutralizados para que o motor do jogo responda exclusivamente à direção 3D calculada. O D-Pad físico permanece 100% tanque clássico.
 6. **Vibração / Force Feedback DualShock (`update_controller_rumble`)**:
    - Negociação DualShock forçada ativa (`sio_set_pad_config_capable(..., 1)`) e curva amplificada para motores grave e agudo via SDL2 GameController Rumble (`rumble_intensity` configurável em `settings.toml`).
 7. **Gráficos OpenGL HD, Resolução Interna até 4K (SSAA), PGXP Perspectiva e FXAA**:
