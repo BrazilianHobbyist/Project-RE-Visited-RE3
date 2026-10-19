@@ -6,6 +6,7 @@ param(
     [ValidateSet("audit", "consolidate", "package", "publish")]
     [string]$Action = "audit",
     [string]$Version = "",
+    [string]$ReleaseTitle = "",
     [string]$ReleaseNotes = ""
 )
 
@@ -240,50 +241,71 @@ function Invoke-Publish {
     $releaseId = $null
     $releaseUrl = $null
 
+    $releaseTitleFormatted = if (-not [string]::IsNullOrWhiteSpace($ReleaseTitle)) {
+        "Project RE: Visited - Resident Evil 3 $Version ($ReleaseTitle)"
+    } else {
+        "Project RE: Visited - Resident Evil 3 $Version"
+    }
+
     if ($existing -and $existing.id) {
         Write-Host "[*] Release $Version ja existe no GitHub (ID: $($existing.id))." -ForegroundColor Cyan
         $releaseId = $existing.id
         $releaseUrl = $existing.html_url
+
+        if (-not [string]::IsNullOrWhiteSpace($ReleaseNotes) -or -not [string]::IsNullOrWhiteSpace($ReleaseTitle)) {
+            Write-Host "[*] Atualizando metadados da release existente..." -ForegroundColor Cyan
+            $patchObj = @{}
+            if (-not [string]::IsNullOrWhiteSpace($ReleaseTitle)) { $patchObj["name"] = $releaseTitleFormatted }
+            if (-not [string]::IsNullOrWhiteSpace($ReleaseNotes)) { $patchObj["body"] = $ReleaseNotes }
+            $patchPayload = $patchObj | ConvertTo-Json -Depth 5
+            Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/releases/$releaseId" -Headers @{
+                "Authorization" = "Bearer $token"
+                "Accept"        = "application/vnd.github.v3+json"
+                "Content-Type"  = "application/json; charset=utf-8"
+                "User-Agent"    = "ProjectREVisited-ReleaseTool"
+            } -Method Patch -Body ([System.Text.Encoding]::UTF8.GetBytes($patchPayload)) | Out-Null
+            Write-Host "[OK] Metadados da release atualizados com sucesso!" -ForegroundColor Green
+        }
     } else {
         Write-Host "[*] Criando nova Release $Version no GitHub..." -ForegroundColor Cyan
+
+        $gameExePath = "$PCPortDir\Resident_Evil_3__Nemesis_Recompiled.exe"
+        $launcherExePath = "$PCPortDir\Resident_Evil_3_Launcher.exe"
+        $gameHash = if (Test-Path $gameExePath) { (Get-FileHash $gameExePath -Algorithm SHA256).Hash } else { "N/A" }
+        $launcherHash = if (Test-Path $launcherExePath) { (Get-FileHash $launcherExePath -Algorithm SHA256).Hash } else { "N/A" }
 
         $bodyText = $ReleaseNotes
         if ([string]::IsNullOrWhiteSpace($bodyText)) {
             $bodyText = @"
-## Project RE: Visited - Resident Evil 3: Nemesis ($Version Stable)
+# Project RE: Visited - Resident Evil 3 ($Version Stable Release)
 
-### What's New in $Version
-
-1. **Authentic 30 FPS Engine Presentation (Removed Artificial Frame Interpolation)**:
-   - Evaluated and completely removed experimental frame interpolation and artificial sub-frame blending hooks (`frame_interpolation`, `frame_interpolation_fps`, `frame_interpolation_blend`).
-   - In a 2.5D fixed-camera engine with pre-rendered backgrounds, sub-frame interpolation caused ghosting, depth-buffer/Painter's algorithm sorting glitches (3D actors drawing on top of 2D background masks and menus), and artificial input latency.
-   - The game now runs with authentic, rock-solid 30 FPS PlayStation 1 cadence paired with pristine OpenGL HD rendering, zero visual artifacts, immediate input response, and complete stability.
-
-2. **Full High-DPI & 4K Monitor Scaling Fix (`gdiScaling = true`)**:
-   - Resolved the issue reported by the community regarding dialogue windows and wizard dialogs being clipped on High-DPI and 4K displays (125%–250% Windows display scaling).
-   - Enabled GDI DPI scaling in `launcher/manifest.xml` and integrated `AdjustWindowRectEx` across all Launcher dialogs (Setup Wizard, Cheats, Credits, Main Window).
-   - Controls and buttons now scale with crisp vector sharpness and remain 100% accessible on any modern display.
-
-3. **Streamlined Win32 Launcher & Clean UI**:
-   - Reorganized the Launcher layout to remove redundant refresh-rate/FPS selectors, eliminating dead visual space.
-   - Preserved all essential options: Fullscreen/Windowed, Internal Resolution (1x up to 4x 4K SSAA), Aspect Ratio (16:9 Stretched / 4:3 Authentic), Language selection (English, Português-BR, Español), Texture Perspective Correction, Fast Door Transitions, and Reversible Cheats.
-
-4. **Zero-Asset Package Integrity & Persistent Project Governance**:
-   - Automated SHA-256 binary parity verification across workspace builds and distribution packages.
-   - Preserved MIT-licensed OpenBIOS (`bios/openbios.bin`) and runtime patch synchronization (`patches/psxrecomp_runtime.patch`).
+Official **$Version** release for Project RE: Visited - Resident Evil 3.
 
 ---
 
-### Package Verification (Zero-Asset Policy)
-- **File**: `$zipName`
-- **SHA-256**: `$zipHash`
-- **Legal Notice**: Contains zero copyrighted PlayStation BIOS or Capcom game assets. Requires the user's own legitimate copy of *Resident Evil 3: Nemesis* (NTSC-U SLUS-00923).
+### What's New in ${Version}:
+
+* **Engine and Presentation**:
+  - Rock-solid authentic 30 FPS PlayStation 1 cadence paired with pristine OpenGL HD rendering.
+
+* **Launcher and Controls**:
+  - Full High-DPI and 4K display scaling fix with native Win32/GDI+ dark mode launcher.
+
+* **Zero-Asset Package Integrity & Project Governance**:
+  - Automated binary parity verification and clean-room OpenBIOS support.
+
+---
+
+### Verified SHA-256 Checksums:
+- ``$zipName``: ``$zipHash``
+- ``Resident_Evil_3__Nemesis_Recompiled.exe``: ``$gameHash``
+- ``Resident_Evil_3_Launcher.exe``: ``$launcherHash``
 "@
         }
 
         $payload = @{
             tag_name   = $Version
-            name       = "$Version - Authentic 30 FPS Presentation, Full High-DPI 4K Scaling Fix & Launcher Polish"
+            name       = $releaseTitleFormatted
             body       = $bodyText
             draft      = $false
             prerelease = $false

@@ -32,6 +32,13 @@ psxrecomp_add_game_runtime(RE3Recomp
     GEN_FULL_GLOB "generated/SLUS_009.23_full_*.c"
 )
 
+target_sources(RE3Recomp PRIVATE
+    "${PSXRECOMP_ROOT}/runtime/src/re3_textures.cpp"
+    "${PSXRECOMP_ROOT}/runtime/src/re3_hd_backgrounds.cpp"
+    "${PSXRECOMP_ROOT}/runtime/src/re3_hd_textures.cpp"
+    "${PSXRECOMP_ROOT}/runtime/src/re3_hd_ui.cpp"
+)
+
 # Stage runtime configs next to the exe for direct build/ launches.
 foreach(_PSX_RUNTIME_CONFIG game.toml)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}")
