@@ -85,30 +85,30 @@ index 5a33b389..aa54a128 100644
 --- a/runtime/include/cdrom.h
 +++ b/runtime/include/cdrom.h
 @@ -1,4 +1,4 @@
--´╗┐#ifndef PSXRECOMP_CDROM_H
+-﻿#ifndef PSXRECOMP_CDROM_H
 +#ifndef PSXRECOMP_CDROM_H
  #define PSXRECOMP_CDROM_H
  
  #include <stdint.h>
 @@ -97,6 +97,8 @@ int      cdrom_mounted_track_count(void);
-  * frontend via uncapped pacing (it does NOT alter CD timing ÔÇö flooding XA
+  * frontend via uncapped pacing (it does NOT alter CD timing — flooding XA
   * sectors desyncs and hangs the player). */
  int  cdrom_xa_stream_active(void);
 +/* End current streaming XA audio (dialogues, speech, monologue) cleanly without delay */
 +void cdrom_skip_current_xa(void);
  /* True while a CD read is armed with XA/FMV mode bits (or XA already
   * streaming). Netplay uses this to arm no-invent / refuse tip episodes
-  * before the first MDEC colour decode ÔÇö MotK intro inventÔëáStart at FMV
+  * before the first MDEC colour decode — MotK intro invent≠Start at FMV
 diff --git a/runtime/include/gpu.h b/runtime/include/gpu.h
 index b596394d..34e90ff3 100644
 --- a/runtime/include/gpu.h
 +++ b/runtime/include/gpu.h
 @@ -1,4 +1,4 @@
--´╗┐/* gpu.h ÔÇö PS1 GPU hardware simulation (Phase 3).
-+/* gpu.h ÔÇö PS1 GPU hardware simulation (Phase 3).
+-﻿/* gpu.h — PS1 GPU hardware simulation (Phase 3).
++/* gpu.h — PS1 GPU hardware simulation (Phase 3).
   *
   * Implements GPUSTAT, GP0, GP1, and 1024x512 16-bit VRAM.
-  * No rendering to screen ÔÇö just correct hardware state transitions.
+  * No rendering to screen — just correct hardware state transitions.
 @@ -663,6 +663,13 @@ int      gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path);
  void     gpu_ws_census_set(int on);
  uint64_t gpu_ws_census_seq(void);
@@ -221,7 +221,7 @@ index de472391..72aedd9f 100644
 +
  /* CD-DA position reports (Setmode bit2), psx-spx "Command 03h - Play":
   * INT1(stat, track, index, mm/amm, ss+80h/ass, sect/asect, peaklo, peakhi)
-  * on every 10th frame of absolute time ÔÇö asect BCD 00/20/40/60h absolute,
+  * on every 10th frame of absolute time — asect BCD 00/20/40/60h absolute,
 @@ -2688,7 +2696,7 @@ static int authentic_sector_period(void) {
  }
  
@@ -520,7 +520,7 @@ index dbd827d0..1735c5de 100644
 +    if (is_act) gl_renderer_set_actor_tag(0);
  }
  
- /* Execute mono line (GP0 0x40-0x47) ÔÇö Bresenham */
+ /* Execute mono line (GP0 0x40-0x47) — Bresenham */
 @@ -5298,6 +5410,12 @@ static void gp0_exec_mono_rect(void) {
      int h = (gp0_cmd_buf[2] >> 16) & 0xFFFFu;
      if (w > 1023) w = 1023;
@@ -607,7 +607,7 @@ index 09fca3e0..8cd1f8ef 100644
 +    fflush(s_audit_f);
 +}
 +
- #include "png_write.h"   /* png_write_rgb ÔÇö present_shot readback */
+ #include "png_write.h"   /* png_write_rgb — present_shot readback */
  
  #ifndef GL_BGRA
 @@ -442,6 +458,7 @@ static GLint         s_present_uTex = -1, s_present_uUvRect = -1;
@@ -1143,7 +1143,7 @@ index 09fca3e0..8cd1f8ef 100644
          lh = content_h;
      }
 -    /* Optional trailing-column crop (depth24 margin): shrink the draw width
--     * left-aligned so cleared black remains on the right ÔÇö never stretch. */
+-     * left-aligned so cleared black remains on the right — never stretch. */
 +    /* Optional trailing-column crop (depth24 margin): crop trailing padding in UV space.
 +     * Do NOT shrink lw when aspect_stretch is enabled: stretch the active content across lw.
 +     * When not stretching (pillarbox 4:3), lw already represents the 4:3 display rect.
@@ -1565,7 +1565,7 @@ index 77907729..db5a4269 100644
       * (pgxp_session.h). */
 @@ -1877,7 +1878,7 @@ static bool          g_ws_engaged = true;
  /* Wide-aspect strategy: native-wide (render the wider FOV into a wider frame,
-  * present 1:1 ÔÇö the GTE is NOT squashed) vs. the legacy squash hack. Default
+  * present 1:1 — the GTE is NOT squashed) vs. the legacy squash hack. Default
   * native-wide; toggle live via the ws_nw TCP command for A/B comparison. */
 -static int           g_ws_native_wide = 1;
 +static int           g_ws_native_wide = 0;
@@ -2242,7 +2242,7 @@ index 77907729..db5a4269 100644
 +
  /* Build the active-low PSX button word from a controller's input.ini map. When
   * suppress_stick_axes is set (the pad is presenting as analog this frame), the
-  * left/right analog-stick axes do NOT contribute button bits ÔÇö see
+  * left/right analog-stick axes do NOT contribute button bits — see
 @@ -5229,6 +5801,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
      for (const auto& entry : map) {
          for (const auto& source : entry.sources) {
@@ -2488,7 +2488,7 @@ index 77907729..db5a4269 100644
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;
 @@ -6764,6 +7498,8 @@ static void depth24_cutover_tick(int depth24) {
   *
-  * Optional short cutover blank: full-frame black for 1ÔÇô2 presents on movie
+  * Optional short cutover blank: full-frame black for 1–2 presents on movie
   * start / long idle resume only (see depth24_cutover_tick). */
 +static uint32_t s_last_d24_content_w = 0;
 +
@@ -2575,7 +2575,7 @@ index 77907729..db5a4269 100644
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
 @@ -7840,6 +8614,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
-      * frame is presented ÔÇö otherwise headless validation runs a different game
+      * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
 +    re3_maintain_qol_per_frame();
@@ -2622,7 +2622,7 @@ index 77907729..db5a4269 100644
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
 @@ -8481,11 +9259,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
-      * the widescreen stretch ÔÇö pillarbox them at native 4:3 instead. Same for
+      * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
 -    int dst_w = pin_43 ? 640 * tex_scale : g_logical_w;
@@ -2699,7 +2699,7 @@ index 77907729..db5a4269 100644
 -        /* turbo_loads is deliberately NOT restored from settings.toml. It is a
 -         * write-only latch: the launcher stopped drawing a Turbo loads row when
 -         * load acceleration moved to the Mods catalog, so a persisted `true`
--         * was simultaneously authoritative and unreachable ÔÇö one run of a build
+-         * was simultaneously authoritative and unreachable — one run of a build
 -         * whose game.toml said true latched it forever and no later config
 -         * change could undo it (MegaManX6Recomp#14). Report it and move on;
 -         * write_user_settings no longer emits the key, so the stale row is
@@ -2818,7 +2818,7 @@ index 77907729..db5a4269 100644
  
 -    /* Latency knobs: env overrides win over config (for A/B measurement).
 -     * PSX_LOW_LATENCY_INPUT=0/1 ; PSX_VSYNC=1(vsync)/0(immediate)/-1(adaptive)
--     * (vsync XOR wall-clock pacer ÔÇö vsync clocks only ~60 Hz panels);
+-     * (vsync XOR wall-clock pacer — vsync clocks only ~60 Hz panels);
 -     * PSX_FRAME_INTERPOLATION=0/1; PSX_FRAME_INTERPOLATION_FPS=0|90+. */
 +    /* Latency knobs */
      if (const char *e = std::getenv("PSX_LOW_LATENCY_INPUT")) g_low_latency_input = atoi(e) ? 1 : 0;
