@@ -3041,3 +3041,81 @@ index 77907729..5efa0600 100644
      if (!SDL_WasInit(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER)) {
      /* Per-monitor DPI awareness, BEFORE any SDL_Init.
       *
+diff --git a/runtime/src/mod_runtime.cpp b/runtime/src/mod_runtime.cpp
+index 3e4fa78d..50f9e2e2 100644
+--- a/runtime/src/mod_runtime.cpp
++++ b/runtime/src/mod_runtime.cpp
+@@ -1551,12 +1551,72 @@ bool mod_runtime_prepare_resources(const std::filesystem::path& disc_path, std::
+ 
+ bool mod_runtime_verify_session_plan_fp(std::string* error);
+ 
++/* The disc fingerprint is a SHA-256 over the whole image (~700 MB, ~3 s at
++ * every boot). Memoize it per image, keyed by path, size and mtime of the
++ * file actually hashed, in the per-user psxrecomp cache directory. Any change
++ * to the file changes size or mtime and forces a fresh hash. */
++static std::filesystem::path disc_fp_memo_path() {
++    std::filesystem::path dir;
++#if defined(_WIN32)
++    if (const char* local = std::getenv("LOCALAPPDATA")) dir = local;
++#else
++    if (const char* cache = std::getenv("XDG_CACHE_HOME")) dir = cache;
++    else if (const char* home_dir = std::getenv("HOME")) dir = std::filesystem::path(home_dir) / ".cache";
++#endif
++    if (dir.empty()) return {};
++    return dir / "psxrecomp" / "disc_sha256_memo.txt";
++}
++
++static std::string disc_fp_memo_key(const std::filesystem::path& disc_path) {
++    const DiscPathResolution resolved = resolve_disc_path(disc_path);
++    std::error_code ec;
++    const std::filesystem::path abs = std::filesystem::absolute(resolved.data, ec);
++    if (ec) return {};
++    const uintmax_t size = std::filesystem::file_size(abs, ec);
++    if (ec) return {};
++    const auto mtime = std::filesystem::last_write_time(abs, ec);
++    if (ec) return {};
++    std::ostringstream key;
++    key << size << ' ' << (long long)mtime.time_since_epoch().count() << ' '
++        << abs.string();
++    return key.str();
++}
++
++static bool sha256_disc_memoized(const std::filesystem::path& disc_path,
++                                 std::string& out, std::string* error) {
++    const std::filesystem::path memo = disc_fp_memo_path();
++    const std::string key = disc_fp_memo_key(disc_path);
++    std::vector<std::string> kept;
++    if (!memo.empty() && !key.empty()) {
++        std::ifstream in(memo);
++        std::string line;
++        while (std::getline(in, line)) {
++            const size_t tab = line.rfind('\t');
++            if (tab == std::string::npos) continue;
++            if (line.compare(0, tab, key) == 0 && line.size() - tab - 1 == 64) {
++                out = line.substr(tab + 1);
++                return true;
++            }
++            kept.push_back(line);
++        }
++    }
++    if (!sha256_file(disc_path, out, error)) return false;
++    if (!memo.empty() && !key.empty() && out.size() == 64) {
++        std::error_code ec;
++        std::filesystem::create_directories(memo.parent_path(), ec);
++        std::ofstream o(memo, std::ios::trunc);
++        for (const std::string& l : kept) o << l << '\n';
++        o << key << '\t' << out << '\n';
++    }
++    return true;
++}
++
+ bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* error, bool save_selection) {
+     RuntimeMods& s = state();
+     if (!s.initialized) return true;
+     if (disc_path != s.disc_path) {
+         std::string hash_error, digest;
+-        if (!sha256_file(disc_path, digest, &hash_error)) digest.clear();
++        if (!sha256_disc_memoized(disc_path, digest, &hash_error)) digest.clear();
+         s.disc_path = disc_path;
+         s.disc_sha256 = std::move(digest);
+     }
