@@ -33,8 +33,8 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 - FMV: alguns vídeos só podem ser pulados após certo ponto. Isso é comportamento do jogo original; decidido não contornar.
 - [x] Funções de inventário sem gatilho (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`) removidas.
 - [x] F8 (munição máxima): ramo do fuzil inalcançável corrigido; a mensagem não promete mais "255 balas".
-- Cheats auditados no código: o endereço do inventário (`0x800D2134`) e os IDs de pistola, espingarda, munição e fita conferem com o RAM. **Não verificados:** o byte de status forçado pela vida infinita (`0x800CCC97`), e o fato de "armas no baú", "boutique" e "mercenários" ligarem o mesmo bitmask (`0x800D1F32 |= 0xFFE0`), ou seja, marcar um liga os três.
-- Pulo de cutscene: Esc/Tab/Select injetam Select por 15 frames. Em gameplay, isso também abre o mapa (efeito colateral, não corrigido).
+- Cheats auditados no código: o endereço do inventário (`0x800D2134`) e os IDs de pistola, espingarda, munição e fita conferem com o RAM. **Não verificados:** o byte de status forçado pela vida infinita (`0x800CCC97`), e o fato de "armas no baú", "boutique" e "mercenários" ligarem o mesmo bitmask (`0x800D1F32 |= 0xFFE0`), ou seja, marcar um liga os três. O mantenedor testou os cheats em versões anteriores e eles funcionaram.
+- Pulo de cutscene: Esc/Tab no teclado funcionam como Select (pulam cutscenes; em gameplay fazem o que o Select faz). Comportamento aceito.
 - [ ] Auditar o launcher além da extração e das configurações.
 - [x] Cópias antigas da raiz do workspace movidas para `_arquivo_antigo/`; ferramentas não sincronizam mais para lá. Uma única pasta de execução (`ResidentEvil3-PCPort`).
 - [x] Release passa a usar `game.toml` e `settings.default.toml` do repositório (a v1.5.1 levou as configurações da pasta de testes, incluindo `frame_interpolation = true`).
