@@ -23,7 +23,9 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 
 ## Pendências da auditoria (18/10/2026)
 
-- [ ] Release nova: a v1.5.1 publicada ainda tem os bugs de áudio já corrigidos no `main`.
+- [x] Release v1.6.0 publicada (19/10/2026), testada pelo mantenedor.
+- Observação: um travamento único no boot da BIOS (`spin_freeze`, frame 152, `0x1FC0CC98`) em 18/10 às 23:19; não se repetiu nas execuções seguintes. Investigar se reaparecer.
+- [x] Commits passam a sair como BrazilianHobbyist.
 - [x] `build.ps1` aplica `patches/re3_door_*.patch` no código gerado (idempotente, falha visível). Testado com `generated/` limpo e já aplicado.
 - [ ] `build.ps1 -Regen` chamava um script inexistente; corrigido para `psxrecomp_cli.py generate`, **não testado**.
 - [ ] Auditar o resto de `patches/psxrecomp_runtime.patch` (cheats, skip de FMV/cutscene, vídeo). Áudio já revisado.
@@ -45,7 +47,6 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 - [x] Launcher auditado por inteiro (ver item "Launcher revisado (v1.6.0)" acima).
 - [x] Cópias antigas da raiz do workspace movidas para `_arquivo_antigo/`; ferramentas não sincronizam mais para lá. Uma única pasta de execução (`ResidentEvil3-PCPort`).
 - [x] Release passa a usar `game.toml` e `settings.default.toml` do repositório (a v1.5.1 levou as configurações da pasta de testes, incluindo `frame_interpolation = true`).
-- [ ] Identidade dos commits (`RE3Recomp Dev`).
 - [ ] Responder issues (aguardando decisão do mantenedor).
 
 ## Prioridades
