@@ -68,7 +68,8 @@ enum ControlID {
     ID_CHK_CHEAT_MERCENARIES = 1034,
     ID_CHK_CHEAT_BOUTIQUE = 1035,
     ID_CHK_CHEAT_EPILOGUES = 1036,
-    ID_CHK_FAST_DOORS = 1037
+    ID_CHK_FAST_DOORS = 1037,
+    ID_CHK_DINPUT = 1038
 };
 
 // Global handles
@@ -136,6 +137,7 @@ HWND g_hChkAntialiasing = NULL;
 HWND g_hChkSkipFmv = NULL;
 HWND g_hChkFastDoors = NULL;
 HWND g_hChkSpuHq = NULL;
+HWND g_hChkDinput = NULL;
 HWND g_hBtnInput = NULL;
 HWND g_hBtnSaves = NULL;
 HWND g_hBtnLaunch = NULL;
@@ -634,7 +636,7 @@ struct GameConfig {
     bool fullscreen = true;
     std::wstring renderer = L"opengl";
     std::wstring internal_resolution = L"1080p";
-    bool modern_controls = true;
+    bool modern_controls = false;  // original tank controls until modern mode is refined
     int modern_turn_speed = 90;   // not in the UI; kept so saving does not drop it
     bool geometry_correction = false;
     bool perspective_texturing = true;
@@ -642,6 +644,7 @@ struct GameConfig {
     bool auto_skip_fmv = false;
     bool fast_doors = true;
     bool spu_hq = false;
+    bool directinput_joysticks = false;
     bool infinite_health = false;
     bool infinite_ammo = false;
     bool infinite_ink_ribbons = false;
@@ -714,6 +717,7 @@ GameConfig LoadConfig() {
         else if (key == L"auto_skip_fmv") cfg.auto_skip_fmv = (val == L"true");
         else if (key == L"fast_doors" || key == L"door_skip") cfg.fast_doors = (val == L"true" || val == L"1");
         else if (key == L"spu_hq") cfg.spu_hq = (val == L"true" || val == L"1");
+        else if (key == L"directinput_joysticks") cfg.directinput_joysticks = (val == L"true" || val == L"1");
         else if (key == L"infinite_health") cfg.infinite_health = (val == L"true" || val == L"1");
         else if (key == L"infinite_ammo") cfg.infinite_ammo = (val == L"true" || val == L"1");
         else if (key == L"infinite_ink_ribbons") cfg.infinite_ink_ribbons = (val == L"true" || val == L"1");
@@ -761,6 +765,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"p1_device           = \"auto\"\n";
         sFile << L"modern_controls     = " << (cfg.modern_controls ? L"true" : L"false") << L"\n";
         sFile << L"modern_turn_speed   = " << cfg.modern_turn_speed << L"\n";
+        sFile << L"directinput_joysticks = " << (cfg.directinput_joysticks ? L"true" : L"false") << L"\n";
         sFile << L"rumble_intensity    = 1.0\n";
         sFile << L"hotkey_pad_fast_forward = 1528\n";
         sFile << L"hotkey_pad_save_state_menu = 2040\n";
@@ -859,6 +864,7 @@ GameConfig GetGuiConfig() {
     cfg.auto_skip_fmv = (SendMessageW(g_hChkSkipFmv, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.fast_doors = (SendMessageW(g_hChkFastDoors, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.spu_hq = (SendMessageW(g_hChkSpuHq, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    cfg.directinput_joysticks = (SendMessageW(g_hChkDinput, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     return cfg;
 }
@@ -1045,6 +1051,11 @@ void ApplyLanguage(const std::wstring& lang) {
         else SetWindowTextW(g_hGrpAudio, L"  Audio && Playback  ");
     }
 
+    if (g_hChkDinput) {
+        if (lang == L"es") SetWindowTextW(g_hChkDinput, L"Mandos genéricos antiguos (DirectInput, inicio más lento)");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkDinput, L"Controles genéricos antigos (DirectInput, abre mais devagar)");
+        else SetWindowTextW(g_hChkDinput, L"Old generic controllers (DirectInput, slower startup)");
+    }
     if (g_hChkSpuHq) {
         if (lang == L"es") SetWindowTextW(g_hChkSpuHq, L"Mezcla de audio experimental (puede sonar saturada)");
         else if (lang == L"pt-br") SetWindowTextW(g_hChkSpuHq, L"Mixagem de áudio experimental (pode soar estourada)");
@@ -2308,7 +2319,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 2: Jogabilidade e Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 14, 508, 96, hWnd, NULL, g_hInst, NULL);
+        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 14, 508, 120, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 558, 38, 150, 20, hWnd, NULL, g_hInst, NULL);
@@ -2322,30 +2333,33 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 796, 70, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
+        g_hChkDinput = CreateWindowW(L"BUTTON", L"Old generic controllers (DirectInput)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 106, 480, 20, hWnd, (HMENU)ID_CHK_DINPUT, g_hInst, NULL);
+        SendMessageW(g_hChkDinput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 120, 508, 98, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 144, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 142, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
+        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 166, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
         SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 164, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
+        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 188, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 186, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 210, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
         SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 544, 236, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 544, 260, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 886, 236, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 886, 260, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats && Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 544, 286, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats && Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 544, 310, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 800, 286, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 800, 310, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 544, 440, 508, 16, hWnd, NULL, g_hInst, NULL);
@@ -2384,6 +2398,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hChkSkipFmv, BM_SETCHECK, cfg.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkFastDoors, BM_SETCHECK, cfg.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSpuHq, BM_SETCHECK, cfg.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hChkDinput, BM_SETCHECK, cfg.directinput_joysticks ? BST_CHECKED : BST_UNCHECKED, 0);
 
         // Tema escuro: checkboxes e group boxes com visual styles ignoram
         // WM_CTLCOLOR*, entao removemos o tema apenas desses controles.

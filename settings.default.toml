@@ -24,8 +24,9 @@ spu_hq = false
 
 [controller]
 p1_device           = "auto"
-modern_controls     = true
+modern_controls     = false
 modern_turn_speed   = 90
+directinput_joysticks = false
 rumble_intensity    = 1.0
 hotkey_pad_fast_forward = 1528
 hotkey_pad_save_state_menu = 2040
