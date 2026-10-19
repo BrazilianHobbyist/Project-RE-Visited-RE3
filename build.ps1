@@ -51,15 +51,24 @@ if (-not (Test-Path "$ProjectRoot\psxrecomp\runtime\runtime.cmake")) {
     }
 }
 
-# Aplicar patches customizados no runtime (Interpolação de Movimento, Controles 3D, Widescreen)
-$PatchFile = "$ProjectRoot\patches\psxrecomp_runtime.patch"
-if (Test-Path $PatchFile) {
-    $canApply = & git -C "$ProjectRoot\psxrecomp" apply --check "$PatchFile" 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[PATCH] Aplicando patches customizados no PSXRecomp runtime..." -ForegroundColor Cyan
-        & git -C "$ProjectRoot\psxrecomp" apply "$PatchFile"
+# Aplica um patch de forma idempotente: pula se já aplicado, falha se não aplicar.
+function Apply-Patch($Dir, $PatchFile, [switch]$IgnoreWhitespace) {
+    $ws = @(); if ($IgnoreWhitespace) { $ws = @("--ignore-whitespace") }
+    $name = Split-Path $PatchFile -Leaf
+    & git -C $Dir apply --check -R @ws "$PatchFile" 2>$null
+    if ($LASTEXITCODE -eq 0) { Write-Host "[PATCH] $name já aplicado." -ForegroundColor DarkGray; return }
+    & git -C $Dir apply --check @ws "$PatchFile" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[X] $name não aplica em $Dir. Verifique a versão do código base." -ForegroundColor Red
+        exit 1
     }
+    Write-Host "[PATCH] Aplicando $name..." -ForegroundColor Cyan
+    & git -C $Dir apply @ws "$PatchFile"
+    if ($LASTEXITCODE -ne 0) { Write-Host "[X] Falha ao aplicar $name" -ForegroundColor Red; exit 1 }
 }
+
+# Patches do runtime (alterações RE3 sobre o PSXRecomp)
+Apply-Patch "$ProjectRoot\psxrecomp" "$ProjectRoot\patches\psxrecomp_runtime.patch"
 
 # ---- Limpar build se solicitado ----
 if ($Clean -and (Test-Path $BuildDir)) {
@@ -75,19 +84,31 @@ if ($Regen) {
     }
     
     Write-Host "[REGEN] Executando recompilador PSXRecomp..." -ForegroundColor Cyan
-    
-    # O recompilador usa o game.toml + seeds para gerar o C
-    & python "$ProjectRoot\psxrecomp\tools\recompile.py" `
+
+    # Gera generated/ a partir do disco do usuário (game.toml define o destino).
+    & python "$ProjectRoot\psxrecomp\psxrecomp_cli.py" `
         --config "$ProjectRoot\game.toml" `
-        --disc   "$DiscPath" `
-        --seeds  "$ProjectRoot\seeds\functions.csv" `
-        --out    "$GeneratedDir"
-    
+        --project-root "$ProjectRoot" `
+        generate --disc "$DiscPath"
+
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[X] Falha na recompilação. Verifique o game.toml e os seeds." -ForegroundColor Red
+        Write-Host "[X] Falha na recompilação. Verifique o game.toml e o disco." -ForegroundColor Red
         exit 1
     }
-    Write-Host "[OK] Código C gerado em: $GeneratedDir" -ForegroundColor Green
+    Write-Host "[OK] Código C gerado em: $ProjectRoot\generated" -ForegroundColor Green
+}
+
+# Patches do código gerado (pulo de portas e silêncio de áudio nas portas), em ordem.
+# O segundo depende do contexto do primeiro: se o último já está aplicado, a cadeia toda está.
+if (Test-Path "$ProjectRoot\generated\SLUS_009.23_full_01.c") {
+    $last = "$ProjectRoot\patches\re3_door_audio_mute.patch"
+    & git -C $ProjectRoot apply --check -R --ignore-whitespace "$last" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[PATCH] Patches do código gerado já aplicados." -ForegroundColor DarkGray
+    } else {
+        Apply-Patch $ProjectRoot "$ProjectRoot\patches\re3_door_fade_speedup.patch" -IgnoreWhitespace
+        Apply-Patch $ProjectRoot $last -IgnoreWhitespace
+    }
 }
 
 # ---- Configurar CMake ----

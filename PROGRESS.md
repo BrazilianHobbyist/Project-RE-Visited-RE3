@@ -24,7 +24,8 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 ## Pendências da auditoria (18/10/2026)
 
 - [ ] Release nova: a v1.5.1 publicada ainda tem os bugs de áudio já corrigidos no `main`.
-- [ ] `build.ps1` não aplica `patches/re3_door_*.patch` no código gerado; uma regeneração perde pulo/silêncio de portas.
+- [x] `build.ps1` aplica `patches/re3_door_*.patch` no código gerado (idempotente, falha visível). Testado com `generated/` limpo e já aplicado.
+- [ ] `build.ps1 -Regen` chamava um script inexistente; corrigido para `psxrecomp_cli.py generate`, **não testado**.
 - [ ] Auditar o resto de `patches/psxrecomp_runtime.patch` (cheats, skip de FMV/cutscene, vídeo). Áudio já revisado.
 - [x] "Controles modernos" reescritos: movimento relativo à tela de verdade (direção da Jill escrita na RAM a partir da câmera), giro com velocidade limitada (`modern_turn_speed`, padrão 90), escadas e empurrar só com "para frente". Testado pelo mantenedor.
 - [ ] Launcher não conhece `modern_turn_speed` (ao salvar, a linha some e vale o padrão 90).
