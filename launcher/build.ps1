@@ -27,13 +27,6 @@ if ($LASTEXITCODE -eq 0) {
             Write-Host "Copiado para: $PCPortDir\Resident_Evil_3_Launcher.exe" -ForegroundColor Green
         }
     }
-
-    $RootLauncherDir = Join-Path $WorkspaceRoot "launcher"
-    if ($RootLauncherDir -and (Test-Path $RootLauncherDir) -and ($RootLauncherDir -ne $ScriptDir)) {
-        Copy-Item "$ScriptDir\main.cpp" "$RootLauncherDir\main.cpp" -Force
-        Copy-Item "$ScriptDir\Resident_Evil_3_Launcher.exe" "$RootLauncherDir\Resident_Evil_3_Launcher.exe" -Force
-        Write-Host "Sincronizado com: $RootLauncherDir" -ForegroundColor Green
-    }
 } else {
     Write-Host "Falha na compilacao do Launcher." -ForegroundColor Red
     exit 1

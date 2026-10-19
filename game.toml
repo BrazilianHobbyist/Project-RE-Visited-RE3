@@ -36,13 +36,13 @@ controller = "dualshock"
 overlay_cache = true
 idle_skip = false
 bios_hle = false
-audio_spu_hq = true
+audio_spu_hq = false
 
 [video]
 renderer = "opengl"
 aspect_ratio = "16:9"
 fullscreen = true
-geometry_correction = true
+geometry_correction = false
 perspective_texturing = true
 auto_skip_fmv = false
 

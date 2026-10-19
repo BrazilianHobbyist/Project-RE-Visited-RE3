@@ -1,0 +1,41 @@
+
+# PSXRecomp Runtime User Settings
+[general]
+language            = "en"
+
+[video]
+fullscreen          = 1
+aspect_ratio        = "16:9"
+renderer            = "opengl"
+internal_resolution = "1080p"
+supersampling       = 2
+geometry_correction = false
+perspective_texturing = true
+antialiasing        = true
+auto_skip_fmv       = false
+fast_doors          = true
+vsync               = "on"
+low_latency_input   = true
+aspect_stretch      = true
+
+[audio]
+frequency = 48000
+spu_hq = false
+
+[controller]
+p1_device           = "auto"
+modern_controls     = true
+modern_turn_speed   = 90
+rumble_intensity    = 1.0
+hotkey_pad_fast_forward = 1528
+hotkey_pad_save_state_menu = 2040
+hotkey_pad_rewind = 1272
+
+[cheats]
+infinite_health       = false
+infinite_ammo         = false
+infinite_ink_ribbons  = false
+all_weapons_box       = false
+unlock_mercenaries    = false
+unlock_boutique       = false
+unlock_epilogues      = false
