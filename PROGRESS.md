@@ -21,6 +21,21 @@
 
 Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente e opções lidas pelo runtime, mas sem teste reproduzível registrado.
 
+## Pendências da auditoria (18/10/2026)
+
+- [ ] Release nova: a v1.5.1 publicada ainda tem os bugs de áudio já corrigidos no `main`.
+- [ ] `build.ps1` não aplica `patches/re3_door_*.patch` no código gerado; uma regeneração perde pulo/silêncio de portas.
+- [ ] Auditar o resto de `patches/psxrecomp_runtime.patch` (cheats, skip de FMV/cutscene, vídeo). Áudio já revisado.
+- [x] "Controles modernos" reescritos: movimento relativo à tela de verdade (direção da Jill escrita na RAM a partir da câmera), giro com velocidade limitada (`modern_turn_speed`, padrão 90), escadas e empurrar só com "para frente". Testado pelo mantenedor.
+- [ ] Launcher não conhece `modern_turn_speed` (ao salvar, a linha some e vale o padrão 90).
+- [ ] Bloco de "câmera no analógico direito" do *Muppet Monster Adventure* esquecido em `controller_pad_buttons` (sobra de outro projeto; inativo).
+- FMV: alguns vídeos só podem ser pulados após certo ponto. Isso é comportamento do jogo original; decidido não contornar.
+- [ ] Funções de inventário sem gatilho (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`): ligar ou remover.
+- [ ] Auditar o launcher além da extração e das configurações.
+- [ ] Cópias antigas fora do repositório (raiz do workspace: `PROGRESS.md`, READMEs, `.exe`, `launcher/`).
+- [ ] Identidade dos commits (`RE3Recomp Dev`).
+- [ ] Responder issues (aguardando decisão do mantenedor).
+
 ## Prioridades
 
 1. Build reproduzível: o `.exe` distribuído deve vir de um commit limpo (o último relatório de execução indica build `-dirty`).
