@@ -28,7 +28,14 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 - [ ] `build.ps1 -Regen` chamava um script inexistente; corrigido para `psxrecomp_cli.py generate`, **não testado**.
 - [ ] Auditar o resto de `patches/psxrecomp_runtime.patch` (cheats, skip de FMV/cutscene, vídeo). Áudio já revisado.
 - [x] "Controles modernos" reescritos: movimento relativo à tela de verdade (direção da Jill escrita na RAM a partir da câmera), giro com velocidade limitada (`modern_turn_speed`, padrão 90), escadas e empurrar só com "para frente". Testado pelo mantenedor.
-- [ ] Launcher não conhece `modern_turn_speed` (ao salvar, a linha some e vale o padrão 90).
+- [x] Launcher revisado (v1.6.0):
+  - o instalador só aceita o disco USA (`SLUS_009.23`) e recusa ISO de 2048 bytes, com mensagem clara;
+  - avisa se o tamanho da imagem difere do dump conhecido;
+  - os logs não inventam mais resultados e estão traduzidos nos 3 idiomas;
+  - layout em duas colunas (cabe em telas de 768 px);
+  - textos de opções, cheats e créditos corrigidos;
+  - `modern_turn_speed` é preservado ao salvar, e falhas de gravação são informadas.
+  Testado com automação: instalação com o disco real, rejeição de ISO e de disco PAL falsos, capturas em EN e PT-BR.
 - [ ] Bloco de "câmera no analógico direito" do *Muppet Monster Adventure* esquecido em `controller_pad_buttons` (sobra de outro projeto; inativo).
 - FMV: alguns vídeos só podem ser pulados após certo ponto. Isso é comportamento do jogo original; decidido não contornar.
 - [x] Funções de inventário sem gatilho (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`) removidas.

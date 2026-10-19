@@ -159,6 +159,18 @@ Gdiplus::Bitmap* g_pBannerBmp = NULL;
 int g_screenHz = 60;
 std::wstring g_currentLang = L"en"; // Default is English!
 
+#define LAUNCHER_VERSION L"v1.6.0"
+
+// Text for the active language: English, Spanish, Portuguese (Brazil).
+static std::wstring L3(const wchar_t* en, const wchar_t* es, const wchar_t* pt) {
+    if (g_currentLang == L"es") return es;
+    if (g_currentLang == L"pt-br") return pt;
+    return en;
+}
+
+// Retail disc this build is recompiled from (Redump: USA, Canada, SLUS-00923).
+static const uint64_t RE3_USA_BIN_SIZE = 722165136ull;
+
 // Forward declarations
 void UpdateInstallStatusUI();
 void ShowSetupDialog(HWND hWndParent);
@@ -396,18 +408,21 @@ InstallStatus CheckInstallationStatus() {
     return st;
 }
 
+static bool g_installedCached = false;  // last result, for WM_CTLCOLORSTATIC
+
 void UpdateInstallStatusUI() {
     if (!g_hLblInstallStatus || !g_hBtnOpenSetup) return;
     InstallStatus st = CheckInstallationStatus();
+    g_installedCached = st.isFullyInstalled;
     if (st.isFullyInstalled) {
         if (g_currentLang == L"es") {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Listo para Jugar (Archivos OK)");
+            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Listo para jugar (archivos encontrados)");
             SetWindowTextW(g_hBtnOpenSetup, L"Administrar Archivos...");
         } else if (g_currentLang == L"pt-br") {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Pronto para Jogar (Arquivos OK)");
+            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Pronto para jogar (arquivos encontrados)");
             SetWindowTextW(g_hBtnOpenSetup, L"Gerenciar Arquivos...");
         } else {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Ready to Play (Files Verified)");
+            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Ready to play (files found)");
             SetWindowTextW(g_hBtnOpenSetup, L"Manage Files...");
         }
     } else {
@@ -498,6 +513,15 @@ bool ExtractSlusFromDisc(const std::wstring& imagePath, const std::wstring& outS
         return false;
     }
 
+    // RE3 streams XA audio and FMV from Mode 2 Form 2 sectors, which a
+    // 2048-byte ISO rip does not contain: the game would boot without them.
+    if (sectorSize != 2352) {
+        err = L3(L"This is a 2048-byte ISO. It lacks the game's XA audio and movies. Use a raw .bin/.cue dump (2352-byte sectors).",
+                 L"Es una ISO de 2048 bytes. No contiene el audio XA ni los videos del juego. Use un volcado .bin/.cue (sectores de 2352 bytes).",
+                 L"Esta é uma ISO de 2048 bytes. Ela não contém o áudio XA nem os vídeos do jogo. Use um dump .bin/.cue (setores de 2352 bytes).");
+        return false;
+    }
+
     const uint8_t* rootRec = &pvdSector[userOffset + 156];
     uint32_t rootExtent = *reinterpret_cast<const uint32_t*>(rootRec + 2);
     uint32_t rootSize = *reinterpret_cast<const uint32_t*>(rootRec + 10);
@@ -562,6 +586,16 @@ bool ExtractSlusFromDisc(const std::wstring& imagePath, const std::wstring& outS
         return false;
     }
 
+    // The recompiled code is SLUS-00923 only; other regions have different code.
+    if (foundName != "SLUS_009.23") {
+        std::wstring wname(foundName.begin(), foundName.end());
+        err = L3(L"This disc is ", L"Este disco es ", L"Este disco é ") + wname +
+              L3(L". Only Resident Evil 3: Nemesis USA (SLUS-00923) is supported.",
+                 L". Solo se admite Resident Evil 3: Nemesis USA (SLUS-00923).",
+                 L". Apenas Resident Evil 3: Nemesis USA (SLUS-00923) é suportado.");
+        return false;
+    }
+
     std::vector<uint8_t> slusData(slusSize);
     size_t slusSectors = (slusSize + userSize - 1) / userSize;
     bytesRead = 0;
@@ -601,6 +635,7 @@ struct GameConfig {
     std::wstring renderer = L"opengl";
     std::wstring internal_resolution = L"1080p";
     bool modern_controls = true;
+    int modern_turn_speed = 90;   // not in the UI; kept so saving does not drop it
     bool geometry_correction = false;
     bool perspective_texturing = true;
     bool antialiasing = true;
@@ -669,6 +704,10 @@ GameConfig LoadConfig() {
         else if (key == L"modern_controls") {
             cfg.modern_controls = (val == L"true" || val == L"1");
         }
+        else if (key == L"modern_turn_speed") {
+            int v = _wtoi(val.c_str());
+            if (v >= 16 && v <= 2048) cfg.modern_turn_speed = v;
+        }
         else if (key == L"geometry_correction") cfg.geometry_correction = (val == L"true");
         else if (key == L"perspective_texturing") cfg.perspective_texturing = (val == L"true");
         else if (key == L"antialiasing") cfg.antialiasing = (val == L"true" || val == L"1");
@@ -696,7 +735,8 @@ bool SaveConfig(const GameConfig& cfg) {
 
     std::wstring settingsPath = GetSettingsTomlPath();
     std::wofstream sFile(settingsPath.c_str());
-    if (sFile.is_open()) {
+    if (!sFile.is_open()) return false;
+    {
         sFile << L"# PSXRecomp Runtime User Settings\n";
         sFile << L"[general]\n";
         sFile << L"language            = \"" << cfg.language << L"\"\n\n";
@@ -720,6 +760,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"[controller]\n";
         sFile << L"p1_device           = \"auto\"\n";
         sFile << L"modern_controls     = " << (cfg.modern_controls ? L"true" : L"false") << L"\n";
+        sFile << L"modern_turn_speed   = " << cfg.modern_turn_speed << L"\n";
         sFile << L"rumble_intensity    = 1.0\n";
         sFile << L"hotkey_pad_fast_forward = 1528\n";
         sFile << L"hotkey_pad_save_state_menu = 2040\n";
@@ -733,6 +774,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"unlock_boutique       = " << (cfg.unlock_boutique ? L"true" : L"false") << L"\n";
         sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n";
         sFile.close();
+        if (sFile.fail()) return false;
     }
 
     std::wstring tomlPath = GetTomlPath();
@@ -873,14 +915,14 @@ void ApplyLanguage(const std::wstring& lang) {
         int cur = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
         SendMessageW(g_hComboDisplay, CB_RESETCONTENT, 0, 0);
         if (lang == L"es") {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Modo Ventana (Windowed)");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Pantalla Completa (Fullscreen Exclusivo)");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Ventana");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Pantalla completa (Alt+Enter alterna)");
         } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Modo Janela (Windowed)");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Tela Cheia (Fullscreen Exclusivo)");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Janela");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Tela cheia (Alt+Enter alterna)");
         } else {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Windowed Mode");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Fullscreen (Exclusive Borderless/Full)");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Windowed");
+            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Fullscreen (Alt+Enter toggles)");
         }
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -926,14 +968,14 @@ void ApplyLanguage(const std::wstring& lang) {
         int cur = (int)SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0);
         SendMessageW(g_hComboRenderer, CB_RESETCONTENT, 0, 0);
         if (lang == L"es") {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL Hardware (Aceleración Máxima)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software Renderer (Sin Shaders)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recomendado)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (sin GPU, más lento)");
         } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL Hardware (Aceleração Máxima)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software Renderer (Sem Shaders)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recomendado)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (sem GPU, mais lento)");
         } else {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL Hardware (Maximum Acceleration)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software Renderer (No Shaders)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recommended)");
+            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (no GPU, slower)");
         }
         SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -972,14 +1014,14 @@ void ApplyLanguage(const std::wstring& lang) {
         int cur = (int)SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0);
         SendMessageW(g_hComboControls, CB_RESETCONTENT, 0, 0);
         if (lang == L"es") {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno 3D (360° + Auto-Run + D-Pad Tanque)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clásico Tanque (Original Stick y D-Pad)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno (stick relativo a la pantalla, D-Pad tanque)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clásico (tanque, como el original)");
         } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno 3D (360° + Auto-Run + D-Pad Tanque)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clássico Tanque (Original Stick e D-Pad)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno (analógico relativo à tela, D-Pad tanque)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clássico (tanque, como o original)");
         } else {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Modern 3D (360° + Auto-Run + Tank D-Pad)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Classic Tank (Original Stick and D-Pad)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Modern (screen-relative stick, tank D-Pad)");
+            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Classic (tank, as in the original)");
         }
         SendMessageW(g_hComboControls, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -1004,9 +1046,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hChkSpuHq) {
-        if (lang == L"es") SetWindowTextW(g_hChkSpuHq, L"Audio HQ 48kHz (Resampling de Alta Fidelidad SPU Float-Shadow)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkSpuHq, L"Áudio HQ 48kHz (Resampling de Alta Fidelidade SPU Float-Shadow)");
-        else SetWindowTextW(g_hChkSpuHq, L"HQ 48kHz Audio (High-Fidelity SPU Float-Shadow Resampling)");
+        if (lang == L"es") SetWindowTextW(g_hChkSpuHq, L"Mezcla de audio experimental (puede sonar saturada)");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkSpuHq, L"Mixagem de áudio experimental (pode soar estourada)");
+        else SetWindowTextW(g_hChkSpuHq, L"Experimental audio mixing (may sound clipped)");
     }
 
     if (g_hChkSkipFmv) {
@@ -1016,9 +1058,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hChkFastDoors) {
-        if (lang == L"es") SetWindowTextW(g_hChkFastDoors, L"Omitir puertas / Door Skip (Transición instantánea entre salas)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkFastDoors, L"Pular portas / Door Skip (Transição instantânea de salas)");
-        else SetWindowTextW(g_hChkFastDoors, L"Door Skipping / Fast Transitions (Instant room transitions)");
+        if (lang == L"es") SetWindowTextW(g_hChkFastDoors, L"Saltar la animación de las puertas");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkFastDoors, L"Pular a animação das portas");
+        else SetWindowTextW(g_hChkFastDoors, L"Skip door animations");
     }
 
     if (g_hBtnLaunch) {
@@ -1042,9 +1084,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hLblLegalNote) {
-        if (lang == L"es") SetWindowTextW(g_hLblLegalNote, L"Proyecto fan de preservación de código abierto sin fines de lucro. Sin activos propietarios.");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblLegalNote, L"Projeto não comercial de preservação e código aberto. Nenhum dado protegido incluso.");
-        else SetWindowTextW(g_hLblLegalNote, L"Non-commercial open-source preservation fan project. No proprietary assets included.");
+        if (lang == L"es") SetWindowTextW(g_hLblLegalNote, L"Proyecto fan no comercial. Requiere su propia copia de Resident Evil 3 (USA).");
+        else if (lang == L"pt-br") SetWindowTextW(g_hLblLegalNote, L"Projeto de fã, não comercial. Requer sua própria cópia de Resident Evil 3 (USA).");
+        else SetWindowTextW(g_hLblLegalNote, L"Non-commercial fan project. Requires your own copy of Resident Evil 3 (USA).");
     }
 }
 
@@ -1153,19 +1195,16 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"estrictamente educativos, científicos y de preservación digital. No existe ningún fin de\r\n";
         t += L"lucro, cobro, monetización ni beneficio comercial asociado a este software.\r\n\r\n";
 
-        t += L"1.2. AUSENCIA TOTAL DE ACTIVOS PROPIETARIOS (NO PROPRIETARY ASSETS DISTRIBUTED):\r\n";
-        t += L"Este repositorio, el launcher y sus binarios ejecutables NO CONTIENEN, NO DISTRIBUYEN\r\n";
-        t += L"ni hospedan archivos protegidos por derechos de autor de CAPCOM CO., LTD. ni de\r\n";
-        t += L"SONY INTERACTIVE ENTERTAINMENT INC. (ROMs, ISOs, audios, texturas, modelos 3D o BIOS).\r\n";
-        t += L"El usuario final DEBE OBLIGATORIAMENTE proporcionar sus propios archivos legítimos del\r\n";
-        t += L"juego original Resident Evil 3: Nemesis (PlayStation 1 / SLUS-00923).\r\n\r\n";
+        t += L"1.2. QUÉ SE DISTRIBUYE:\r\n";
+        t += L"No se distribuyen imágenes de disco, audio, video, texturas, modelos ni BIOS de Sony.\r\n";
+        t += L"El ejecutable del juego contiene el código de máquina original de Resident Evil 3\r\n";
+        t += L"traducido automáticamente a x86-64, por lo que deriva del programa de CAPCOM.\r\n";
+        t += L"El usuario debe poseer y aportar su propia copia (PlayStation, SLUS-00923).\r\n\r\n";
 
-        t += L"1.3. INGENIERÍA INVERSA LIMPIA E INTEROPERABILIDAD:\r\n";
-        t += L"Todo el código fuente consiste en herramientas de traducción estática (MIPS a C) y un runtime\r\n";
-        t += L"de compatibilidad de hardware desarrollado bajo el amparo legal de interoperabilidad:\r\n";
-        t += L"  * EE.UU.: DMCA 17 U.S.C. § 1201(f) y precedentes judiciales Sega v. Accolade y Sony v. Connectix.\r\n";
-        t += L"  * Unión Europea: Directiva 2009/24/CE, Artículo 6 (Descompilación para interoperabilidad).\r\n";
-        t += L"  * Brasil: Ley nº 9.609/1998, Artículo 6º, inciso I.\r\n\r\n";
+        t += L"1.3. CÓMO FUNCIONA:\r\n";
+        t += L"El ejecutable principal del juego está recompilado estáticamente (MIPS a C) con PSXRecomp.\r\n";
+        t += L"El código que el juego carga del CD por sala (overlays) se interpreta en su mayor parte,\r\n";
+        t += L"y el hardware de PlayStation (GPU, GTE, SPU, CD) se emula en software.\r\n\r\n";
 
         t += L"1.4. MARCAS REGISTRADAS (NOMINATIVE FAIR USE):\r\n";
         t += L"  * \"Resident Evil\", \"Biohazard\", \"Nemesis\" son marcas registradas de CAPCOM CO., LTD.\r\n";
@@ -1205,7 +1244,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"[23] MINGW-W64 & GCC — Toolchain de compilación x86_64 para Windows.\r\n";
         t += L"[24] MICROSOFT CORPORATION — Win32 API, GDI+ y Common Controls v6.\r\n";
         t += L"[25] COMUNIDAD R.A.I.D. — Ingeniería inversa retro asistida por IA.\r\n";
-        t += L"[26] MEJORAS DEL PORT — Controles 3D analógicos con auto-run, SPU HQ 48kHz, Pan & Scan 16:9 dinámico y saves .mcd.\r\n";
+        t += L"[26] MEJORAS DE ESTE PROYECTO — Controles modernos relativos a la pantalla, puertas rápidas con audio silenciado, trucos.\r\n";
         t += L"================================================================================\r\n";
         return t;
     }
@@ -1228,22 +1267,16 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"software clássico. Não há qualquer intuito lucrativo, cobrança, monetização,\r\n";
         t += L"comercialização ou ganho financeiro associado direta ou indiretamente a este projeto.\r\n\r\n";
 
-        t += L"1.2. AUSÊNCIA ABSOLUTA DE DADOS E ATIVOS PROPRIETÁRIOS (NO ASSETS DISTRIBUTED):\r\n";
-        t += L"Este repositório, o launcher e seus binários executáveis NÃO CONTÊM, NÃO DISTRIBUEM\r\n";
-        t += L"e NÃO HOSPEDAM quaisquer arquivos ou conteúdos protegidos por direitos autorais\r\n";
-        t += L"ou propriedade intelectual da CAPCOM CO., LTD. ou da SONY INTERACTIVE ENTERTAINMENT INC.,\r\n";
-        t += L"incluindo ROMs, ISOs, áudios, texturas, modelos 3D, vídeos FMV ou BIOS comerciais.\r\n";
-        t += L"O usuário final DEVE OBRIGATORIAMENTE possuir e fornecer seus próprios dados de jogo,\r\n";
-        t += L"extraídos de sua cópia física ou digital legalmente adquirida de Resident Evil 3:\r\n";
-        t += L"Nemesis (PlayStation 1, versão SLUS-00923), para a geração do executável funcional.\r\n\r\n";
+        t += L"1.2. O QUE É DISTRIBUÍDO:\r\n";
+        t += L"Não são distribuídas imagens de disco, áudio, vídeo, texturas, modelos nem BIOS da Sony.\r\n";
+        t += L"O executável do jogo contém o código de máquina original de Resident Evil 3 traduzido\r\n";
+        t += L"automaticamente para x86-64, portanto é derivado do programa da CAPCOM.\r\n";
+        t += L"O usuário deve possuir e fornecer sua própria cópia (PlayStation, SLUS-00923).\r\n\r\n";
 
-        t += L"1.3. ENGENHARIA REVERSA LIMPA E RECOMPILAÇÃO ESTÁTICA PARA INTEROPERABILIDADE:\r\n";
-        t += L"Todo o código-fonte presente neste repositório consiste em ferramentas de tradução\r\n";
-        t += L"estática de instruções de máquina MIPS R3000A para linguagem C (\"clean-room static\r\n";
-        t += L"recompilation\") e numa camada de compatibilidade de hardware livre, amparada por:\r\n";
-        t += L"  * Estados Unidos: DMCA 17 U.S.C. Section 1201(f) e jurisprudência Sega v. Accolade e Sony v. Connectix.\r\n";
-        t += L"  * União Europeia: Diretiva 2009/24/CE, Artigo 6 (Descompilação para interoperabilidade).\r\n";
-        t += L"  * Brasil: Lei nº 9.609/1998 (Lei do Software), Artigo 6º, Inciso I.\r\n\r\n";
+        t += L"1.3. COMO FUNCIONA:\r\n";
+        t += L"O executável principal do jogo é recompilado estaticamente (MIPS para C) com o PSXRecomp.\r\n";
+        t += L"O código que o jogo carrega do CD a cada sala (overlays) é em sua maior parte interpretado,\r\n";
+        t += L"e o hardware do PlayStation (GPU, GTE, SPU, CD) é emulado em software.\r\n\r\n";
 
         t += L"1.4. RECONHECIMENTO DE MARCAS REGISTRADAS (TRADEMARKS ACKNOWLEDGMENT):\r\n";
         t += L"  * \"Resident Evil\", \"Biohazard\", \"Nemesis\" são marcas registradas da CAPCOM CO., LTD.\r\n";
@@ -1284,7 +1317,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
         t += L"[23] MINGW-W64 & GCC — Toolchain de compilação C/C++ x86_64.\r\n";
         t += L"[24] MICROSOFT CORPORATION — Win32 API, GDI+ e Common Controls v6.\r\n";
         t += L"[25] COMUNIDADE R.A.I.D. — Engenharia reversa retro assistida por IA.\r\n";
-        t += L"[26] MELHORIAS DESTE PORT — Controles 3D analógicos com auto-run, SPU HQ 48kHz, Pan & Scan 16:9 dinâmico e saves .mcd.\r\n";
+        t += L"[26] MELHORIAS DESTE PROJETO — Controles modernos relativos à tela, portas rápidas com áudio silenciado, cheats.\r\n";
         t += L"================================================================================\r\n";
         return t;
     }
@@ -1306,31 +1339,16 @@ std::wstring GetCreditsText(const std::wstring& lang) {
     t += L"purposes. No commercial activity, monetary compensation, monetization, sale, or financial\r\n";
     t += L"gain is associated directly or indirectly with this project.\r\n\r\n";
 
-    t += L"1.2. ZERO PROPRIETARY ASSETS DISTRIBUTED (ASSET-FREE DISTRIBUTION):\r\n";
-    t += L"This repository, launcher, and compiled binaries DO NOT CONTAIN, DISTRIBUTE, NOR\r\n";
-    t += L"HOST any copyrighted assets or intellectual property belonging to CAPCOM CO., LTD.\r\n";
-    t += L"or SONY INTERACTIVE ENTERTAINMENT INC., including but not limited to:\r\n";
-    t += L"  - Game disc images (.ISO, .BIN, .CUE, .IMG, .MDF);\r\n";
-    t += L"  - Official soundtracks, sound effects (SFX), and voice acting;\r\n";
-    t += L"  - 3D models, polygonal meshes, and textures;\r\n";
-    t += L"  - Pre-rendered full-motion video (FMV) cutscenes;\r\n";
-    t += L"  - Pre-rendered background artwork;\r\n";
-    t += L"  - Game scripts, scenario documents, or dialogue texts;\r\n";
-    t += L"  - Proprietary Sony retail BIOS dumps (e.g., SCPH1001.BIN).\r\n";
-    t += L"The end user MUST legally own and supply their own game assets extracted from a\r\n";
-    t += L"legitimately acquired retail copy of Resident Evil 3: Nemesis (PS1 / SLUS-00923).\r\n\r\n";
+    t += L"1.2. WHAT IS DISTRIBUTED:\r\n";
+    t += L"No disc images, audio, video, textures, models or Sony BIOS are distributed.\r\n";
+    t += L"The game executable contains Resident Evil 3's original machine code, automatically\r\n";
+    t += L"translated to x86-64, so it is derived from CAPCOM's program.\r\n";
+    t += L"You must own and supply your own copy (PlayStation, SLUS-00923).\r\n\r\n";
 
-    t += L"1.3. CLEAN-ROOM REVERSE ENGINEERING & INTEROPERABILITY:\r\n";
-    t += L"The source code consists exclusively of clean-room static machine code translation\r\n";
-    t += L"tools (MIPS R3000A to C) and an open-source hardware abstraction runtime designed\r\n";
-    t += L"to achieve interoperability on modern x86_64 Windows operating systems.\r\n";
-    t += L"This methodology is protected under national and international legal frameworks:\r\n";
-    t += L"  * United States: DMCA 17 U.S.C. Section 1201(f) (Reverse Engineering for\r\n";
-    t += L"    Interoperability Exception), supported by federal precedents Sega v. Accolade\r\n";
-    t += L"    (977 F.2d 1510) and Sony v. Connectix (203 F.3d 596).\r\n";
-    t += L"  * European Union: Directive 2009/24/EC, Article 6 (Decompilation for\r\n";
-    t += L"    Interoperability of Computer Programs).\r\n";
-    t += L"  * Brazil: Law No. 9,609/1998 (Software Law), Article 6, Item I.\r\n\r\n";
+    t += L"1.3. HOW IT WORKS:\r\n";
+    t += L"The game's main executable is statically recompiled (MIPS to C) with PSXRecomp.\r\n";
+    t += L"Code the game loads from the CD per room (overlays) is mostly interpreted, and the\r\n";
+    t += L"PlayStation hardware (GPU, GTE, SPU, CD) is emulated in software.\r\n\r\n";
 
     t += L"1.4. TRADEMARKS ACKNOWLEDGMENT (NOMINATIVE FAIR USE):\r\n";
     t += L"  * \"Resident Evil\", \"Biohazard\", \"Nemesis\", \"Jill Valentine\", \"Umbrella\" and\r\n";
@@ -1375,7 +1393,7 @@ std::wstring GetCreditsText(const std::wstring& lang) {
     t += L"[23] MINGW-W64 & GCC — Toolchain used to compile the native x86_64 executables.\r\n";
     t += L"[24] MICROSOFT CORPORATION — Windows Win32 API, GDI+, and Common Controls v6.\r\n";
     t += L"[25] R.A.I.D. (RETRO AI DEVELOPMENT) — Retro AI-assisted reverse engineering and preservation community.\r\n";
-    t += L"[26] PORT ENHANCEMENTS — Modern 3D camera-relative controls, SPU HQ 48kHz resampling, dynamic 16:9 Pan & Scan, and native .mcd memory cards.\r\n";
+    t += L"[26] THIS PROJECT'S ADDITIONS — Screen-relative modern controls, fast doors with muted transition audio, cheats.\r\n";
     t += L"================================================================================\r\n";
 
     return t;
@@ -1387,8 +1405,8 @@ LRESULT CALLBACK CreditsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         std::wstring creditsText = GetCreditsText(g_currentLang);
 
         std::wstring titleStr = (g_currentLang == L"es") ? L"PROJECT RE: VISITED - RESIDENT EVIL 3 — CRÉDITOS Y DESCARGO LEGAL" :
-                                (g_currentLang == L"pt-br") ? L"PROJECT RE: VISITED - RESIDENT EVIL 3 — CRÉDITOS & TERMOS LEGAIS" :
-                                L"PROJECT RE: VISITED - RESIDENT EVIL 3 — CREDITS & LEGAL DISCLAIMER";
+                                (g_currentLang == L"pt-br") ? L"PROJECT RE: VISITED - RESIDENT EVIL 3 — CRÉDITOS && TERMOS LEGAIS" :
+                                L"PROJECT RE: VISITED - RESIDENT EVIL 3 — CREDITS && LEGAL DISCLAIMER";
         std::wstring subStr = (g_currentLang == L"es") ? L"Atribuciones completas a herramientas y fuentes, con descargo de responsabilidad legal." :
                               (g_currentLang == L"pt-br") ? L"Atribuições completas a todas as ferramentas e fontes, com isenção legal de responsabilidade." :
                               L"Complete attributions for all tools and sources, with legal prevention terms for GitHub.";
@@ -1543,9 +1561,9 @@ void UpdateCheatsButtonText() {
     if (g_currentLang == L"es") {
         text = active ? L"Trucos / Cheats (ACTIVO)" : L"Trucos y Modificadores...";
     } else if (g_currentLang == L"pt-br") {
-        text = active ? L"Cheats & Mods (ATIVO)" : L"Cheats & Modificadores...";
+        text = active ? L"Cheats && Mods (ATIVO)" : L"Cheats && Modificadores...";
     } else {
-        text = active ? L"Cheats & Mods (ACTIVE)" : L"Cheats & Modifiers...";
+        text = active ? L"Cheats && Mods (ACTIVE)" : L"Cheats && Modifiers...";
     }
     SetWindowTextW(g_hBtnOpenCheats, text.c_str());
 }
@@ -1559,55 +1577,55 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
 
         if (g_currentLang == L"es") {
             titleText = L"Modificadores del Juego y Selector de Trucos (Cheats)";
-            subText = L"100% reversible. Desmarque cualquier opción para restaurar el juego original.";
+            subText = L"Desmarque para desactivar. Armas en el baúl, Boutique y Mercenarios usan el mismo desbloqueo del juego: activar uno activa los tres.";
             grpText = L"  Opciones de Trucos y Modificadores  ";
-            chkHealth = L"Salud Infinita (God Mode — Jill es inmune al daño letal y veneno)";
-            chkAmmo = L"Munición Infinita (Las armas nunca consumen balas al disparar)";
+            chkHealth = L"Salud infinita (la salud se restaura continuamente; cura veneno)";
+            chkAmmo = L"Munición infinita (armas y munición se recargan continuamente)";
             chkRibbons = L"Cintas de Tinta Infinitas (Guarda la partida tantas veces como quieras)";
             chkWeapons = L"Todas las Armas en el Baúl (Baúl inicial con armas pesadas: Rocket, Gatling, M4A1)";
             chkMercs = L"Desbloquear The Mercenaries (Modo Mercenarios disponible de inmediato)";
-            chkBoutique = L"Desbloquear Boutique y Trajes (Acceso a la boutique con todos los atuendos)";
+            chkBoutique = L"Desbloquear Boutique y trajes";
             chkEpilogues = L"Desbloquear Todos los Epílogos (Galería completa con los 8 epílogos)";
             hotkeysText = L"Atajos en juego: [F6] Alternar God Mode  |  [F7] Munición Infinita  |  [F8] Munición Máxima";
             btnReset = L"Desactivar Todo";
             btnSave = L"Guardar y Aplicar";
             btnClose = L"Cancelar / Cerrar";
         } else if (g_currentLang == L"pt-br") {
-            titleText = L"Modificadores de Jogo & Seletor de Cheats";
-            subText = L"100% reversível. Desmarque qualquer opção para restaurar a campanha clássica pura.";
-            grpText = L"  Opções de Trapaças & Modificadores  ";
-            chkHealth = L"Vida Infinita (God Mode — Jill é imune a dano letal e a veneno)";
-            chkAmmo = L"Munição Infinita (Armas de fogo nunca gastam balas ao atirar)";
+            titleText = L"Modificadores de Jogo && Seletor de Cheats";
+            subText = L"Desmarque para desativar. Armas no baú, Boutique e Mercenários usam o mesmo desbloqueio do jogo: ligar um liga os três.";
+            grpText = L"  Opções de Trapaças && Modificadores  ";
+            chkHealth = L"Vida infinita (vida restaurada continuamente; cura veneno)";
+            chkAmmo = L"Munição infinita (armas e munição recarregadas continuamente)";
             chkRibbons = L"Fitas de Salvamento Infinitas (Salve o jogo quantas vezes quiser)";
             chkWeapons = L"Todas as Armas no Baú (Baú inicial com armas pesadas: Rocket, Gatling, M4A1)";
             chkMercs = L"Desbloquear The Mercenaries (Modo Mercenários liberado imediatamente)";
-            chkBoutique = L"Desbloquear Boutique & Trajes (Acesso à Boutique com todas as 5 roupas extras)";
+            chkBoutique = L"Desbloquear Boutique e roupas";
             chkEpilogues = L"Desbloquear Todos os Epílogos (Galeria completa com todos os 8 epílogos)";
             hotkeysText = L"Atalhos no jogo: [F6] Alternar God Mode  |  [F7] Munição Infinita  |  [F8] Munição Máxima";
             btnReset = L"Desativar Tudo";
-            btnSave = L"Salvar & Aplicar";
+            btnSave = L"Salvar && Aplicar";
             btnClose = L"Cancelar / Fechar";
         } else {
-            titleText = L"Game Modifiers & Cheat Selector";
-            subText = L"100% reversible. Uncheck any option to restore authentic original gameplay.";
-            grpText = L"  Cheat Codes & Gameplay Options  ";
-            chkHealth = L"Infinite Health (God Mode — Jill is immune to lethal damage & poison)";
-            chkAmmo = L"Infinite Ammo (Weapons never consume ammunition when firing)";
+            titleText = L"Game Modifiers && Cheat Selector";
+            subText = L"Uncheck to disable. Item box weapons, Boutique and Mercenaries share one unlock in the game: enabling one enables all three.";
+            grpText = L"  Cheat Codes && Gameplay Options  ";
+            chkHealth = L"Infinite health (health is refilled continuously; cures poison)";
+            chkAmmo = L"Infinite ammo (weapons and ammo are refilled continuously)";
             chkRibbons = L"Infinite Ink Ribbons (Save your game as many times as you want)";
             chkWeapons = L"All Weapons in Item Box (Chest stocked with heavy weapons: Rocket, Gatling, M4A1)";
             chkMercs = L"Unlock The Mercenaries (Operation: Mad Jackal accessible immediately)";
-            chkBoutique = L"Unlock Boutique & All Costumes (Access uptown boutique with all 5 outfits)";
+            chkBoutique = L"Unlock Boutique and costumes";
             chkEpilogues = L"Unlock All Epilogues (Complete gallery with all 8 character epilogues)";
             hotkeysText = L"In-game shortcuts: [F6] Toggle God Mode  |  [F7] Infinite Ammo  |  [F8] Max Ammo";
             btnReset = L"Reset All (Off)";
-            btnSave = L"Save & Apply";
+            btnSave = L"Save && Apply";
             btnClose = L"Cancel / Close";
         }
 
         g_hLblCheatsTitle = CreateWindowW(L"STATIC", titleText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 14, 520, 24, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCheatsTitle, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblCheatsSub = CreateWindowW(L"STATIC", subText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 38, 520, 20, hWnd, NULL, g_hInst, NULL);
+        g_hLblCheatsSub = CreateWindowW(L"STATIC", subText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 36, 526, 30, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCheatsSub, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         g_hGrpCheatsList = CreateWindowW(L"BUTTON", grpText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 66, 528, 276, hWnd, NULL, g_hInst, NULL);
@@ -1775,6 +1793,7 @@ void AppendSetupLog(HWND hEdit, const std::wstring& line) {
 DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
     SetupThreadParams* p = (SetupThreadParams*)lpParam;
     if (!p) return 0;
+    HWND log = p->hEditLog;
 
     EnableWindow(p->hBtnStart, FALSE);
     EnableWindow(p->hBtnClose, FALSE);
@@ -1786,17 +1805,10 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
     CreateDirectoryW((buildDir + L"\\saves").c_str(), NULL);
     CreateDirectoryW((buildDir + L"\\cache").c_str(), NULL);
 
-    AppendSetupLog(p->hEditLog, L"============================================================");
-    if (g_currentLang == L"es") {
-        AppendSetupLog(p->hEditLog, L"Iniciando instalación automática de Project RE: Visited - Resident Evil 3...");
-    } else if (g_currentLang == L"pt-br") {
-        AppendSetupLog(p->hEditLog, L"Iniciando instalação automática de Project RE: Visited - Resident Evil 3...");
-    } else {
-        AppendSetupLog(p->hEditLog, L"Starting automatic setup for Project RE: Visited - Resident Evil 3...");
-    }
+    AppendSetupLog(log, L"============================================================");
+    AppendSetupLog(log, L3(L"Starting setup...", L"Iniciando la instalación...", L"Iniciando a instalação..."));
 
     // 1. BIOS
-    std::wstring dstBios = buildDir + L"\\bios\\SCPH1001.BIN";
     std::wstring openBios = buildDir + L"\\bios\\openbios.bin";
     bool biosOk = false;
     std::wstring configuredBiosRel = L"bios/openbios.bin";
@@ -1810,33 +1822,24 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
         std::wstring targetDst = buildDir + L"\\bios\\" + fileName;
 
         if (_wcsicmp(fullSrc, targetDst.c_str()) != 0) {
-            AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[1/4] Copiando archivo de BIOS..." :
-                                        (g_currentLang == L"pt-br") ? L"[1/4] Copiando arquivo de BIOS..." :
-                                        L"[1/4] Copying BIOS file...");
+            AppendSetupLog(log, L3(L"[1/3] Copying BIOS...", L"[1/3] Copiando la BIOS...", L"[1/3] Copiando a BIOS..."));
             if (CopyFileW(fullSrc, targetDst.c_str(), FALSE)) {
-                AppendSetupLog(p->hEditLog, L"  ✓ " + fileName + L" copiada com sucesso.");
+                AppendSetupLog(log, L"  OK: bios\\" + fileName);
                 biosOk = true;
                 configuredBiosRel = L"bios/" + fileName;
             } else {
-                AppendSetupLog(p->hEditLog, L"  ❌ Falha ao copiar a BIOS.");
+                AppendSetupLog(log, L3(L"  ERROR: could not copy the BIOS.", L"  ERROR: no se pudo copiar la BIOS.", L"  ERRO: não foi possível copiar a BIOS."));
             }
         } else {
-            AppendSetupLog(p->hEditLog, L"[1/4] BIOS " + fileName + L" já localizada na pasta bios\\.");
+            AppendSetupLog(log, L"[1/3] BIOS: bios\\" + fileName);
             biosOk = true;
             configuredBiosRel = L"bios/" + fileName;
         }
     } else if (GetFileAttributesW(openBios.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[1/4] Utilizando OpenBIOS predeterminada (MIT / Código Abierto)." :
-                                    (g_currentLang == L"pt-br") ? L"[1/4] Utilizando OpenBIOS padrão (MIT / Código Aberto)." :
-                                    L"[1/4] Using default bundled OpenBIOS (MIT / Clean-Room).");
+        AppendSetupLog(log, L3(L"[1/3] Using the bundled OpenBIOS.", L"[1/3] Usando la OpenBIOS incluida.", L"[1/3] Usando a OpenBIOS incluída."));
         biosOk = true;
-        configuredBiosRel = L"bios/openbios.bin";
-    } else if (GetFileAttributesW(dstBios.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        AppendSetupLog(p->hEditLog, L"[1/4] BIOS SCPH1001.BIN já presente e validada.");
-        biosOk = true;
-        configuredBiosRel = L"bios/SCPH1001.BIN";
     } else {
-        AppendSetupLog(p->hEditLog, L"[1/4] ❌ Nenhuma BIOS selecionada ou encontrada.");
+        AppendSetupLog(log, L3(L"[1/3] ERROR: no BIOS selected or found.", L"[1/3] ERROR: ninguna BIOS seleccionada o encontrada.", L"[1/3] ERRO: nenhuma BIOS selecionada ou encontrada."));
     }
 
     if (biosOk) {
@@ -1847,45 +1850,63 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
         }
     }
 
-    // 2. Disc Image
+    // 2. Disc image: validate first (region, sector format), then copy.
     std::wstring dstBin = buildDir + L"\\gamedata\\Resident Evil 3 - Nemesis (USA, Canada).bin";
     std::wstring dstCue = buildDir + L"\\gamedata\\Resident Evil 3 - Nemesis (USA, Canada).cue";
-    bool discOk = false;
-    std::wstring srcBinToExtract = L"";
+    std::wstring dstSlus = buildDir + L"\\disc\\SLUS_009.23";
+    bool discOk = false, slusOk = false;
 
-    if (!p->discSrc.empty()) {
-        std::wstring actualBinSrc = p->discSrc;
-        if (actualBinSrc.length() >= 4 && _wcsicmp(actualBinSrc.substr(actualBinSrc.length() - 4).c_str(), L".cue") == 0) {
-            std::wstring foundBin = ResolveBinFromCue(actualBinSrc);
-            if (!foundBin.empty() && GetFileAttributesW(foundBin.c_str()) != INVALID_FILE_ATTRIBUTES) {
-                actualBinSrc = foundBin;
-            } else {
-                actualBinSrc = actualBinSrc.substr(0, actualBinSrc.length() - 4) + L".bin";
-            }
-        }
+    std::wstring srcBin = p->discSrc;
+    if (srcBin.empty()) {
+        InstallStatus curSt = CheckInstallationStatus();
+        if (curSt.hasDisc) srcBin = curSt.discPath;
+    } else if (srcBin.length() >= 4 && _wcsicmp(srcBin.substr(srcBin.length() - 4).c_str(), L".cue") == 0) {
+        std::wstring foundBin = ResolveBinFromCue(srcBin);
+        if (!foundBin.empty() && GetFileAttributesW(foundBin.c_str()) != INVALID_FILE_ATTRIBUTES)
+            srcBin = foundBin;
+        else
+            srcBin = srcBin.substr(0, srcBin.length() - 4) + L".bin";
+    }
 
-        if (GetFileAttributesW(actualBinSrc.c_str()) == INVALID_FILE_ATTRIBUTES) {
-            AppendSetupLog(p->hEditLog, L"[2/4] ❌ Arquivo .bin do disco não encontrado.");
+    if (srcBin.empty() || GetFileAttributesW(srcBin.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        AppendSetupLog(log, L3(L"[2/3] ERROR: no disc image selected or found.", L"[2/3] ERROR: ninguna imagen de disco seleccionada o encontrada.", L"[2/3] ERRO: nenhuma imagem de disco selecionada ou encontrada."));
+    } else {
+        AppendSetupLog(log, L3(L"[2/3] Checking the disc image...", L"[2/3] Verificando la imagen del disco...", L"[2/3] Verificando a imagem do disco..."));
+        std::wstring err;
+        if (!ExtractSlusFromDisc(srcBin, dstSlus, err)) {
+            AppendSetupLog(log, L3(L"  ERROR: ", L"  ERROR: ", L"  ERRO: ") + err);
         } else {
-            wchar_t fullSrc[MAX_PATH], fullDst[MAX_PATH];
-            GetFullPathNameW(actualBinSrc.c_str(), MAX_PATH, fullSrc, NULL);
-            GetFullPathNameW(dstBin.c_str(), MAX_PATH, fullDst, NULL);
+            slusOk = true;
+            AppendSetupLog(log, L3(L"  OK: SLUS_009.23 (USA) found and extracted to disc\\.",
+                                   L"  OK: SLUS_009.23 (USA) encontrado y extraído en disc\\.",
+                                   L"  OK: SLUS_009.23 (USA) encontrado e extraído em disc\\."));
 
+            WIN32_FILE_ATTRIBUTE_DATA fad;
+            if (GetFileAttributesExW(srcBin.c_str(), GetFileExInfoStandard, &fad)) {
+                uint64_t sz = ((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+                if (sz != RE3_USA_BIN_SIZE) {
+                    AppendSetupLog(log, L3(L"  WARNING: the image size differs from the known USA dump. It may be modified or a different dump; problems may occur.",
+                                           L"  AVISO: el tamaño de la imagen difiere del volcado USA conocido. Puede estar modificada; pueden ocurrir problemas.",
+                                           L"  AVISO: o tamanho da imagem difere do dump USA conhecido. Ela pode estar modificada; podem ocorrer problemas."));
+                }
+            }
+
+            wchar_t fullSrc[MAX_PATH], fullDst[MAX_PATH];
+            GetFullPathNameW(srcBin.c_str(), MAX_PATH, fullSrc, NULL);
+            GetFullPathNameW(dstBin.c_str(), MAX_PATH, fullDst, NULL);
             if (_wcsicmp(fullSrc, fullDst) != 0) {
-                AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[2/4] Copiando imagen del juego (700 MB, espere)..." :
-                                            (g_currentLang == L"pt-br") ? L"[2/4] Copiando imagem do jogo (700 MB, aguarde)..." :
-                                            L"[2/4] Copying disc image (700 MB, please wait)...");
+                AppendSetupLog(log, L3(L"  Copying the disc image to gamedata\\ (about 700 MB, please wait)...",
+                                       L"  Copiando la imagen a gamedata\\ (unos 700 MB, espere)...",
+                                       L"  Copiando a imagem para gamedata\\ (cerca de 700 MB, aguarde)..."));
                 if (CopyFileW(fullSrc, fullDst, FALSE)) {
-                    AppendSetupLog(p->hEditLog, L"  ✓ Imagem copiada para gamedata\\Resident Evil 3 - Nemesis (USA, Canada).bin");
                     discOk = true;
-                    srcBinToExtract = dstBin;
                 } else {
-                    AppendSetupLog(p->hEditLog, L"  ❌ Falha ao copiar imagem do jogo.");
+                    AppendSetupLog(log, L3(L"  ERROR: could not copy the disc image (disk full?).",
+                                           L"  ERROR: no se pudo copiar la imagen (¿disco lleno?).",
+                                           L"  ERRO: não foi possível copiar a imagem (disco cheio?)."));
                 }
             } else {
-                AppendSetupLog(p->hEditLog, L"[2/4] Imagem já localizada na pasta gamedata\\.");
                 discOk = true;
-                srcBinToExtract = dstBin;
             }
 
             if (discOk) {
@@ -1895,85 +1916,31 @@ DWORD WINAPI SetupWorkerThreadProc(LPVOID lpParam) {
                     cueOut << L"  TRACK 01 MODE2/2352\n";
                     cueOut << L"    INDEX 01 00:00:00\n";
                     cueOut.close();
-                    AppendSetupLog(p->hEditLog, L"  ✓ Arquivo .cue gerado em gamedata\\.");
                 }
+                AppendSetupLog(log, L"  OK: gamedata\\Resident Evil 3 - Nemesis (USA, Canada).bin/.cue");
             }
         }
-    } else if (GetFileAttributesW(dstBin.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        AppendSetupLog(p->hEditLog, L"[2/4] Imagem já existente em gamedata\\.");
-        discOk = true;
-        srcBinToExtract = dstBin;
-    } else {
-        InstallStatus curSt = CheckInstallationStatus();
-        if (curSt.hasDisc) {
-            AppendSetupLog(p->hEditLog, L"[2/4] Imagem existente identificada: " + curSt.discPath);
-            discOk = true;
-            srcBinToExtract = curSt.discPath;
-        } else {
-            AppendSetupLog(p->hEditLog, L"[2/4] ❌ Nenhuma imagem de CD selecionada.");
-        }
     }
 
-    // 3. Extrair SLUS
-    bool slusOk = false;
-    std::wstring dstSlus = buildDir + L"\\disc\\SLUS_009.23";
-
-    if (discOk && !srcBinToExtract.empty()) {
-        AppendSetupLog(p->hEditLog, (g_currentLang == L"es") ? L"[3/4] Extrayendo ejecutable SLUS_009.23 directamente del disco..." :
-                                    (g_currentLang == L"pt-br") ? L"[3/4] Extraindo executável SLUS_009.23 diretamente do disco..." :
-                                    L"[3/4] Extracting SLUS_009.23 executable directly from disc image...");
-        std::wstring err;
-        if (ExtractSlusFromDisc(srcBinToExtract, dstSlus, err)) {
-            AppendSetupLog(p->hEditLog, L"  ✓ Executável SLUS_009.23 extraído com sucesso (868.352 bytes).");
-            AppendSetupLog(p->hEditLog, L"  ✓ Assinatura 'PS-X EXE' validada com 100% de precisão!");
-            slusOk = true;
-        } else {
-            AppendSetupLog(p->hEditLog, L"  ❌ Erro ao extrair SLUS: " + err);
-        }
-    } else if (GetFileAttributesW(dstSlus.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        AppendSetupLog(p->hEditLog, L"[3/4] Executável SLUS_009.23 já presente e validado.");
-        slusOk = true;
-    } else {
-        AppendSetupLog(p->hEditLog, L"[3/4] ❌ Não foi possível extrair o executável (disco ausente).");
-    }
-
-    // 4. Finalização
-    AppendSetupLog(p->hEditLog, L"[4/4] Verificando estrutura de diretórios e saves...");
-    AppendSetupLog(p->hEditLog, L"============================================================");
-
+    // 3. Result
+    AppendSetupLog(log, L"============================================================");
     if (biosOk && discOk && slusOk) {
-        if (g_currentLang == L"es") {
-            AppendSetupLog(p->hEditLog, L"🎉 ¡INSTALACIÓN COMPLETADA CON ÉXITO!");
-            AppendSetupLog(p->hEditLog, L"Todos los archivos están configurados. Ya puede jugar.");
-        } else if (g_currentLang == L"pt-br") {
-            AppendSetupLog(p->hEditLog, L"🎉 INSTALAÇÃO CONCLUÍDA COM SUCESSO!");
-            AppendSetupLog(p->hEditLog, L"Todos os arquivos estão configurados. Você já pode jogar.");
-        } else {
-            AppendSetupLog(p->hEditLog, L"🎉 SETUP COMPLETED SUCCESSFULLY!");
-            AppendSetupLog(p->hEditLog, L"All files are in place. You are ready to play.");
-        }
-        AppendSetupLog(p->hEditLog, L"============================================================");
-
-        std::wstring doneMsg = (g_currentLang == L"es") ? L"¡Instalación completada con éxito!\n\nTodos los archivos han sido configurados y el SLUS_009.23 fue extraído.\n¡Ya puede hacer clic en 'JUGAR RESIDENT EVIL 3'!" :
-                               (g_currentLang == L"pt-br") ? L"Instalação concluída com sucesso!\n\nTodos os arquivos foram configurados e o SLUS_009.23 foi extraído.\nVocê já pode clicar em 'JOGAR RESIDENT EVIL 3'!" :
-                               L"Setup completed successfully!\n\nAll files have been configured and SLUS_009.23 was extracted.\nYou can now click 'PLAY RESIDENT EVIL 3'!";
-        std::wstring doneTitle = (g_currentLang == L"es") ? L"Instalación Exitosa" :
-                                 (g_currentLang == L"pt-br") ? L"Instalação Concluída" : L"Setup Success";
-        MessageBoxW(p->hWndSetup, doneMsg.c_str(), doneTitle.c_str(), MB_ICONINFORMATION | MB_OK);
+        AppendSetupLog(log, L3(L"[3/3] Setup complete. You can play now.",
+                               L"[3/3] Instalación completa. Ya puede jugar.",
+                               L"[3/3] Instalação concluída. Você já pode jogar."));
+        MessageBoxW(p->hWndSetup,
+                    L3(L"Setup complete. Click 'PLAY RESIDENT EVIL 3' to start.",
+                       L"Instalación completa. Haga clic en 'JUGAR RESIDENT EVIL 3' para empezar.",
+                       L"Instalação concluída. Clique em 'JOGAR RESIDENT EVIL 3' para começar.").c_str(),
+                    L3(L"Setup", L"Instalación", L"Instalação").c_str(), MB_ICONINFORMATION | MB_OK);
     } else {
-        if (g_currentLang == L"es") {
-            AppendSetupLog(p->hEditLog, L"[!] La instalación no se completó debido a archivos faltantes.");
-        } else if (g_currentLang == L"pt-br") {
-            AppendSetupLog(p->hEditLog, L"[!] A instalação não foi concluída devido a arquivos pendentes.");
-        } else {
-            AppendSetupLog(p->hEditLog, L"[!] Setup was not completed due to missing files.");
-        }
-        AppendSetupLog(p->hEditLog, L"============================================================");
+        AppendSetupLog(log, L3(L"[3/3] Setup was not completed. See the errors above.",
+                               L"[3/3] La instalación no se completó. Vea los errores arriba.",
+                               L"[3/3] A instalação não foi concluída. Veja os erros acima."));
     }
 
     EnableWindow(p->hBtnStart, TRUE);
     EnableWindow(p->hBtnClose, TRUE);
-
     PostMessageW(p->hWndSetup, WM_USER + 101, 0, 0);
 
     delete p;
@@ -1985,7 +1952,7 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CREATE: {
         std::wstring titleText = (g_currentLang == L"es") ? L"Asistente de Instalación y Montaje" :
                                  (g_currentLang == L"pt-br") ? L"Assistente de Instalação e Montagem" :
-                                 L"Game Installation & Disc Setup Wizard";
+                                 L"Game Installation && Disc Setup Wizard";
         std::wstring subText = (g_currentLang == L"es") ? L"Seleccione los archivos originales. El instalador copiará la BIOS y el CD, y extraerá SLUS_009.23 automáticamente." :
                                (g_currentLang == L"pt-br") ? L"Selecione os arquivos originais. O instalador copiará a BIOS e o CD, e extrairá o SLUS_009.23 automaticamente." :
                                L"Select your original files. The installer will copy the BIOS, set up the CD, and extract SLUS_009.23 automatically.";
@@ -2015,9 +1982,9 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SendMessageW(g_hBtnSetupBrowseBios, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 2: Imagem do Disco
-        std::wstring grpDiscText = (g_currentLang == L"es") ? L"  2. Imagen del CD de Resident Evil 3 (.cue / .bin / .iso)  " :
-                                   (g_currentLang == L"pt-br") ? L"  2. Imagem do CD de Resident Evil 3 (.cue / .bin / .iso)  " :
-                                   L"  2. Resident Evil 3 CD Image (.cue / .bin / .iso)  ";
+        std::wstring grpDiscText = L3(L"  2. Resident Evil 3 CD image (USA, .cue / .bin)  ",
+                                      L"  2. Imagen del CD de Resident Evil 3 (USA, .cue / .bin)  ",
+                                      L"  2. Imagem do CD de Resident Evil 3 (USA, .cue / .bin)  ");
         g_hGrpSetupDisc = CreateWindowW(L"BUTTON", grpDiscText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 180, 604, 88, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpSetupDisc, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
@@ -2086,9 +2053,9 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         std::wstring initLog;
         if (st.isFullyInstalled) {
-            initLog = (g_currentLang == L"es") ? L"Todos los archivos ya están instalados.\nPuede iniciar una reinstalación si desea cambiar la BIOS o la imagen.\r\n" :
-                      (g_currentLang == L"pt-br") ? L"Todos os arquivos já estão instalados.\nVocê pode reinstalar se desejar trocar a BIOS ou a imagem do jogo.\r\n" :
-                      L"All required files are already installed.\nYou can run setup again if you want to replace the BIOS or disc image.\r\n";
+            initLog = (g_currentLang == L"es") ? L"Todos los archivos ya están instalados.\r\nPuede iniciar una reinstalación si desea cambiar la BIOS o la imagen.\r\n" :
+                      (g_currentLang == L"pt-br") ? L"Todos os arquivos já estão instalados.\r\nVocê pode reinstalar se desejar trocar a BIOS ou a imagem do jogo.\r\n" :
+                      L"All required files are already installed.\r\nYou can run setup again if you want to replace the BIOS or disc image.\r\n";
         } else {
             initLog = (g_currentLang == L"es") ? L"Bienvenido. Seleccione la BIOS y la imagen de disco arriba y haga clic en 'Iniciar Instalación'.\r\n" :
                       (g_currentLang == L"pt-br") ? L"Bem-vindo. Selecione a BIOS e a imagem do disco acima e clique em 'Iniciar Instalação'.\r\n" :
@@ -2118,11 +2085,9 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 WIN32_FILE_ATTRIBUTE_DATA fad;
                 if (GetFileAttributesExW(szFile, GetFileExInfoStandard, &fad)) {
                     LARGE_INTEGER sz; sz.HighPart = fad.nFileSizeHigh; sz.LowPart = fad.nFileSizeLow;
-                    if (sz.QuadPart >= 500000) {
-                        SetWindowTextW(g_hLblSetupBiosStatus, (g_currentLang == L"es") ? L"[OK] BIOS Válida (512 KB)" :
-                                                              (g_currentLang == L"pt-br") ? L"[OK] BIOS Válida (512 KB)" :
-                                                              L"[OK] Valid BIOS (512 KB)");
-                    }
+                    SetWindowTextW(g_hLblSetupBiosStatus, sz.QuadPart == 524288
+                        ? L3(L"[OK] BIOS selected (512 KB)", L"[OK] BIOS seleccionada (512 KB)", L"[OK] BIOS selecionada (512 KB)").c_str()
+                        : L3(L"[!] Unexpected size: a PS1 BIOS is 512 KB", L"[!] Tamaño inesperado: una BIOS de PS1 tiene 512 KB", L"[!] Tamanho inesperado: uma BIOS de PS1 tem 512 KB").c_str());
                 }
             }
         } else if (id == ID_BTN_SETUP_BROWSE_DISC) {
@@ -2131,9 +2096,9 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             ofn.hwndOwner = hWnd;
             ofn.lpstrFile = szFile;
             ofn.nMaxFile = MAX_PATH;
-            ofn.lpstrFilter = (g_currentLang == L"es") ? L"Imágenes de CD (*.cue;*.bin;*.iso;*.img)\0*.cue;*.bin;*.iso;*.img\0Todos los Archivos (*.*)\0*.*\0" :
-                              (g_currentLang == L"pt-br") ? L"Imagens de CD (*.cue;*.bin;*.iso;*.img)\0*.cue;*.bin;*.iso;*.img\0Todos os Arquivos (*.*)\0*.*\0" :
-                              L"Disc Images (*.cue;*.bin;*.iso;*.img)\0*.cue;*.bin;*.iso;*.img\0All Files (*.*)\0*.*\0";
+            ofn.lpstrFilter = (g_currentLang == L"es") ? L"Imágenes de CD (*.cue;*.bin;*.img)\0*.cue;*.bin;*.img\0Todos los Archivos (*.*)\0*.*\0" :
+                              (g_currentLang == L"pt-br") ? L"Imagens de CD (*.cue;*.bin;*.img)\0*.cue;*.bin;*.img\0Todos os Arquivos (*.*)\0*.*\0" :
+                              L"Disc Images (*.cue;*.bin;*.img)\0*.cue;*.bin;*.img\0All Files (*.*)\0*.*\0";
             ofn.nFilterIndex = 1;
             ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
             if (GetOpenFileNameW(&ofn)) {
@@ -2141,11 +2106,10 @@ LRESULT CALLBACK SetupWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 WIN32_FILE_ATTRIBUTE_DATA fad;
                 if (GetFileAttributesExW(szFile, GetFileExInfoStandard, &fad)) {
                     LARGE_INTEGER sz; sz.HighPart = fad.nFileSizeHigh; sz.LowPart = fad.nFileSizeLow;
-                    if (sz.QuadPart >= 50000000) {
-                        SetWindowTextW(g_hLblSetupDiscStatus, (g_currentLang == L"es") ? L"[OK] Imagen de CD Válida" :
-                                                              (g_currentLang == L"pt-br") ? L"[OK] Imagem de CD Válida" :
-                                                              L"[OK] Valid CD Image");
-                    }
+                    (void)sz;
+                    SetWindowTextW(g_hLblSetupDiscStatus, L3(L"Selected. It will be checked when you start the installation.",
+                                                             L"Seleccionada. Se verificará al iniciar la instalación.",
+                                                             L"Selecionada. Será verificada ao iniciar a instalação.").c_str());
                 }
             }
         } else if (id == ID_BTN_SETUP_START) {
@@ -2344,47 +2308,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 2: Jogabilidade e Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 472, 508, 96, hWnd, NULL, g_hInst, NULL);
+        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 14, 508, 96, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 32, 496, 150, 20, hWnd, NULL, g_hInst, NULL);
+        g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 558, 38, 150, 20, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCtrlMode, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 494, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
+        g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 712, 36, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
         SendMessageW(g_hComboControls, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 32, 528, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
+        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 558, 70, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
         SendMessageW(g_hBtnInput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 270, 528, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
+        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 796, 70, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
         SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 578, 508, 98, hWnd, NULL, g_hInst, NULL);
+        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 120, 508, 98, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 600, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
+        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 142, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
         SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 622, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
+        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 164, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
         SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 644, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
+        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 186, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
         SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 18, 686, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
+        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 544, 236, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
         SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 360, 686, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
+        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 886, 236, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats & Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 734, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
+        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats && Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 544, 286, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
         SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 274, 734, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
+        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 800, 286, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
         SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 774, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 544, 440, 508, 16, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
@@ -2525,8 +2489,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         GetClassNameW(hwndStatic, cls, 16);
         bool isButton = (_wcsicmp(cls, L"BUTTON") == 0);
         if (hwndStatic == g_hLblInstallStatus) {
-            InstallStatus st = CheckInstallationStatus();
-            SetTextColor(hdcStatic, st.isFullyInstalled ? CLR_OK : CLR_WARN);
+            SetTextColor(hdcStatic, g_installedCached ? CLR_OK : CLR_WARN);
         } else if (isButton && btnType == BS_GROUPBOX) {
             SetTextColor(hdcStatic, CLR_ACCENT);
         } else if (hwndStatic == g_hLblLegalNote) {
@@ -2629,7 +2592,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT rcMain = { 0, 0, 560, 808 };
+    RECT rcMain = { 0, 0, 1070, 474 };
     AdjustWindowRectEx(&rcMain, dwStyle, FALSE, 0);
     int width = rcMain.right - rcMain.left;
     int height = rcMain.bottom - rcMain.top;
@@ -2643,7 +2606,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     g_hWndMain = CreateWindowExW(
         0,
         wc.lpszClassName,
-        L"Project RE: Visited - Resident Evil 3 (v1.5.1)",
+        L"Project RE: Visited - Resident Evil 3 (" LAUNCHER_VERSION L")",
         dwStyle,
         posX, posY, width, height,
         NULL, NULL, hInstance, NULL
