@@ -36,7 +36,8 @@ Resolução interna, 16:9, FMV skip, vibração, cheats, saves: código presente
 - Cheats auditados no código: o endereço do inventário (`0x800D2134`) e os IDs de pistola, espingarda, munição e fita conferem com o RAM. **Não verificados:** o byte de status forçado pela vida infinita (`0x800CCC97`), e o fato de "armas no baú", "boutique" e "mercenários" ligarem o mesmo bitmask (`0x800D1F32 |= 0xFFE0`), ou seja, marcar um liga os três.
 - Pulo de cutscene: Esc/Tab/Select injetam Select por 15 frames. Em gameplay, isso também abre o mapa (efeito colateral, não corrigido).
 - [ ] Auditar o launcher além da extração e das configurações.
-- [ ] Cópias antigas fora do repositório (raiz do workspace: `PROGRESS.md`, READMEs, `.exe`, `launcher/`).
+- [x] Cópias antigas da raiz do workspace movidas para `_arquivo_antigo/`; ferramentas não sincronizam mais para lá. Uma única pasta de execução (`ResidentEvil3-PCPort`).
+- [x] Release passa a usar `game.toml` e `settings.default.toml` do repositório (a v1.5.1 levou as configurações da pasta de testes, incluindo `frame_interpolation = true`).
 - [ ] Identidade dos commits (`RE3Recomp Dev`).
 - [ ] Responder issues (aguardando decisão do mantenedor).
 
