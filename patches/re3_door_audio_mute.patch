@@ -1,0 +1,18 @@
+--- a/generated/SLUS_009.23_full_01.c
++++ b/generated/SLUS_009.23_full_01.c
+@@ -8919,6 +8919,7 @@
+         }
+     }
+     debug_server_log_call_entry(0x80015498u);
++    { extern void re3_door_audio_begin(void); re3_door_audio_begin(); }
+     /* Address: 0x80015498, Size: 700 bytes, Blocks: 20 */
+
+ block_80015498:
+@@ -17855,6 +17856,7 @@
+     psx_cyc_step(cpu, 0x5u);
+ #endif
+     extern int g_fast_doors;
++    { extern void re3_door_audio_end(void); re3_door_audio_end(); }
+     { uint32_t _pgx1 = cpu->gpr[0]; cpu->gpr[2] = g_fast_doors ? 5 : 16;
+     PGXP_ALU(0x24020010u, cpu->gpr[2], _pgx1, (uint32_t)cpu->gpr[2]); }  /* 0x80016190: 0x24020010 */
+ #ifdef PSX_COSIM

@@ -606,7 +606,7 @@ struct GameConfig {
     bool antialiasing = true;
     bool auto_skip_fmv = false;
     bool fast_doors = true;
-    bool spu_hq = true;
+    bool spu_hq = false;
     bool infinite_health = false;
     bool infinite_ammo = false;
     bool infinite_ink_ribbons = false;
