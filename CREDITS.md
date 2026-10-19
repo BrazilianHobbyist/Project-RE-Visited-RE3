@@ -7,8 +7,8 @@
 ### 1.1. Natureza Não Comercial e Finalidade de Preservação Histórica
 Este projeto é o lançamento inicial da iniciativa **Project RE: Visited**, dedicada à preservação histórica e restauração moderna da trilogia clássica original de PlayStation (Resident Evil 1, Resident Evil 2 e Resident Evil 3). É uma iniciativa independente, de código aberto, conduzida por fãs e pesquisadores da comunidade retro (*fan-made project*), com propósito estritamente educacional, científico e de preservação digital de software histórico. **Não há qualquer finalidade lucrativa, cobrança, monetização, comercialização ou benefício financeiro** direta ou indiretamente associado a este software ou repositório.
 
-### 1.2. Ausência Absoluta de Ativos e Dados Proprietários (*No Proprietary Assets Distributed*)
-Este repositório, o inicializador (*launcher*) e seus binários executáveis compilados **NÃO CONTÊM, NÃO DISTRIBUEM e NÃO HOSPEDAM** quaisquer arquivos protegidos por direitos autorais ou propriedade intelectual pertencentes à **CAPCOM CO., LTD.** ou à **SONY INTERACTIVE ENTERTAINMENT INC.**, incluindo, sem limitação:
+### 1.2. Ativos e Dados Proprietários
+Este repositório e o inicializador (*launcher*) **não distribuem** os seguintes arquivos pertencentes à **CAPCOM CO., LTD.** ou à **SONY INTERACTIVE ENTERTAINMENT INC.**:
 * Imagens originais de disco de jogo (`.bin`, `.cue`, `.iso`, `.img`, `.mdf`);
 * Trilhas sonoras oficiais, efeitos sonoros (*SFX*), gravações de voz e dublagens;
 * Modelos tridimensionais, malhas poligonais e texturas de personagens ou cenários;
@@ -16,6 +16,8 @@ Este repositório, o inicializador (*launcher*) e seus binários executáveis co
 * Cenários e artes de fundo pré-renderizadas;
 * Textos narrativos, diálogos ou documentos originais de jogo;
 * Dumps de BIOS proprietárias de varejo da Sony (ex: `SCPH1001.BIN`).
+
+> **Observação:** o executável do jogo distribuído nas releases (`Resident_Evil_3__Nemesis_Recompiled.exe`) contém o código de máquina original do jogo traduzido automaticamente para x86-64, junto com os dados embutidos nesse executável. Ele não inclui os arquivos de mídia do disco (áudio, vídeo, texturas, modelos, cenários), mas é derivado do programa original da Capcom.
 
 > ⚠️ **REQUISITO OBRIGATÓRIO**: O usuário final deve obrigatoriamente possuir e fornecer seus próprios arquivos de jogo, extraídos de sua própria cópia física ou digital legalmente adquirida de *Resident Evil 3: Nemesis* (PlayStation 1, versão SLUS-00923), para que o executável e seus recursos possam operar.
 

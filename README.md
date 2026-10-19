@@ -8,202 +8,86 @@
 
 ---
 
-**Native C/C++ x86_64 PC Port & Clean-Room Static Recompilation of Resident Evil 3: Nemesis (1999, PlayStation 1) for Windows**
+**Experimental Windows port of Resident Evil 3: Nemesis (PS1, SLUS-00923), built on the [PSXRecomp](https://github.com/RetroPortingToolKit/psxrecomp) static recompilation framework.**
+
+> **Status: work in progress / experimental.** Expect bugs. Earlier release notes and this README overstated what works; this version describes the project as it actually is.
 
 ---
 
-## The Project RE: Visited Initiative
+## How it actually works
 
-**Project RE: Visited** is an independent, open-source preservation initiative dedicated to restoring, modernizing, and preserving the seminal PlayStation 1 survival horror trilogy natively on PC:
-* **Resident Evil 3: Nemesis** (Inaugural Release)
-* **Resident Evil 2** (Planned)
-* **Resident Evil** (Planned)
-
-Our mission is to deliver the definitive experience of these historic classics on contemporary hardware—combining authentic artistic fidelity with modern quality-of-life (QoL) enhancements, true 360° analog 3D controls, rock-steady authentic 30 FPS pacing, and resolutions up to 4K UHD—without relying on traditional emulators or dated, compromised legacy PC ports.
-
----
-
-## What is Clean-Room Static Recompilation?
-
-Unlike traditional emulators (which interpret CPU opcodes or generate JIT blocks at runtime) or reverse engineering efforts reliant on leaked source code, this project is engineered using **Clean Room Static Recompilation**:
-
-```
-+-----------------------------------------------------------------------------------+
-|                            USER'S LEGITIMATE GAME MEDIA                           |
-|                    (Original retail CD-ROM / ISO / BIN / CUE)                     |
-+-----------------------------------------------------------------------------------+
-                                          |
-                         [Native Setup & Extraction Wizard]
-                   (Direct ISO 9660 extraction of SLUS_009.23)
-                                          |
-                                          v
-+-----------------------+     +------------------------+     +----------------------+
-|  MIPS R3000A Machine  |     |   Static Recompiler    |     |   Clean Native C     |
-|  Instructions (PS1)   | --> |   Toolchain            | --> |   x86_64 Source      |
-|  (3,328 RE3 Functions)|     |   (PSXRecomp / Tool)   |     |   (AOT Compiled)     |
-+-----------------------+     +------------------------+     +----------------------+
-                                                                        |
-                                                                        v
-+-----------------------------------------------------------------------------------+
-|                    OPEN HARDWARE ABSTRACTION LAYER (RUNTIME HAL)                  |
-|      * Video: Modern OpenGL + PGXP (Sub-pixel & Perspective) + FXAA Shaders       |
-|      * Audio: SPU HQ 48kHz Floating-Point Resampling                              |
-|      * Input: XInput / DirectInput / SDL2 with True 360° Analog 3D Support        |
-|      * System: Clean OpenBIOS Implementation (MIT / HLE Interception)             |
-+-----------------------------------------------------------------------------------+
-```
-
-### 1. Direct Ahead-Of-Time (AOT) Machine Code Translation
-The compiled retail binary (`SLUS_009.23`) has its MIPS R3000A instructions statically analyzed and translated into high-performance C source code. Each game routine executes directly as native machine code on your CPU, completely eliminating interpreter overhead and JIT stutter.
-
-### 2. Zero Leaked Capcom Source Code
-No leaked source code, proprietary SDK headers, or confidential developer materials were ever used. The project is 100% clean-room: the retail machine-code binary is treated purely as a closed computational specification.
-
-### 3. Open Hardware Abstraction Layer (HAL)
-PlayStation system calls, the GPU, GTE geometry coprocessor, and SPU audio processor are handled by an open-source C/C++ runtime layer built on top of modern **OpenGL**, **SDL2**, and **OpenBIOS**.
-
-### 4. Strict Zero-Asset Policy
-**This repository DOES NOT host, store, or distribute any game assets, ROMs, ISOs, audio tracks, 3D models, or textures.** All copyrighted game assets remain in the user's legally owned original disc and are extracted locally by the user.
-
----
-
-## Legal Framework & Disclaimer
-
-Reverse engineering strictly for **interoperability and digital preservation** is firmly protected under statutory law and established legal precedents:
-
-* **United States**: *Digital Millennium Copyright Act* (DMCA), 17 U.S.C. § 1201(f) (*Reverse Engineering for Interoperability Exception*), affirmed by federal appellate jurisprudence in *Sega Enterprises Ltd. v. Accolade, Inc.* (977 F.2d 1510) and *Sony Computer Entertainment, Inc. v. Connectix Corp.* (203 F.3d 596).
-* **European Union**: Directive 2009/24/EC of the European Parliament and of the Council, Article 6 (*Decompilation for interoperability purposes*).
-* **Brazil**: Law No. 9,609/1998 (Software Law), Article 6, item I (*Exceptions for interoperability of independently created software*).
-* **Trademarks**: *Resident Evil*, *Biohazard*, *Nemesis*, and *Jill Valentine* are trademarks of **Capcom Co., Ltd.**; *PlayStation* is a trademark of **Sony Interactive Entertainment Inc.** All trademarks are used in a nominative, descriptive capacity only (*nominative fair use*).
-* **Full Disclaimer**: See [**`CREDITS.md`**](CREDITS.md) for detailed terms.
-
----
-
-## Implemented & Verified Features
-
-Every feature listed below is **100% implemented, audited, and functional**:
-
-| Feature | Description |
+| Part | How it runs |
 |---|---|
-| **Built-in Setup Wizard** | Native ISO 9660 Mode 2 Form 1 sector parser. Automatically extracts the original `SLUS_009.23` executable from `.bin` / `.iso` disc images in milliseconds without external tools. |
-| **Agile Analog Controls with Auto-Run** | Responsive analog stick movement with reduced deadzone (0.26), automatic sprint on full stick deflection, and smooth in-place turning without direction inversion on fixed camera cuts. The D-Pad retains 100% authentic classic tank controls. |
-| **Pure 30 FPS Authentic Presentation** | Solid, rock-steady 30 FPS hardware presentation preserving the canonical PS1 timing, pristine 2.5D background masks, and zero ghosting or depth artifacts. |
-| **Widescreen & Classic Aspect Ratios** | Native support for 16:9 Stretched (full widescreen display for modern monitors without subtitle or HUD cropping) and authentic 4:3 Classic Original with clean pillarboxing. Configurable via the Launcher or in `settings.toml`. |
-| **Door Skipping / Instant Room Transitions** | Bypasses the classic 3D door-opening animations with a snappy (~0.3s) transition, accelerated fade in/out, and unpaced sector loading, preserving natural dialogue and voice speed. Toggleable in the Launcher or via `settings.toml` (`fast_doors = true`). |
-| **DualShock Force Feedback & Vibration** | Authentic rumble support on modern gamepads (Xbox, DualShock 4, DualSense, etc.) for gunfire, damage, explosions, and Nemesis footsteps via SDL GameController Force Feedback (calibrated in `settings.toml`). |
-| **PGXP Sub-Pixel Geometry Correction** | Eliminates classic PS1 polygon wobbling and vertex jitter using high-precision floating-point vertex coordinates. |
-| **Perspective-Correct Texturing** | PGXP affine texture correction eliminates angular texture distortion and warping on walls and floors. |
-| **Scalable 3D Internal Resolution** | High-definition internal rendering (1080p, 1440p, 4K Ultra HD) via supersampling (SSAA). |
-| **FXAA Anti-Aliasing** | Fast Approximate Anti-Aliasing shader post-processing for crisp, clean polygon silhouettes. |
-| **Instant FMV / Cutscene Skip** | Skip intro logos and pre-rendered cinematics (MDEC / XA) instantly with a single button press. |
-| **High-Fidelity 48kHz SPU Audio** | Floating-point 4-point cubic interpolation resampling for authentic ADPCM sound playback. |
-| **Multi-Language Launcher** | Lightweight native Win32/GDI+ interface supporting English, Portuguese (PT-BR), and Spanish (ES). |
-| **Built-in Cheats & Modifiers** | 100% reversible, safe modifier selector in the Launcher: Infinite Health (God Mode), Infinite Ammo, Infinite Ink Ribbons, All Weapons in Item Box, Unlock The Mercenaries, Unlock Boutique & All Outfits, and Unlock All Epilogues. Plus real-time in-game hotkeys. |
-| **Native Memory Card Saves** | Authentic PS1 binary memory card files (`saves/card1.mcd`), 100% compatible with real hardware and emulators like DuckStation and Mednafen. |
+| Main executable (`SLUS_009.23`, 3,328 functions) | **Statically recompiled** MIPS → C → x86-64. Runs as native code. |
+| Overlays (per-room/stage code the game loads from the CD at `0x80165000`) | **Interpreted** by default. They are only compiled to native code at runtime if a C compiler (`gcc`/`clang`) is on your `PATH`. Even then, most overlay calls currently still go through the interpreter. |
+| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulated in software** by the PSXRecomp runtime (rendered with OpenGL/SDL2). |
+| BIOS | OpenBIOS (MIT, from PCSX-Redux), bundled. |
+
+So this is a hybrid: the game's main code is recompiled, but a large share of what runs during gameplay is interpreted, and the hardware is emulated. It is not a "native PC port" in the sense of decompiled, rewritten game code. That is also why PS1 traits like polygon wobble remain: the GTE's fixed-point math is reproduced faithfully.
+
+## Legal note
+
+The release executable contains the game's machine code translated to x86-64. You must own Resident Evil 3: Nemesis (SLUS-00923) and supply your own disc image. No disc images, audio, video, textures or Sony BIOS are distributed. This is a non-commercial fan project; PSXRecomp is licensed under PolyForm Noncommercial 1.0.0. Resident Evil and related names are trademarks of Capcom; PlayStation is a trademark of Sony Interactive Entertainment.
 
 ---
 
-## Scope Delimitation (What this project DOES NOT do)
+## Features
 
-To preserve technical stability and historical fidelity:
-1. **Safe Native Memory Integration (No Save Corruption)**: Cheats use Capcom's authentic engine flags (`0x800D1F32` / Clear Mode) and monitored active player buffers. They never corrupt item slots, never cause ghost weapons, and are 100% reversible (uncheck anytime to restore authentic vanilla gameplay).
-2. **No Texture Packs**: Backgrounds and textures remain true to the original 1999 dark gothic atmosphere; visual clarity is enhanced mathematically via PGXP and SSAA rather than AI filtering.
-3. **No Free Camera in Pre-rendered Backgrounds**: Resident Evil 3's fixed cameras are 2D artwork designed for cinematic suspense; the presentation modes adapt modern displays without breaking invisible collision geometry.
+Status key: **Works** = confirmed working · **Needs testing** = implemented, not yet re-verified after recent changes · **Known issues** = reported broken or partial.
 
----
+| Feature | Status |
+|---|---|
+| Launcher setup wizard (extracts `SLUS_009.23` from your `.bin`/`.cue`/`.iso`) | Works |
+| Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
+| Modern analog controls with auto-run (`modern_controls`) | Known issues: was broken in v1.4.x, restored in v1.5.1, needs re-testing |
+| Fast doors (`fast_doors`) | Known issues: skipping the cutscene after a door can freeze the game |
+| FMV skip | Needs testing |
+| Rumble (SDL2) | Needs testing |
+| Cheats (launcher toggles + F6/F7/F8) | Needs testing |
+| PGXP geometry correction | Known issues: no visible effect / deforms characters; not recommended |
+| Perspective-correct texturing | Needs testing |
+| Audio | Known issues: crackling on room transitions |
+| Intro/story text speed | Known issues: text advances too fast |
+| 60 FPS / frame interpolation | **Removed.** It never worked properly (it was placebo) |
+| Memory card saves (`saves/*.mcd`, standard PS1 format) | Needs testing |
 
-## Quick Start: How to Play
-
-### Step 1: Download & Extract
-Download the latest zip package from the **Releases** tab and extract it to any folder.
-
-### Step 2: Open the Launcher
-Double-click:
-```
-Resident_Evil_3_Launcher.exe
-```
-
-### Step 3: Run the Setup Wizard
-If this is your first run, the status will show `[!] STATUS: Setup Required`.
-1. Click **`Setup Files...`** (or *Instalar Jogo*).
-2. **Open-Source BIOS (OpenBIOS)**: Clean-room MIT open-source BIOS from PCSX-Redux is already bundled and preconfigured by default. No external BIOS dump or setup is required.
-3. **Game Disc Image**: Select your original CD image (`.bin`, `.cue`, or `.iso`).
-4. Click **`Start Installation & Extraction`**. The wizard will verify the files and extract `SLUS_009.23` in under a second.
-
-### Step 4: Configure & Play
-Choose your preferred resolution (up to 4K), aspect ratio, frame rate, and controls, then click:
-**`PLAY RESIDENT EVIL 3`**!
+Bug reports are welcome. Please include `psx_last_run_report.json` from the game folder and the steps to reproduce.
 
 ---
+
+## Quick start
+
+1. Download the latest zip from **Releases** and extract it.
+2. Run `Resident_Evil_3_Launcher.exe`.
+3. Click **Setup Files...** and select your RE3 disc image (`.bin`, `.cue` or `.iso`).
+4. Configure, then click **PLAY RESIDENT EVIL 3**.
 
 ## Controls
 
-### Xbox Gamepad (XInput / Modern Controller)
-* **Left Analog Stick**: 360° Camera-Relative Movement / Auto-Run (>82% tilt)
-* **D-Pad**: Classic Tank Controls (Turn / Move Forward / Backpedal)
-* **A**: Action / Confirm / Fire / Skip Cutscene
-* **B**: Cancel / Run
-* **X**: Run
-* **Y**: Open Inventory
-* **LB / LT**: Aim Primary / Cycle Targets
-* **RB / RT**: Fire / Aim Secondary
-* **Back**: Map
-* **Start**: Pause
-
-### Keyboard
-* **Arrow Keys**: Move (Turn / Walk / Back)
-* **X**: Action / Confirm / Skip FMV
-* **S**: Cancel / Run
-* **Z**: Run
-* **A**: Inventory
-* **Enter**: Start
-* **Alt + Enter** or **F11**: Toggle Fullscreen / Windowed
-* **F6**: Toggle God Mode (Infinite Health) On/Off
-* **F7**: Toggle Infinite Ammo On/Off
-* **F8**: Refill Current Weapon & Ammo to Max Capacity
+**Gamepad:** Left stick = movement (modern mode) · D-Pad = classic tank controls · A = action · X = run · Y = inventory · LB/RB = aim/fire · Back = map · Start = pause
+**Keyboard:** Arrows = move · X = action · Z = run · A = inventory · Enter = start · Alt+Enter/F11 = fullscreen · F6/F7/F8 = cheats
 
 ---
 
-## Save Data (Memory Cards)
+## Building from source
 
-Save data is saved to standard PS1 binary format inside the `saves/` folder:
-* `saves/card1.mcd` (Slot 1)
-* `saves/card2.mcd` (Slot 2)
-
-Compatible with DuckStation, Mednafen, and original hardware.
-
----
-
-## Building from Source (Developers)
-
-### Requirements
-* Windows 10/11 (64-bit)
-* MinGW-w64 (GCC 12+), Clang, or MSVC (Visual Studio 2022)
-* CMake 3.20+ and Ninja
-* Python 3.8+
+Requirements: Windows 10/11 x64, MinGW-w64 GCC 12+ or Clang, CMake 3.20+, Ninja, Python 3.8+, and your own copy of `SLUS_009.23`.
 
 ```powershell
-# Build the native recompiled game:
-.\build.ps1
-
-# Build the Win32/GDI+ launcher:
-.\launcher\build.ps1
+git clone --recurse-submodules https://github.com/BrazilianHobbyist/Project-RE-Visited-RE3.git
+.\build.ps1             # game
+.\launcher\build.ps1    # launcher
 ```
+
+Runtime changes on top of upstream PSXRecomp are in `patches/`.
 
 ---
 
-## Credits & Acknowledgments
+## Credits
 
-See [**`CREDITS.md`**](CREDITS.md) for full attributions and third-party licenses.
+See [`CREDITS.md`](CREDITS.md).
 
-* **Capcom Co., Ltd.** — Original masterpiece *Resident Evil 3: Nemesis* (1999).
-* **Sony Interactive Entertainment** — PlayStation hardware platform (PS1 / MIPS R3000A).
-* **PSXRecomp (RetroPortingToolkit)** — Static recompilation framework by Matthew Stanley ("mstan").
-* **Silent Hill (PS1) Decompilation & Native PC Port** — Preservation inspiration (Vatuu, shdecompilations, SlickAmogus, and community).
-* **N64: Recompiled / Zelda64: Recompiled** — Pioneering static recompilation engineering by Mr-Wiseguy.
-* **Ghidra SRE (NSA)** — Binary reverse engineering of 3,328 routines.
-* **PCSX-Redux & OpenBIOS** — Clean-room MIT open BIOS.
-* **DuckStation & Beetle PSX** — Hardware accuracy and cycle oracles.
-* **PGXP** — Sub-pixel precision and perspective correction by iCatButler, simias, Pete Bernert.
-* **SDL2 & OpenGL** — Windowing, modern input, and 3D hardware rendering.
-* **TinyCC (TCC)** — Fast AOT overlay compilation by Fabrice Bellard.
+* **PSXRecomp / RetroPortingToolkit**: static recompilation framework and runtime, by Matthew Stanley ("mstan") and contributors. Almost all of the engine work here is theirs.
+* **PCSX-Redux / OpenBIOS**: open-source BIOS.
+* **PGXP**: iCatButler, simias, Pete Bernert.
+* **Capcom**: Resident Evil 3: Nemesis (1999).
