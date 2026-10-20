@@ -44,6 +44,9 @@ aspect_ratio = "16:9"
 fullscreen = true
 geometry_correction = false
 perspective_texturing = true
+# PGXP hook build (CMakeLists PGXP): tolerance -1 and dataflow-only are the
+# automatic defaults; also draw each vertex at its exact projection.
+pgxp_preserve_projection = true
 auto_skip_fmv = false
 
 [widescreen]
