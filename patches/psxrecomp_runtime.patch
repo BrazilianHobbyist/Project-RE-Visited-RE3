@@ -24,10 +24,10 @@ index 2a74dd5c..ae3127dd 100644
  #elif defined(PSX_SDL3)
          if (!SDL_SetWindowFullscreen(window, true)) return -1;
 diff --git a/runtime/src/crash_trace.c b/runtime/src/crash_trace.c
-index 96d52cd8..51272e41 100644
+index 96d52cd8..df5e0475 100644
 --- a/runtime/src/crash_trace.c
 +++ b/runtime/src/crash_trace.c
-@@ -636,6 +636,57 @@ void psx_crash_trace_dump(const char *reason, void *seh_info) {
+@@ -636,6 +636,61 @@ void psx_crash_trace_dump(const char *reason, void *seh_info) {
              (unsigned long long)disp_interp);
      }
  
@@ -80,6 +80,10 @@ index 96d52cd8..51272e41 100644
 +            g_re3_door_count ? g_re3_dl_pre_ms / g_re3_door_count : 0.0,
 +            g_re3_dl_count ? g_re3_dl_post_ms / g_re3_dl_count : 0.0,
 +            g_re3_dl_post_max);
++        extern void re3_door_timeline_json(char* out, int cap);
++        static char tl[24 * 1024];
++        re3_door_timeline_json(tl, (int)sizeof(tl));
++        append_fmt(buf, sizeof(buf), &pos, "  \"re3_door_timeline\": %s,\n", tl);
 +    }
 +
      /* Recursion fingerprint (build-independent GUEST addresses): the func entered
@@ -407,7 +411,7 @@ index 331ad862..ba519943 100644
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 95300459..d15f7fad 100644
+index 95300459..0f01ae80 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1997,7 +1997,7 @@ static void reset_mod_owned_presentation(void) {
@@ -592,7 +596,7 @@ index 95300459..d15f7fad 100644
      return boot_mode;
  }
  
-@@ -5831,11 +5879,510 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5831,11 +5879,562 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -669,6 +673,12 @@ index 95300459..d15f7fad 100644
 + * and the door mute above already sinks the accelerated audio. Stops at the
 + * stage-2 fade-in, so the new room fades in at normal speed. */
 +static int s_re3_door_turbo_frames = 0;
++/* Measured per door (re3_door_timeline, 2026-10-20): after the skipped
++ * stage 2 the game still reads the door model (DOOR*.DO1, one CD burst),
++ * idles 0.1-1.7 s with the screen black, then reads the new room
++ * (R*.ARD/.BIN/.BSS, one burst); control returns when that burst ends.
++ * So the load boundary is: door start -> end of the second data burst. */
++static int s_re3_door_bursts = 0;
 +/* Door transition wall time (stage-0 entry to stage-2 fade-in), reported in
 + * psx_last_run_report.json as "re3_doors". */
 +static uint64_t s_re3_door_t0 = 0;
@@ -680,14 +690,13 @@ index 95300459..d15f7fad 100644
 +    re3_door_probe_begin();
 +    s_re3_door_t0 = SDL_GetPerformanceCounter();
 +    if (g_fast_doors) {
-+        s_re3_door_mute_frames = 300;   /* safety cap ~10 s */
-+        s_re3_door_turbo_frames = 300;
++        s_re3_door_mute_frames = 600;   /* safety cap ~10 s */
++        s_re3_door_turbo_frames = 600;
++        s_re3_door_bursts = 0;
 +    }
 +}
 +extern "C" void re3_door_audio_end(void) {
 +    re3_door_probe_end();
-+    if (s_re3_door_mute_frames > 0) s_re3_door_mute_frames = 12;
-+    s_re3_door_turbo_frames = 0;
 +    if (s_re3_door_t0) {
 +        const double ms = (double)(SDL_GetPerformanceCounter() - s_re3_door_t0) * 1000.0 /
 +                          (double)SDL_GetPerformanceFrequency();
@@ -715,18 +724,65 @@ index 95300459..d15f7fad 100644
 +static double rdp_now_ms(void) {
 +    return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
 +}
++/* Door timeline: ring of the last events (CD data bursts with their SetLoc
++ * LBA, door hooks), absolute wall ms plus player mode/routine bytes, dumped
++ * as "re3_door_timeline" so the room-load position can be read per file. */
++struct Re3TlEvent { double t; char kind; int lba; uint8_t mode, routine; };
++static Re3TlEvent s_tl[256];
++static uint32_t   s_tl_n = 0;
++static int        s_tl_lba = -1;
++static void re3_tl_push(char kind, int lba) {
++    Re3TlEvent& e = s_tl[s_tl_n++ % 256];
++    e.t = rdp_now_ms(); e.kind = kind; e.lba = lba;
++    e.mode = g_psx_ram ? g_psx_ram[0x000CCBC8] : 0;
++    e.routine = g_psx_ram ? g_psx_ram[0x000CCBC9] : 0;
++}
++extern "C" void re3_door_timeline_json(char* out, int cap) {
++    int pos = 0;
++    const uint32_t n = s_tl_n < 256 ? s_tl_n : 256;
++    const uint32_t first = s_tl_n - n;
++    pos += snprintf(out + pos, cap - pos, "[");
++    for (uint32_t i = 0; i < n && pos < cap - 64; ++i) {
++        const Re3TlEvent& e = s_tl[(first + i) % 256];
++        pos += snprintf(out + pos, cap - pos, "%s[%.0f,\"%c\",%d,%u,%u]",
++                        i ? "," : "", e.t, e.kind, e.lba, e.mode, e.routine);
++    }
++    snprintf(out + pos, cap - pos, "]");
++}
 +static void re3_door_probe_begin(void) {
++    re3_tl_push('D', -1);
 +    const double now = rdp_now_ms();
 +    if (s_rdp_last_load > 0.0 && now - s_rdp_last_load < 2000.0)
 +        g_re3_dl_pre_ms += now - s_rdp_burst_start;
 +}
 +static void re3_door_probe_end(void) {
++    re3_tl_push('F', -1);
 +    s_rdp_end_t = rdp_now_ms();
 +    s_rdp_post = 1;
 +    s_rdp_idle = 0;
 +}
 +static void re3_door_probe_frame(int cd_load) {
 +    const double now = rdp_now_ms();
++    if (cd_load) {
++        const int lba = cdrom_get_setloc_lba();
++        if (!s_rdp_was_load) { re3_tl_push('S', lba); s_tl_lba = lba; }
++        else if (lba != s_tl_lba) { re3_tl_push('L', lba); s_tl_lba = lba; }
++    } else if (s_rdp_was_load) {
++        re3_tl_push('E', s_tl_lba);
++    }
++    /* Burst ends for the door turbo use the physical read state with a short
++     * 6-frame gap, not cdrom_load_in_progress()'s 30-frame bridge, which
++     * would keep the first ~0.5 s of the new room unpaced. */
++    static int s_phys_idle = 0, s_phys_in_burst = 0;
++    if (cdrom_data_read_active()) { s_phys_in_burst = 1; s_phys_idle = 0; }
++    else if (s_phys_in_burst && ++s_phys_idle >= 6) {
++        s_phys_in_burst = 0;
++        if (s_re3_door_turbo_frames > 0 && ++s_re3_door_bursts >= 2) {
++            s_re3_door_turbo_frames = 0;
++            if (s_re3_door_mute_frames > 0) s_re3_door_mute_frames = 12;
++            re3_tl_push('T', -1);
++        }
++    }
 +    if (cd_load) {
 +        if (!s_rdp_was_load) s_rdp_burst_start = now;
 +        s_rdp_last_load = now;
@@ -1103,7 +1159,7 @@ index 95300459..d15f7fad 100644
  static uint16_t controller_pad_buttons(const ControllerMap& map,
                                         SDL_GameController* h,
                                         bool suppress_stick_axes,
-@@ -5853,6 +6400,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5853,6 +6452,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
                  source.id >= 0 && source.id < 32 &&
                  (claimed_buttons & (1u << source.id)))
                  continue;
@@ -1114,7 +1170,7 @@ index 95300459..d15f7fad 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5861,6 +6412,67 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5861,6 +6464,67 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -1182,7 +1238,7 @@ index 95300459..d15f7fad 100644
      return buttons;
  }
  
-@@ -5983,6 +6595,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -5983,6 +6647,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -1193,7 +1249,7 @@ index 95300459..d15f7fad 100644
      }
  }
  
-@@ -6333,14 +6949,13 @@ static void apply_input_override_to_sio(int override_word) {
+@@ -6333,14 +7001,13 @@ static void apply_input_override_to_sio(int override_word) {
          s_debug_profile_injected[0] = true;
  #endif
      PlayerInput& p = g_players[0];
@@ -1210,7 +1266,7 @@ index 95300459..d15f7fad 100644
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
-@@ -6618,6 +7233,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
+@@ -6618,6 +7285,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
      if (!eff_analog && !p.steering_wheel && !host_view) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1230,7 +1286,7 @@ index 95300459..d15f7fad 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6686,6 +7314,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6686,6 +7366,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog && !p.steering_wheel) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1250,7 +1306,7 @@ index 95300459..d15f7fad 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6695,9 +7336,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6695,9 +7388,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
  }
  
  static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
@@ -1270,7 +1326,7 @@ index 95300459..d15f7fad 100644
                             pad.analog);
  }
  
-@@ -6790,7 +7439,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
+@@ -6790,7 +7491,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
  /* Build a netplay pad blob from a debug-server override without writing SIO. */
  static void capture_override_pad(int override_word, PsxNetPad* out) {
      PlayerInput& p = g_players[0];
@@ -1279,7 +1335,7 @@ index 95300459..d15f7fad 100644
      uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
      int axes = 0;
  #ifndef PSX_NO_DEBUG_TOOLS
-@@ -8689,6 +9338,43 @@ static bool drain_host_events() {
+@@ -8689,6 +9390,43 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -1323,7 +1379,7 @@ index 95300459..d15f7fad 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -9086,6 +9772,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9086,6 +9824,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * old fast_boot snapshot restore; all guest timing is authentic. */
      if (psx_bios_hle_boot_turbo_active())
          turbo_loads_active = 1;
@@ -1336,7 +1392,7 @@ index 95300459..d15f7fad 100644
      probe_turbo = turbo_loads_active;
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
-@@ -9145,7 +9837,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9145,7 +9889,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * paths cannot fork peers during the episode window. */
      if (!psx_netplay_is_resimulating() && !psx_selfcheck_resim_active()) {
          sdl_audio_update(fmv_skip_active,
@@ -1346,7 +1402,7 @@ index 95300459..d15f7fad 100644
      }
  #endif
  
-@@ -9160,6 +9853,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9160,6 +9905,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -1354,7 +1410,7 @@ index 95300459..d15f7fad 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -9592,6 +10286,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9592,6 +10338,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -1362,7 +1418,7 @@ index 95300459..d15f7fad 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -9797,9 +10492,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9797,9 +10544,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
          gl_renderer_note_present_depth24(depth24_frame ? 1 : 0);
@@ -1389,7 +1445,7 @@ index 95300459..d15f7fad 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -9840,11 +10551,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9840,11 +10603,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -1404,7 +1460,7 @@ index 95300459..d15f7fad 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -17451,11 +18163,7 @@ int main(int argc, char** argv) {
+@@ -17451,11 +18215,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1416,7 +1472,7 @@ index 95300459..d15f7fad 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -17466,8 +18174,8 @@ int main(int argc, char** argv) {
+@@ -17466,8 +18226,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -1427,7 +1483,7 @@ index 95300459..d15f7fad 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -18255,6 +18963,7 @@ int main(int argc, char** argv) {
+@@ -18255,6 +19015,7 @@ int main(int argc, char** argv) {
                  "DEPRECATED and ignored; enable the \"Fast Loading (host "
                  "pacing)\" mod instead. The stale key is dropped on the next "
                  "settings save.\n");
@@ -1435,7 +1491,7 @@ index 95300459..d15f7fad 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -18359,6 +19068,38 @@ int main(int argc, char** argv) {
+@@ -18359,6 +19120,38 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1474,7 +1530,7 @@ index 95300459..d15f7fad 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -18389,14 +19130,9 @@ int main(int argc, char** argv) {
+@@ -18389,14 +19182,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1491,7 +1547,7 @@ index 95300459..d15f7fad 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -18410,17 +19146,10 @@ int main(int argc, char** argv) {
+@@ -18410,17 +19198,10 @@ int main(int argc, char** argv) {
              "ignoring the legacy value\n");
          g_turbo_loads_enabled = 0;
      }
@@ -1513,7 +1569,7 @@ index 95300459..d15f7fad 100644
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
       * aspect to native 4:3 so neither a legacy game.toml offer/default nor a
-@@ -18439,20 +19168,9 @@ int main(int argc, char** argv) {
+@@ -18439,20 +19220,9 @@ int main(int argc, char** argv) {
          g_video_aspect_den = ws_offered ? 9 : 3;
      }
  
@@ -1535,7 +1591,7 @@ index 95300459..d15f7fad 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -18812,6 +19530,7 @@ int main(int argc, char** argv) {
+@@ -18812,6 +19582,7 @@ int main(int argc, char** argv) {
  #ifdef SDL_HINT_WINDOWS_DPI_SCALING
      SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
  #endif
@@ -1543,7 +1599,7 @@ index 95300459..d15f7fad 100644
          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
              launcher_boot_timing_mark("host:after_sdl_init");
              recomp_launcher_set_preserve_sdl(1);
-@@ -19938,6 +20657,9 @@ int main(int argc, char** argv) {
+@@ -19938,6 +20709,9 @@ int main(int argc, char** argv) {
              (void)psx_mod_set_fixed_display_aspect(index == 2 ? 21u : index == 1 ? 16u : 4u,
                                                   index ? 9u : 3u);
          }
@@ -1553,7 +1609,7 @@ index 95300459..d15f7fad 100644
          apply_netplay_local_viewport_aspect(netplay);
          for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
              if (g_mod_controller_mode_override[i] >= 0)
-@@ -19969,6 +20691,7 @@ int main(int argc, char** argv) {
+@@ -19969,6 +20743,7 @@ int main(int argc, char** argv) {
      };
      if (!start_mod_session(net_cfg.enabled)) return 1;
  
@@ -1561,7 +1617,7 @@ index 95300459..d15f7fad 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -20609,21 +21332,20 @@ session_reboot:
+@@ -20609,21 +21384,20 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
