@@ -1,5 +1,5 @@
 diff --git a/recompiler/src/config_loader.cpp b/recompiler/src/config_loader.cpp
-index 438cc04b..6592be45 100644
+index 438cc04b..c98edadb 100644
 --- a/recompiler/src/config_loader.cpp
 +++ b/recompiler/src/config_loader.cpp
 @@ -294,15 +294,19 @@ static uint32_t parse_hex(const std::string& s, const std::string& field) {
@@ -38,22 +38,7 @@ index 438cc04b..6592be45 100644
          }
          if (video.contains("offer_frame_interpolation")) {
              rt.video_offer_frame_interpolation =
-@@ -915,6 +919,14 @@ static RuntimeConfig parse_runtime_block(const toml::value& cfg, const fs::path&
-             rt.anti_deadzone = static_cast<int>(n);
-             rt.has_anti_deadzone = true;
-         }
-+        if (ct.contains("right_stick_camera")) {
-+            rt.right_stick_camera = toml::find<bool>(ct, "right_stick_camera");
-+            rt.has_right_stick_camera = true;
-+        }
-+        if (ct.contains("camera_invert_x")) {
-+            rt.camera_invert_x = toml::find<bool>(ct, "camera_invert_x");
-+            rt.has_camera_invert_x = true;
-+        }
-     }
- 
-     return rt;
-@@ -2749,7 +2761,7 @@ UserSettings load_user_settings(const fs::path& path) {
+@@ -2749,7 +2753,7 @@ UserSettings load_user_settings(const fs::path& path) {
          });
          if (v.contains("frame_interpolation_fps")) try_get([&]{
              s.frame_interpolation_fps = toml::find<int>(v, "frame_interpolation_fps");
@@ -62,24 +47,6 @@ index 438cc04b..6592be45 100644
                  s.has_frame_interpolation_fps = true;
          });
          if (v.contains("aspect_ratio")) try_get([&]{
-diff --git a/recompiler/src/config_loader.h b/recompiler/src/config_loader.h
-index 8d20f96e..68fe60d0 100644
---- a/recompiler/src/config_loader.h
-+++ b/recompiler/src/config_loader.h
-@@ -728,6 +728,13 @@ struct RuntimeConfig {
-     bool                  has_anti_deadzone = false;
-     int                   anti_deadzone     = 0;
- 
-+    // Modern Right-Stick Camera: maps horizontal right analog stick deflection
-+    // to camera rotation triggers (L2/R2 in Muppet Monster Adventure).
-+    bool                  right_stick_camera = true;
-+    bool                  has_right_stick_camera = false;
-+    bool                  camera_invert_x = false;
-+    bool                  has_camera_invert_x = false;
-+
- };
- 
- // One entry from [[recompiler.bios_vectors]].
 diff --git a/runtime/include/cdrom.h b/runtime/include/cdrom.h
 index 5a33b389..aa54a128 100644
 --- a/runtime/include/cdrom.h
@@ -1615,7 +1582,7 @@ index 09fca3e0..8cd1f8ef 100644
  }
  
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 77907729..5efa0600 100644
+index 77907729..886c5ad8 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -55,6 +55,7 @@ extern "C" void psx_event_step_conservative_env_init(void);
@@ -1846,7 +1813,7 @@ index 77907729..5efa0600 100644
      return boot_mode;
  }
  
-@@ -5215,11 +5265,510 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5215,11 +5265,508 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -1854,8 +1821,6 @@ index 77907729..5efa0600 100644
 +
 +static bool g_modern_controls = false;
 +static int  g_modern_turn_speed = 90;   /* 1/4096 turn per frame */
-+static bool g_right_stick_camera = false;
-+static bool g_camera_invert_x = false;
 +extern "C" int g_fast_doors = 1;
 +static bool g_quick_weapon_switch = false;
 +static bool g_quick_reload = false;
@@ -2357,7 +2322,7 @@ index 77907729..5efa0600 100644
  static uint16_t controller_pad_buttons(const ControllerMap& map,
                                         SDL_GameController* h,
                                         bool suppress_stick_axes,
-@@ -5229,6 +5778,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5229,6 +5776,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
      for (const auto& entry : map) {
          for (const auto& source : entry.sources) {
              if (suppress_stick_axes && source_is_stick_axis(source)) continue;
@@ -2368,7 +2333,7 @@ index 77907729..5efa0600 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5237,6 +5790,97 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5237,6 +5788,67 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -2433,40 +2398,10 @@ index 77907729..5efa0600 100644
 +        }
 +    }
 +
-+    /* Right Analog Stick Camera Rotation for Muppet Monster Adventure:
-+     * Muppet Monster Adventure natively rotates the camera via L2 (turn left) and R2 (turn right).
-+     * Mapping the right stick horizontal axis to L2/R2 with proportional accumulation
-+     * delivers modern dual-analog camera control. Light tilt turns gently; full tilt turns continuously. */
-+    if (g_right_stick_camera && h) {
-+        int16_t rx = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_RIGHTX);
-+        int abs_rx = std::abs((int)rx);
-+        if (abs_rx > 7000) {
-+            static float s_cam_accum = 0.0f;
-+            float rate = (float)(abs_rx - 7000) / (32767.0f - 7000.0f);
-+            s_cam_accum += rate;
-+            if (s_cam_accum >= 1.0f) {
-+                s_cam_accum -= 1.0f;
-+                if (!g_camera_invert_x) {
-+                    if (rx < 0) {
-+                        buttons &= (uint16_t)~0x0100u; // PAD_L2: Camera Rotate Left
-+                    } else {
-+                        buttons &= (uint16_t)~0x0200u; // PAD_R2: Camera Rotate Right
-+                    }
-+                } else {
-+                    if (rx < 0) {
-+                        buttons &= (uint16_t)~0x0200u; // Inverted
-+                    } else {
-+                        buttons &= (uint16_t)~0x0100u;
-+                    }
-+                }
-+            }
-+        }
-+    }
-+
      return buttons;
  }
  
-@@ -5358,6 +6002,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -5358,6 +5970,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -2477,7 +2412,7 @@ index 77907729..5efa0600 100644
      }
  }
  
-@@ -5693,14 +6341,31 @@ static int savestate_input_guard_active(void) {
+@@ -5693,14 +6309,13 @@ static int savestate_input_guard_active(void) {
   * handshake (the v0.5.0 phantom-input lesson). */
  static void apply_input_override_to_sio(int override_word) {
      PlayerInput& p = g_players[0];
@@ -2490,29 +2425,11 @@ index 77907729..5efa0600 100644
  #ifndef PSX_NO_DEBUG_TOOLS
      axes = debug_server_get_axis_override(st);
  #endif
-+    if (g_right_stick_camera && axes != 0) {
-+        int rx_diff = (int)st[2] - 128;
-+        if (std::abs(rx_diff) > 28) {
-+            static float s_override_accum = 0.0f;
-+            float rate = (float)(std::abs(rx_diff) - 28) / (127.0f - 28.0f);
-+            s_override_accum += rate;
-+            if (s_override_accum >= 1.0f) {
-+                s_override_accum -= 1.0f;
-+                if (!g_camera_invert_x) {
-+                    if (rx_diff < 0) w &= (uint16_t)~0x0100u; // L2: Turn Left
-+                    else             w &= (uint16_t)~0x0200u; // R2: Turn Right
-+                } else {
-+                    if (rx_diff < 0) w &= (uint16_t)~0x0200u;
-+                    else             w &= (uint16_t)~0x0100u;
-+                }
-+            }
-+        }
-+    }
 +    sio_set_pad_state_slot(0, w);
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
-@@ -5829,6 +6494,19 @@ static int capture_pad_slot(int s, PsxNetPad* out, bool guarded) {
+@@ -5829,6 +6444,19 @@ static int capture_pad_slot(int s, PsxNetPad* out, bool guarded) {
      if (!eff_analog) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -2532,7 +2449,7 @@ index 77907729..5efa0600 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -5875,6 +6553,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -5875,6 +6503,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -2552,7 +2469,7 @@ index 77907729..5efa0600 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -5886,11 +6577,20 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -5886,11 +6527,20 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
  static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
      if (sio_pad_on_multitap(s) && !sio_get_multitap_analog())
          sio_set_pad_config_capable(s, 0);
@@ -2575,7 +2492,7 @@ index 77907729..5efa0600 100644
                             pad.analog);
  }
  
-@@ -5983,12 +6683,30 @@ static void capture_local_human_pad(PsxNetPad* out) {
+@@ -5983,7 +6633,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
  /* Build a netplay pad blob from a debug-server override without writing SIO. */
  static void capture_override_pad(int override_word, PsxNetPad* out) {
      PlayerInput& p = g_players[0];
@@ -2584,30 +2501,7 @@ index 77907729..5efa0600 100644
      uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
      int axes = 0;
  #ifndef PSX_NO_DEBUG_TOOLS
-     axes = debug_server_get_axis_override(st);
- #endif
-+    if (g_right_stick_camera && axes != 0) {
-+        int rx_diff = (int)st[2] - 128;
-+        if (std::abs(rx_diff) > 28) {
-+            static float s_override_accum2 = 0.0f;
-+            float rate = (float)(std::abs(rx_diff) - 28) / (127.0f - 28.0f);
-+            s_override_accum2 += rate;
-+            if (s_override_accum2 >= 1.0f) {
-+                s_override_accum2 -= 1.0f;
-+                if (!g_camera_invert_x) {
-+                    if (rx_diff < 0) w &= (uint16_t)~0x0100u; // L2: Turn Left
-+                    else             w &= (uint16_t)~0x0200u; // R2: Turn Right
-+                } else {
-+                    if (rx_diff < 0) w &= (uint16_t)~0x0200u;
-+                    else             w &= (uint16_t)~0x0100u;
-+                }
-+            }
-+        }
-+    }
-     const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
-                                           st[2] != 0x80 || st[3] != 0x80);
-     const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;
-@@ -6764,6 +7482,8 @@ static void depth24_cutover_tick(int depth24) {
+@@ -6764,6 +7414,8 @@ static void depth24_cutover_tick(int depth24) {
   *
   * Optional short cutover blank: full-frame black for 1–2 presents on movie
   * start / long idle resume only (see depth24_cutover_tick). */
@@ -2616,7 +2510,7 @@ index 77907729..5efa0600 100644
  static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
                                            uint32_t display_x) {
      if (!buf || w < 8u || h == 0u) return;
-@@ -6776,14 +7496,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
+@@ -6776,14 +7428,23 @@ static void depth24_fix_trailing_margin(uint32_t *buf, uint32_t w, uint32_t h,
          return;
      }
  
@@ -2645,7 +2539,7 @@ index 77907729..5efa0600 100644
      for (uint32_t y = 0; y < h; y++) {
          for (uint32_t x = start; x < w; x++)
              buf[y * w + x] = 0xFF000000u;
-@@ -6799,6 +7528,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
+@@ -6799,6 +7460,13 @@ static void depth24_stage_scanout(const GpuDisplayInfo *di, uint32_t *buf,
      if (!di || !buf || w == 0u || di->screen_height == 0u)
          return;
  
@@ -2659,7 +2553,7 @@ index 77907729..5efa0600 100644
      const size_t count = (size_t)w * di->screen_height;
      for (size_t i = 0; i < count; i++)
          buf[i] = 0xFF000000u;
-@@ -7410,6 +8146,43 @@ static bool drain_host_events() {
+@@ -7410,6 +8078,43 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -2703,7 +2597,7 @@ index 77907729..5efa0600 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -7766,6 +8539,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7766,6 +8471,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * old fast_boot snapshot restore; all guest timing is authentic. */
      if (psx_bios_hle_boot_turbo_active())
          turbo_loads_active = 1;
@@ -2712,7 +2606,7 @@ index 77907729..5efa0600 100644
      probe_turbo = turbo_loads_active;
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
-@@ -7825,7 +8600,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7825,7 +8532,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * paths cannot fork peers during the episode window. */
      if (!psx_netplay_is_resimulating() && !psx_selfcheck_resim_active()) {
          sdl_audio_update(fmv_skip_active,
@@ -2722,7 +2616,7 @@ index 77907729..5efa0600 100644
      }
  #endif
  
-@@ -7840,6 +8616,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -7840,6 +8548,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -2730,7 +2624,7 @@ index 77907729..5efa0600 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -8158,7 +8935,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8158,7 +8867,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * decode; the activity stamp also covers authentic 4:3 configurations. */
          if (g_gl_active)
              gl_renderer_set_interpolation_suspended(
@@ -2739,7 +2633,7 @@ index 77907729..5efa0600 100644
          const int local_viewport_slot = netplay_local_viewport_slot();
          const bool local_viewport_crop = local_viewport_slot >= 0;
          bool local_viewport_wide =
-@@ -8175,7 +8952,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8175,7 +8884,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * from the displayed buffer's surface. FMV/menu frames stay 4:3. */
          bool wide_present = (!fmv_frame && !di.depth24 && g_ws_engaged &&
                               ws_native_wide_active() && gr_wide_supported() &&
@@ -2749,7 +2643,7 @@ index 77907729..5efa0600 100644
          if (wide_present) {
              present_w = local_viewport_wide
                  ? (uint32_t)gpu_ws_netplay_local_viewport_width()
-@@ -8247,6 +9025,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8247,6 +8957,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -2757,7 +2651,7 @@ index 77907729..5efa0600 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -8438,9 +9217,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8438,9 +9149,10 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * right-edge jump the old comment describes is 0 with filtering on.
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
@@ -2769,7 +2663,7 @@ index 77907729..5efa0600 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -8481,11 +9261,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -8481,11 +9193,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -2784,7 +2678,7 @@ index 77907729..5efa0600 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -8628,7 +9409,7 @@ static void sdl_vblank_present(void) {
+@@ -8628,7 +9341,7 @@ static void sdl_vblank_present(void) {
          return;
      }
      uint64_t perf_start = runtime_perf_section_begin();
@@ -2793,7 +2687,7 @@ index 77907729..5efa0600 100644
          frame_pacer_wait(&s_frame_pacer, g_frame_period_ms);
      runtime_perf_section_end(perf_start, &g_runtime_perf.pacer_ticks);
      latency_ring_mark(LAT_PACED);
-@@ -14214,9 +14995,9 @@ namespace {
+@@ -14214,9 +14927,9 @@ namespace {
  #endif
  
  int main(int argc, char** argv) {
@@ -2806,7 +2700,7 @@ index 77907729..5efa0600 100644
      std::fprintf(stderr, "psxrecomp: main() entered\n");
      std::fflush(stderr);
  #if defined(RECOMP_LAUNCHER)
-@@ -14463,11 +15244,7 @@ int main(int argc, char** argv) {
+@@ -14463,11 +15176,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -2818,7 +2712,7 @@ index 77907729..5efa0600 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -14478,8 +15255,8 @@ int main(int argc, char** argv) {
+@@ -14478,8 +15187,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -2829,18 +2723,7 @@ index 77907729..5efa0600 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -14932,6 +15709,10 @@ int main(int argc, char** argv) {
-              * magnitude to compensate for a game's own internal deadzone. */
-             if (gc.runtime.has_anti_deadzone)
-                 controller_anti_deadzone = gc.runtime.anti_deadzone;
-+            if (gc.runtime.has_right_stick_camera)
-+                g_right_stick_camera = gc.runtime.right_stick_camera;
-+            if (gc.runtime.has_camera_invert_x)
-+                g_camera_invert_x = gc.runtime.camera_invert_x;
-             /* Console port for SCPH-1070 when offline/netplay arms multitap.
-              * Most titles use Port 1; Bomberman Party Edition needs Port 2. */
-             if (gc.runtime.has_multitap_port) {
-@@ -15141,20 +15922,10 @@ int main(int argc, char** argv) {
+@@ -15141,20 +15850,10 @@ int main(int argc, char** argv) {
                                        "(must be a number > 0 and <= 8)\n", fov_env);
          }
          if (us.has_auto_skip_fmv)  g_auto_skip_fmv   = us.auto_skip_fmv ? 1 : 0;
@@ -2865,7 +2748,7 @@ index 77907729..5efa0600 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -15254,6 +16025,50 @@ int main(int argc, char** argv) {
+@@ -15254,6 +15953,38 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -2881,18 +2764,6 @@ index 77907729..5efa0600 100644
 +                            g_modern_controls = false;
 +                        else
 +                            g_modern_controls = true;
-+                    }
-+                    if (sline.find("right_stick_camera") != std::string::npos) {
-+                        if (sline.find("false") != std::string::npos || sline.find("0") != std::string::npos)
-+                            g_right_stick_camera = false;
-+                        else
-+                            g_right_stick_camera = true;
-+                    }
-+                    if (sline.find("camera_invert_x") != std::string::npos) {
-+                        if (sline.find("true") != std::string::npos || sline.find("1") != std::string::npos)
-+                            g_camera_invert_x = true;
-+                        else
-+                            g_camera_invert_x = false;
 +                    }
 +                    if (sline.find("draw_distance_clamp") != std::string::npos) {
 +                        if (sline.find("false") != std::string::npos || sline.find("0") != std::string::npos) {
@@ -2916,7 +2787,7 @@ index 77907729..5efa0600 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -15284,14 +16099,9 @@ int main(int argc, char** argv) {
+@@ -15284,14 +16015,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -2933,7 +2804,7 @@ index 77907729..5efa0600 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -15301,21 +16111,12 @@ int main(int argc, char** argv) {
+@@ -15301,21 +16027,12 @@ int main(int argc, char** argv) {
       * the final mod-plan commit. */
      if (g_turbo_loads_enabled) {
          std::fprintf(stdout,
@@ -2960,7 +2831,7 @@ index 77907729..5efa0600 100644
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
       * aspect to native 4:3 so neither a legacy game.toml offer/default nor a
-@@ -15334,20 +16135,9 @@ int main(int argc, char** argv) {
+@@ -15334,20 +16051,9 @@ int main(int argc, char** argv) {
          g_video_aspect_den = ws_offered ? 9 : 3;
      }
  
@@ -2982,7 +2853,7 @@ index 77907729..5efa0600 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -15668,6 +16458,7 @@ int main(int argc, char** argv) {
+@@ -15668,6 +16374,7 @@ int main(int argc, char** argv) {
  #ifdef SDL_HINT_WINDOWS_DPI_SCALING
      SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
  #endif
@@ -2990,7 +2861,7 @@ index 77907729..5efa0600 100644
          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
              launcher_boot_timing_mark("host:after_sdl_init");
              recomp_launcher_set_preserve_sdl(1);
-@@ -16660,6 +17451,9 @@ int main(int argc, char** argv) {
+@@ -16660,6 +17367,9 @@ int main(int argc, char** argv) {
                        "setting; restore only when the feature is mod-owned");
          reset_mod_owned_presentation();
          mod_runtime_activate_plugins();
@@ -3000,7 +2871,7 @@ index 77907729..5efa0600 100644
          apply_netplay_local_viewport_aspect(netplay);
          for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
              if (g_mod_controller_mode_override[i] >= 0)
-@@ -16690,6 +17484,7 @@ int main(int argc, char** argv) {
+@@ -16690,6 +17400,7 @@ int main(int argc, char** argv) {
      };
      start_mod_session(net_cfg.enabled);
  
@@ -3008,7 +2879,7 @@ index 77907729..5efa0600 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -17250,21 +18045,20 @@ session_reboot:
+@@ -17250,21 +17961,20 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");

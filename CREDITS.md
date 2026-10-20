@@ -48,20 +48,20 @@ Expressamos nossa admiração, respeito e sincero agradecimento aos criadores or
 * **[SONY INTERACTIVE ENTERTAINMENT](https://www.playstation.com/)**: Pelo desenvolvimento da lendária arquitetura de hardware do PlayStation original (1994), processador MIPS R3000A (LSI Logic Core), coprocessador GTE (Geometry Transformation Engine), GPU de 24 bits e SPU ADPCM.
 
 ### 2. Projetos de Inspiração & Preservação de Survival Horror
-* **[Silent Hill (PS1) Decompilation & Native PC Port](https://github.com/shdecompilations/silent-hill-decomp)**: Pelo trabalho inspirador e pioneiro da comunidade na descompilação de *Silent Hill* (PS1) (`shdecompilations/silent-hill-decomp`, iniciado por Vatuu e colaboradores) e pelos projetos derivados de port nativo para PC (`sh1pc.com`, SlickAmogus e comunidade). O sucesso da comunidade de engenharia reversa em trazer a atmosfera única e aterrorizante de Silent Hill nativamente para computadores modernos — com suporte a telas widescreen, altas taxas de quadros e controles refinados — serviu como inspiração direta, modelo técnico e grande motivação para o desenvolvimento deste port de Resident Evil 3.
+* **[Silent Hill (PS1) Decompilation](https://github.com/shdecompilations/silent-hill-decomp)**: Projeto de decompilação de *Silent Hill* (PS1), iniciado por Vatuu e mantido pela comunidade. Serviu de inspiração para este projeto.
 * **[N64: Recompiled / Zelda64: Recompiled](https://github.com/Mr-Wiseguy/N64Recomp)**: Criado por Mr-Wiseguy e equipe. Os pioneiros da tecnologia moderna de recompilação estática limpa (*asset-free*) de consoles retro, que estabeleceram a base teórica e ética adotada por este projeto.
 
 ### 3. Framework de Recompilação & Ecossistema Retro
 * **[PSXRecomp (RetroPortingToolkit)](https://github.com/RetroPortingToolKit/psxrecomp)**: Criado por Matthew Stanley ("mstan") e os desenvolvedores do coletivo RetroPortingToolkit. Framework central de recompilação estática de PlayStation 1 que traduz código de máquina MIPS R3000A para C nativo, com runtime LLE/HLE dual e gerenciamento de hardware. Licença: *PolyForm Noncommercial 1.0.0*.
 
 ### 4. Engenharia Reversa & Análise de Binários
-* **[Ghidra SRE](https://ghidra-sre.org/)**: Desenvolvido pela Diretoria de Pesquisa da National Security Agency (NSA). Plataforma aberta de engenharia reversa utilizada para desmonte de código, descompilação de rotinas e identificação sistemática das 3.328 funções do binário SLUS_009.23 (`seeds/ghidra_funcs.txt` via `ExportRE3Functions.java`). Licença: *Apache 2.0*.
+* **[Ghidra SRE](https://ghidra-sre.org/)**: Desenvolvido pela National Security Agency (NSA). Plataforma aberta de engenharia reversa usada no desenvolvimento do PSXRecomp. O script `tools/ExportRE3Functions.java` existe no repositório, mas as funções do jogo não vieram dele: as sementes em `seeds/ghidra_funcs.txt` (nome herdado) são uma varredura automática dos alvos de `jal` do `SLUS_009.23` (965 endereços), e o recompilador do PSXRecomp descobriu a partir delas as 3.328 funções. Licença: *Apache 2.0*.
 * **[Rabbitizer](https://github.com/Decompollaborate/rabbitizer)**: Desenvolvido pelo time Decompollaborate. Desmontador e analisador de alta performance de instruções de arquitetura MIPS. Licença: *MIT*.
 * **[ELFIO](https://github.com/serge1/ELFIO)**: Desenvolvido por Serge Lamikhov-Center. Biblioteca C++ para leitura e geração de formatos binários ELF. Licença: *MIT*.
 
 ### 5. BIOS Aberta & Oráculos de Emulação
 * **[PCSX-Redux & OpenBIOS](https://github.com/grumpycoders/pcsx-redux)**: Criado por grumpycoders e colaboradores do PCSX-Redux. Reimplementação 100% limpa (*clean-room*) do BIOS do PS1 em código aberto, possibilitando inicialização nativa legal sem exigir dumps comerciais de BIOS. Licença: *MIT*.
-* **[Beetle PSX / Mednafen / Libretro](https://github.com/libretro/beetle-psx-libretro)**: Desenvolvido pela equipe Mednafen (Ryphecha) e comunidade Beetle PSX / Libretro. Emulador de precisão de ciclos utilizado como oráculo comparativo e padrão-ouro de fidelidade de hardware. Licença: *GPL-2.0*.
+* **[Beetle PSX / Mednafen / Libretro](https://github.com/libretro/beetle-psx-libretro)**: Desenvolvido pela equipe Mednafen e pela comunidade Beetle PSX / Libretro. Usado pelo PSXRecomp como referência de precisão do hardware durante o desenvolvimento; não faz parte do executável deste projeto. Licença: *GPL-2.0*.
 * **[DuckStation](https://github.com/stenzek/duckstation)**: Desenvolvido por stenzek. Emulador moderno de referência técnica para compatibilidade de cartões de memória (`.mcd`), pipeline de renderização e avanços PGXP. Licença: *GPL-3.0*.
 
 ### 6. Melhorias Gráficas, Precisão Geométrica & Shaders
