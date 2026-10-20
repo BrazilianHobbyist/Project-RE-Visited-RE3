@@ -35,7 +35,7 @@ memcard_dir = "saves"
 controller = "dualshock"
 overlay_cache = true
 idle_skip = false
-bios_hle = false
+bios_hle = true
 audio_spu_hq = false
 
 [video]
