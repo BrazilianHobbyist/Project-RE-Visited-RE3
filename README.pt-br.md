@@ -80,15 +80,28 @@ Relatos de bugs são bem-vindos. Inclua o `psx_last_run_report.json` da pasta do
 
 ## Compilando a partir do código-fonte
 
-Requisitos: Windows 10/11 x64, MinGW-w64 GCC 12+ ou Clang, CMake 3.20+, Ninja, Python 3.8+ e sua própria cópia de `SLUS_009.23`.
+Requisitos: Windows 10/11 x64, Clang (ou MinGW-w64 GCC 12+), CMake 3.20+, Ninja, Python 3.11+ e a sua própria imagem do disco (`.cue` + `.bin`).
 
 ```powershell
+git config --global core.longpaths true   # ou clone numa pasta curta: o submódulo tem caminhos longos
 git clone --recurse-submodules https://github.com/BrazilianHobbyist/Project-RE-Visited-RE3.git
-.\build.ps1             # jogo
+cd Project-RE-Visited-RE3
+.\build.ps1 -Regen -DiscPath "C:\caminho\para\Resident Evil 3 - Nemesis (USA, Canada).cue"   # jogo
 .\launcher\build.ps1    # launcher
 ```
 
-As alterações no runtime em relação ao PSXRecomp original estão em `patches/`.
+O que o build faz:
+
+- Aplica `patches/psxrecomp_runtime.patch` (as mudanças do RE3) sobre o commit fixado do PSXRecomp.
+- Com `-Regen`, recompila o C do jogo a partir do seu disco em `generated/`. O código do jogo nunca está neste repositório.
+- Aplica os dois `patches/re3_door_*.patch` ao C gerado.
+- Compila com CMake e Ninja.
+
+Nos builds seguintes, o `-Regen` pode ser omitido.
+
+O build é reproduzível. O mesmo commit compilado com o mesmo compilador gera um executável e um launcher idênticos byte a byte. Isso foi verificado com um clone limpo contra o build de desenvolvimento, usando Clang 22.1.8. O `SOURCE_DATE_EPOCH` recebe a data do commit, e o link não grava timestamp.
+
+O cache nativo de overlays também pode ser refeito só a partir do seu disco. Veja [aot/README.md](aot/README.md).
 
 ---
 

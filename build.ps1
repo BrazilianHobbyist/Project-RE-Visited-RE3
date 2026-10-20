@@ -95,10 +95,13 @@ if ($Regen) {
     Write-Host "[REGEN] Executando recompilador PSXRecomp..." -ForegroundColor Cyan
 
     # Gera generated/ a partir do disco do usuário (game.toml define o destino).
-    & python "$ProjectRoot\psxrecomp\psxrecomp_cli.py" `
+    # As opções vêm depois do subcomando (CLI do upstream). Sem download de
+    # toolchain: o build usa o compilador do sistema.
+    & python "$ProjectRoot\psxrecomp\psxrecomp_cli.py" generate `
         --config "$ProjectRoot\game.toml" `
         --project-root "$ProjectRoot" `
-        generate --disc "$DiscPath"
+        --disc "$DiscPath" `
+        --no-toolchain-download
 
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[X] Falha na recompilação. Verifique o game.toml e o disco." -ForegroundColor Red
@@ -136,6 +139,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---- Build ----
+# Build reproduzível: __DATE__/__TIME__ usam a data do commit, não a hora do build.
+$commitTime = & git -C $ProjectRoot log -1 --format=%ct 2>$null
+if ($LASTEXITCODE -eq 0 -and $commitTime) { $env:SOURCE_DATE_EPOCH = $commitTime.Trim() }
 Write-Host "[BUILD] Compilando..." -ForegroundColor Cyan
 cmake --build "$BuildDir" --config $Config -- -j (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
 

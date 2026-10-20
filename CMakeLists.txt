@@ -33,6 +33,14 @@ psxrecomp_add_game_runtime(RE3Recomp
     PGXP
 )
 
+# Reproducible build: no link-time timestamp in the PE header (and so none in
+# the CodeView build id derived from it). __DATE__/__TIME__ come from
+# SOURCE_DATE_EPOCH, which build.ps1 sets to the commit time. Two clean builds
+# of one commit with the same toolchain are then byte-identical.
+if(MINGW OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_link_options(RE3Recomp PRIVATE "-Wl,--no-insert-timestamp")
+endif()
+
 # Stage runtime configs next to the exe for direct build/ launches.
 foreach(_PSX_RUNTIME_CONFIG game.toml)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}")

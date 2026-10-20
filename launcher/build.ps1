@@ -4,11 +4,15 @@
 param()
 
 $ScriptDir = $PSScriptRoot
+# Build reproduzível: data do commit no lugar da hora do build, e nenhum
+# timestamp no cabeçalho PE (mesmo commit + mesmo compilador = mesmo .exe).
+$commitTime = & git -C $ScriptDir log -1 --format=%ct 2>$null
+if ($LASTEXITCODE -eq 0 -and $commitTime) { $env:SOURCE_DATE_EPOCH = $commitTime.Trim() }
 Write-Host "Compilando recursos do Launcher..." -ForegroundColor Cyan
 windres "$ScriptDir\resource.rc" -O coff -o "$ScriptDir\resource.o"
 
 Write-Host "Compilando executavel estatico do Launcher..." -ForegroundColor Cyan
-g++ -O2 -static -mwindows -municode "$ScriptDir\main.cpp" "$ScriptDir\resource.o" -o "$ScriptDir\Resident_Evil_3_Launcher.exe" -lgdiplus -lcomctl32 -lcomdlg32 -lshlwapi -luxtheme
+g++ -O2 -static -mwindows -municode "$ScriptDir\main.cpp" "$ScriptDir\resource.o" -o "$ScriptDir\Resident_Evil_3_Launcher.exe" -lgdiplus -lcomctl32 -lcomdlg32 -lshlwapi -luxtheme "-Wl,--no-insert-timestamp"
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Launcher compilado com sucesso: $ScriptDir\Resident_Evil_3_Launcher.exe" -ForegroundColor Green

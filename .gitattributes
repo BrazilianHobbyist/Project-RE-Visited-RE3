@@ -1,1 +1,3 @@
 *.patch -text
+# Embedded verbatim in the launcher .exe: never convert line endings (reproducible build)
+launcher/manifest.xml -text
