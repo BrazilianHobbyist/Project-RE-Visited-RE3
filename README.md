@@ -55,7 +55,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
 | Rumble (SDL2) | Needs testing |
 | Perspective-correct texturing | Needs testing |
-| PGXP geometry correction | Known issues: deforms characters; not recommended |
+| PGXP geometry correction | Known issues: stops wobble but causes artifacts on faces; off by default |
 | Intro/story text speed | Known issues: text advances too fast |
 | 60 FPS / frame interpolation | **Removed.** It never worked properly (it was placebo) |
 

@@ -987,9 +987,9 @@ void ApplyLanguage(const std::wstring& lang) {
     }
 
     if (g_hChkPgxpGeom) {
-        if (lang == L"es") SetWindowTextW(g_hChkPgxpGeom, L"Corrección PGXP Geométrica (No recomendado: deforma personajes)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpGeom, L"Correção PGXP Geométrica (Não recomendado: deforma personagens)");
-        else SetWindowTextW(g_hChkPgxpGeom, L"PGXP Geometry Correction (Not recommended: causes model deformation)");
+        if (lang == L"es") SetWindowTextW(g_hChkPgxpGeom, L"Corrección PGXP Geométrica (experimental: sin temblor, pero con fallos en las caras)");
+        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpGeom, L"Correção PGXP Geométrica (experimental: sem tremor, mas com falhas nos rostos)");
+        else SetWindowTextW(g_hChkPgxpGeom, L"PGXP Geometry Correction (experimental: no wobble, but face artifacts)");
     }
 
     if (g_hChkPgxpTex) {

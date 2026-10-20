@@ -54,7 +54,7 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
 | Vibración (SDL2) | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
-| Corrección geométrica PGXP | Problemas conocidos: deforma personajes; no recomendado |
+| Corrección geométrica PGXP | Problemas conocidos: elimina el temblor, pero causa fallos en las caras; desactivada por defecto |
 | Velocidad del texto de introducción | Problemas conocidos: el texto avanza demasiado rápido |
 | 60 FPS / interpolación de fotogramas | **Eliminado.** Nunca funcionó realmente (era placebo) |
 
