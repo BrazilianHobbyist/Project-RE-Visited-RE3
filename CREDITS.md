@@ -17,12 +17,12 @@ Este repositório e o inicializador (*launcher*) **não distribuem** os seguinte
 * Textos narrativos, diálogos ou documentos originais de jogo;
 * Dumps de BIOS proprietárias de varejo da Sony (ex: `SCPH1001.BIN`).
 
-> **Observação:** o executável do jogo distribuído nas releases (`Resident_Evil_3__Nemesis_Recompiled.exe`) contém o código de máquina original do jogo traduzido automaticamente para x86-64, junto com os dados embutidos nesse executável. Ele não inclui os arquivos de mídia do disco (áudio, vídeo, texturas, modelos, cenários), mas é derivado do programa original da Capcom.
+> **Observação:** o executável do jogo distribuído nas releases (`Resident_Evil_3__Nemesis_Recompiled.exe`) e os shards de overlay da pasta `cache/` contêm o código de máquina original do jogo traduzido automaticamente para x86-64, junto com os dados embutidos nesse código. Ele não inclui os arquivos de mídia do disco (áudio, vídeo, texturas, modelos, cenários), mas é derivado do programa original da Capcom.
 
 > ⚠️ **REQUISITO OBRIGATÓRIO**: O usuário final deve obrigatoriamente possuir e fornecer seus próprios arquivos de jogo, extraídos de sua própria cópia física ou digital legalmente adquirida de *Resident Evil 3: Nemesis* (PlayStation 1, versão SLUS-00923), para que o executável e seus recursos possam operar.
 
 ### 1.3. Engenharia Reversa Limpa e Recompilação Estática para Interoperabilidade
-Todo o código-fonte deste projeto fundamenta-se exclusivamente em engenharia reversa de código de máquina (*clean-room static recompilation*) e em uma camada de abstração de hardware em código aberto, desenvolvida para possibilitar a execução e interoperabilidade de um programa de computador legítimo em sistemas operacionais e arquiteturas modernas (Windows / x86_64).
+O projeto usa recompilação estática automatizada: o código de máquina do jogo é traduzido para C pelo recompilador do PSXRecomp, não reescrito à mão, e roda sobre o runtime de código aberto do PSXRecomp, que emula o hardware do PlayStation. Não se trata de uma reimplementação *clean-room*: o resultado é derivado do programa original. O objetivo é possibilitar a execução e interoperabilidade de um programa de computador legítimo em sistemas operacionais e arquiteturas modernas (Windows / x86_64).
 
 Essa metodologia encontra pleno amparo em legislações e precedentes jurídicos nacionais e internacionais:
 * **Estados Unidos**: *Digital Millennium Copyright Act* (DMCA), 17 U.S.C. § 1201(f) (*Reverse Engineering for Interoperability Exception*), e jurisprudência consolidada dos Tribunais Federais: *Sega Enterprises Ltd. v. Accolade, Inc.* (977 F.2d 1510) e *Sony Computer Entertainment, Inc. v. Connectix Corp.* (203 F.3d 596).
@@ -80,7 +80,8 @@ Expressamos nossa admiração, respeito e sincero agradecimento aos criadores or
   * **Zstandard (zstd)**: Yann Collet / Meta (*BSD-3-Clause*);
   * **LZMA SDK**: Igor Pavlov (*Domínio Público*);
   * **miniz**: Rich Geldreich (*MIT*).
-* **[TinyCC (TCC)](https://bellard.org/tcc/)**: Criado por Fabrice Bellard. Compilador C ultrarrápido utilizado pelo pipeline de sharding AOT para compilação em segundo plano de overlays de código em DLLs nativas sem necessidade de ambiente de desenvolvimento instalado. Licença: *LGPL-2.1*.
+* **[TinyCC (TCC)](https://bellard.org/tcc/)**: Criado por Fabrice Bellard. Compilador C ultrarrápido utilizado pelo pipeline de sharding AOT para compilação em segundo plano de overlays de código em DLLs nativas sem necessidade de ambiente de desenvolvimento instalado. Incluído em `overlay_toolchain/tcc/` (versão 0.9.27, aviso de licença em `COPYING`). Licença: *LGPL-2.1*.
+* **[Python](https://www.python.org/)**: Python Software Foundation. Distribuição embutida 3.13.1 incluída em `overlay_toolchain/python/` para executar o compilador de overlays na máquina do jogador. Licença: *PSF License* (arquivo `LICENSE.txt` incluído).
 * **[toml11](https://github.com/ToruNiina/toml11)**: Criado por Toru Niina. Biblioteca C++ para leitura e escrita de arquivos no formato TOML (`game.toml`, `settings.toml`). Licença: *MIT*.
 * **[stb_image & stb libraries](https://github.com/nothings/stb)**: Criado por Sean T. Barrett (*nothings.org*). Bibliotecas *header-only* em C/C++ para carregamento de texturas e imagens. Licença: *MIT / Domínio Público*.
 * **[{fmt}](https://github.com/fmtlib/fmt)**: Criado por Victor Zverovich. Biblioteca de formatação moderna e segura de strings em C++. Licença: *MIT*.

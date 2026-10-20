@@ -145,7 +145,7 @@ function Invoke-Package {
     if ([string]::IsNullOrWhiteSpace($Version)) {
         throw "Informe a versao para empacotamento (ex: -Version 'v1.4.4')"
     }
-    Write-Section "EMPACOTANDO RELEASE $Version (ZERO-ASSET POLICY)"
+    Write-Section "EMPACOTANDO RELEASE $Version"
     New-Item -ItemType Directory -Force -Path $ReleasesDir | Out-Null
 
     $zipName = "Project_RE_Visited_Resident_Evil_3_${Version}_Win64.zip"
@@ -176,13 +176,33 @@ function Invoke-Package {
         Copy-Item "$PCPortDir\mods\state.toml" "$stagingDir\mods\state.toml" -Force
     }
 
-    # Verificacao estrita Zero-Asset Policy (Proibido incluir SLUS_009.23, .bin, .iso, SCPH*.BIN)
-    $forbidden = Get-ChildItem -Path $stagingDir -Recurse | Where-Object {
-        $_.Name -match "SLUS|SCPH|\.iso$|\.cue$" -or ($_.Extension -eq ".bin" -and $_.Name -ne "openbios.bin")
+    # Overlays: cache nativo pre-compilado + kit de compilacao (Python embutido,
+    # TinyCC, recompilador). Sem eles o codigo das salas roda interpretado na
+    # maquina do jogador. Usa as funcoes oficiais do PSXRecomp.
+    $fw = Join-Path $RepoDir "psxrecomp"
+    . (Join-Path $fw "tools\release_overlay_stage.ps1")
+    $recompDir = Join-Path $fw "recompiler\build"
+    $cgTag = Get-OverlayCgTag -RecompTools "$fw\tools" -RecompInc "$fw\runtime\include" `
+        -GameExe "$recompDir\psxrecomp-game.exe" -GameToml "$stagingDir\game.toml" `
+        -BuildPath "$RepoDir\build" -RuntimeTarget "RE3Recomp"
+    Write-Host "    Overlay cache tag: $cgTag"
+    $shards = Add-OverlayCache -GameId "SLUS-00923" -CacheSrcRoot "$PCPortDir\cache" `
+        -Stage $stagingDir -CgTag $cgTag
+    Write-Host "    Shards de overlay incluidos: $shards"
+    Add-OverlayToolchain -Stage $stagingDir -RecompDir $recompDir -RecompTools "$fw\tools" `
+        -RecompInc "$fw\runtime\include" -MingwBin $recompDir `
+        -DlCache (Join-Path $WorkspaceRoot ".dl_cache") | Out-Null
+
+    # Nada de midia do disco, BIOS da Sony ou capturas de RAM (que contem bytes
+    # do jogo). O exe e os shards contem codigo do jogo traduzido; isso e
+    # declarado no README/CREDITS.
+    $forbidden = Get-ChildItem -Path $stagingDir -Recurse -File | Where-Object {
+        $_.Name -match "^SLUS_\d{3}\.\d{2}$|^SCPH.*\.BIN$|\.iso$|\.cue$|\.chd$|overlay_captures|\.mcd$|ramdump" -or
+        ($_.Extension -eq ".bin" -and $_.Name -ne "openbios.bin")
     }
     if ($forbidden) {
         Remove-Item -Recurse -Force $stagingDir
-        throw "VIOLACAO DE ZERO-ASSET POLICY DETECTADA: $($forbidden.FullName -join ', ')"
+        throw "ARQUIVO PROIBIDO NO PACOTE: $($forbidden.FullName -join ', ')"
     }
 
     if (Test-Path $zipPath) { Remove-Item -Force $zipPath }

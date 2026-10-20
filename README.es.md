@@ -19,15 +19,19 @@
 | Parte | Cómo se ejecuta |
 |---|---|
 | Ejecutable principal (`SLUS_009.23`, 3.328 funciones) | **Recompilado estáticamente** MIPS → C → x86-64. Se ejecuta como código nativo. |
-| Overlays (código de cada sala/etapa cargado desde el CD en `0x80165000`) | **Interpretados** por defecto. Solo se compilan a nativo en tiempo de ejecución si hay un compilador C (`gcc`/`clang`) en el `PATH`. Aun así, la mayoría de las llamadas de overlay siguen pasando por el intérprete. |
-| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulados por software** en el runtime de PSXRecomp (renderizado con OpenGL/SDL2). |
-| BIOS | OpenBIOS (MIT, de PCSX-Redux), incluida. |
+| Overlays (código que el juego carga desde el CD para salas, menús, inventario, etc.) | **Recompilados con el mismo recompilador** en shards nativos (`cache/`). La versión incluye los shards de las zonas jugadas hasta ahora. El código que aún no está en la caché se ejecuta en un intérprete pequeño la primera vez, se registra y se compila en segundo plano con el kit incluido (`overlay_toolchain/`: Python embebido + TinyCC), y a partir de la siguiente visita se ejecuta de forma nativa. |
+| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulados por software** en el runtime de PSXRecomp (renderizado con OpenGL/SDL2), como en otros proyectos de recompilación estática. |
+| BIOS | OpenBIOS (MIT, de PCSX-Redux), incluida. Se salta la animación de arranque. |
 
-Es un híbrido: el código principal del juego está recompilado, pero gran parte de lo que se ejecuta durante el juego es interpretado, y el hardware es emulado. No es un "port nativo" en el sentido de código descompilado y reescrito. Por eso se mantienen rasgos del PS1 como el temblor de polígonos: la aritmética de punto fijo del GTE se reproduce fielmente.
+**Medido, no supuesto:** en unos 20 minutos de juego, en cuatro sesiones (partida nueva, la comisaría, puertas, escaleras, combate, inventario, baúl, guardado), las instrucciones interpretadas fueron como máximo el **0,03%–0,15%** del trabajo de la CPU emulada; el resto se ejecutó como código nativo. Cada ejecución guarda estas cifras en `psx_last_run_report.json` (`interp_hist`).
+
+Las versiones anteriores (hasta la v1.6.0) se publicaron sin la caché de overlays ni el kit, así que en los equipos de los jugadores el código de las salas se ejecutaba interpretado. Esto se corrige en la v1.6.1.
+
+No es una descompilación: el código del juego se traduce automáticamente, no se reescribe, y el hardware se emula. Por eso se mantienen rasgos del PS1 como el temblor de polígonos: la aritmética de punto fijo del GTE se reproduce fielmente.
 
 ## Nota legal
 
-El ejecutable de la versión contiene el código máquina del juego traducido a x86-64. Debes poseer Resident Evil 3: Nemesis (SLUS-00923) y aportar tu propia imagen de disco. No se distribuyen imágenes de disco, audio, vídeo, texturas ni BIOS de Sony. Proyecto de fans sin fines comerciales; PSXRecomp está licenciado bajo PolyForm Noncommercial 1.0.0. Resident Evil y nombres relacionados son marcas de Capcom; PlayStation es marca de Sony Interactive Entertainment.
+El ejecutable de la versión y los shards de overlay en `cache/` contienen el código máquina del juego traducido a x86-64. Debes poseer Resident Evil 3: Nemesis (SLUS-00923) y aportar tu propia imagen de disco. No se distribuyen imágenes de disco, audio, vídeo, texturas ni BIOS de Sony. Proyecto de fans sin fines comerciales; PSXRecomp está licenciado bajo PolyForm Noncommercial 1.0.0. Resident Evil y nombres relacionados son marcas de Capcom; PlayStation es marca de Sony Interactive Entertainment.
 
 ---
 
@@ -37,19 +41,24 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 
 | Función | Estado |
 |---|---|
-| Asistente de instalación del launcher (extrae `SLUS_009.23` de tu `.bin`/`.cue`/`.iso`) | Funciona |
+| Asistente de instalación del launcher (extrae `SLUS_009.23` de tu `.cue`/`.bin`) | Funciona |
+| Control clásico (tanque) | Funciona (por defecto) |
+| Stick moderno relativo a la pantalla (`modern_controls`) | Problemas conocidos: funciona, pero resulta impreciso en salas pequeñas; desactivado por defecto hasta refinarlo |
+| Saltar la animación de las puertas (`fast_doors`) | Funciona (transición en silencio, con un fundido corto) |
+| Saltar cinemáticas en tiempo real con Select (Esc/Tab en teclado) | Funciona (usa el salto del propio juego) |
+| Saltar FMV | Funciona; algunos FMV solo se pueden saltar a partir de cierto punto, como en el juego original |
+| Arranque rápido (animación de la BIOS omitida, huella del disco guardada) | Funciona |
+| Guardado en memory card (`saves/*.mcd`, formato estándar de PS1) | Funciona |
+| Audio | Funciona; la mezcla experimental (`spu_hq`) puede sonar saturada y viene desactivada |
+| Trucos (opciones del launcher + F6/F7/F8) | Funcionaron en pruebas anteriores del mantenedor; no se han vuelto a probar en la v1.6.1 |
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
-| Controles analógicos modernos con auto-correr (`modern_controls`) | Problemas conocidos: roto en v1.4.x, restaurado en v1.5.1, requiere nuevas pruebas |
-| Puertas rápidas (`fast_doors`) | Problemas conocidos: saltar la cinemática tras una puerta puede congelar el juego |
-| Saltar FMV | Requiere pruebas |
 | Vibración (SDL2) | Requiere pruebas |
-| Trucos (opciones del launcher + F6/F7/F8) | Requiere pruebas |
-| Corrección geométrica PGXP | Problemas conocidos: sin efecto visible / deforma personajes; no recomendado |
 | Texturas con corrección de perspectiva | Requiere pruebas |
-| Audio | Problemas conocidos: chasquidos en transiciones de sala |
+| Corrección geométrica PGXP | Problemas conocidos: deforma personajes; no recomendado |
 | Velocidad del texto de introducción | Problemas conocidos: el texto avanza demasiado rápido |
 | 60 FPS / interpolación de fotogramas | **Eliminado.** Nunca funcionó realmente (era placebo) |
-| Guardado en memory card (`saves/*.mcd`, formato estándar de PS1) | Requiere pruebas |
+
+Mandos antiguos que solo funcionan con DirectInput: activa "Mandos genéricos antiguos (DirectInput)" en el launcher. Viene desactivado porque en algunos PC retrasa el arranque varios segundos; los mandos de Xbox, PlayStation, Switch y la mayoría de los demás funcionan sin él.
 
 Los reportes de errores son bienvenidos. Incluye el `psx_last_run_report.json` de la carpeta del juego y los pasos para reproducirlo.
 
@@ -59,12 +68,12 @@ Los reportes de errores son bienvenidos. Incluye el `psx_last_run_report.json` d
 
 1. Descarga el zip más reciente en **Releases** y extráelo.
 2. Ejecuta `Resident_Evil_3_Launcher.exe`.
-3. Haz clic en **Instalar Juego** y selecciona la imagen de tu disco de RE3 (`.bin`, `.cue` o `.iso`).
+3. Haz clic en **Instalar Juego...** y selecciona la imagen de tu disco de RE3 estadounidense (`.cue`/`.bin`, sectores en bruto de 2352 bytes). Los `.iso` de 2048 bytes se rechazan: no contienen el audio ni el vídeo del juego.
 4. Configura y haz clic en **JUGAR RESIDENT EVIL 3**.
 
 ## Controles
 
-**Mando:** Stick izquierdo = movimiento (modo moderno) · D-Pad = control tanque clásico · A = acción · X = correr · Y = inventario · LB/RB = apuntar/disparar · Back = mapa · Start = pausa
+**Mando:** Stick izquierdo / D-Pad = movimiento (tanque por defecto; stick relativo a la pantalla en modo moderno) · A = acción · X = correr · Y = inventario · LB/RB = apuntar/disparar · Back = mapa · Start = pausa
 **Teclado:** Flechas = mover · X = acción · Z = correr · A = inventario · Enter = start · Alt+Enter/F11 = pantalla completa · F6/F7/F8 = trucos
 
 ---
