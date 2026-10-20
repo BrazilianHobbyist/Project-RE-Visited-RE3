@@ -90,3 +90,4 @@ tools/model_tool/*.png
 *.diff
 *.patch
 !patches/*.patch
+build_dbg/
