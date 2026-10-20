@@ -113,7 +113,8 @@ function Invoke-Consolidate {
     # Redireciona via cmd: capturar a saída do git pelo PowerShell recodifica o
     # texto (CP850/CRLF) e corrompe o patch. Foi a causa do patch quebrado.
     $git = (Get-Command git).Source
-    cmd /c "`"$git`" -C `"$RepoDir\psxrecomp`" diff > `"$RepoDir\patches\psxrecomp_runtime.patch`""
+    # diff HEAD: inclui as mudancas ja preparadas (staged) no submodule.
+    cmd /c "`"$git`" -C `"$RepoDir\psxrecomp`" diff HEAD > `"$RepoDir\patches\psxrecomp_runtime.patch`""
     if ($LASTEXITCODE -ne 0) { throw "Falha ao exportar o patch do runtime." }
 
     # 2. Sincronizar executavel compilado do jogo

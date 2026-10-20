@@ -66,43 +66,46 @@ Expressamos nossa admiração, respeito e sincero agradecimento aos criadores or
 
 ### 6. Melhorias Gráficas, Precisão Geométrica & Shaders
 * **[PGXP (Parallel GPU Extended Precision)](https://github.com/iCatButler)**: Criado por iCatButler, com evoluções contínuas de simias, Pete Bernert, stenzek e comunidade Beetle PSX. Tecnologia de coordenadas sub-pixel em ponto flutuante e correção de perspectiva de texturas que elimina a oscilação poligonal (*polygon jitter*) e as deformações angulares clássicas do PS1.
-* **[Khronos Group & OpenGL](https://www.khronos.org/opengl/)**: Especificação padrão da indústria para aceleração gráfica 3D por hardware, shaders de apresentação em tempo real e integração opcional com OpenXR SDK.
+* **[Khronos Group & OpenGL](https://www.khronos.org/opengl/)**: Especificação padrão da indústria para aceleração gráfica 3D por hardware e shaders de apresentação em tempo real.
 * **Shaders Customizados**: Filtro FXAA (*Fast Approximate Anti-Aliasing*) e escalonamento bicúbico Catmull-Rom para renderização interna em alta definição (1080p, 1440p e 4K Ultra HD).
 
 ### 7. Áudio & Ciência de Cores
-* **[JRickey (gba-recomp / snesrecomp)](https://github.com/JRickey/gba-recomp)**: Desenvolvido por JRickey. Algoritmo *ShadowVerifier* (autocalibração diferencial de ganho e correlação de envoltória de áudio) e matrizes de calibração de cores de tela (xyY→XYZ, adaptação cromática de Bradford e perfis de fósforo Trinitron/CRT). Licença: *MIT / Apache-2.0*.
+* **[JRickey (gba-recomp / snesrecomp)](https://github.com/JRickey/gba-recomp)**: Desenvolvido por JRickey. Partes do runtime do PSXRecomp derivam do trabalho dele: o verificador de áudio em sombra (*ShadowVerifier*) e as matrizes de calibração de cor (xyY→XYZ, adaptação cromática de Bradford, perfis de fósforo CRT). Licença: *MIT / Apache-2.0*.
 * **SPU HQ 48kHz Resampling**: Subsistema de interpolação cúbica de 4 pontos em ponto flutuante para reprodução de áudio SPU ADPCM com máxima fidelidade.
 
 ### 8. Bibliotecas de Terceiros (*Third-Party Dependencies*)
-* **[SDL2 (Simple DirectMedia Layer)](https://www.libsdl.org/)**: Criado por Sam Lantinga e comunidade. Gerenciamento de janelas, contexto OpenGL, temporização de quadros e suporte a controles modernos via XInput e DirectInput. Licença: *zlib License*.
+* **[SDL3 (Simple DirectMedia Layer)](https://www.libsdl.org/)**: Criado por Sam Lantinga e comunidade. Gerenciamento de janelas, contexto OpenGL, áudio e suporte a controles via XInput e DirectInput. Licença: *zlib License*.
 * **[libchdr](https://github.com/rtissera/libchdr)**: Criado por Romain Tisserand. Biblioteca de descompressão de imagens de disco no formato comprimido CHD. Licença: *BSD-3-Clause*.
 * **Bibliotecas de Compressão**:
   * **Zstandard (zstd)**: Yann Collet / Meta (*BSD-3-Clause*);
   * **LZMA SDK**: Igor Pavlov (*Domínio Público*);
   * **miniz**: Rich Geldreich (*MIT*).
-* **[TinyCC (TCC)](https://bellard.org/tcc/)**: Criado por Fabrice Bellard. Compilador C ultrarrápido utilizado pelo pipeline de sharding AOT para compilação em segundo plano de overlays de código em DLLs nativas sem necessidade de ambiente de desenvolvimento instalado. Incluído em `overlay_toolchain/tcc/` (versão 0.9.27, aviso de licença em `COPYING`). Licença: *LGPL-2.1*.
+* **[TinyCC (TCC)](https://bellard.org/tcc/)**: Criado por Fabrice Bellard. Compilador C ultrarrápido usado na máquina do jogador para compilar em segundo plano, em DLLs nativas, código de overlay que ainda não esteja no cache, sem exigir ambiente de desenvolvimento. Incluído em `overlay_toolchain/tcc/` (versão 0.9.27, aviso de licença em `COPYING`). Licença: *LGPL-2.1*.
 * **[Python](https://www.python.org/)**: Python Software Foundation. Distribuição embutida 3.13.1 incluída em `overlay_toolchain/python/` para executar o compilador de overlays na máquina do jogador. Licença: *PSF License* (arquivo `LICENSE.txt` incluído).
 * **[toml11](https://github.com/ToruNiina/toml11)**: Criado por Toru Niina. Biblioteca C++ para leitura e escrita de arquivos no formato TOML (`game.toml`, `settings.toml`). Licença: *MIT*.
 * **[stb_image & stb libraries](https://github.com/nothings/stb)**: Criado por Sean T. Barrett (*nothings.org*). Bibliotecas *header-only* em C/C++ para carregamento de texturas e imagens. Licença: *MIT / Domínio Público*.
 * **[{fmt}](https://github.com/fmtlib/fmt)**: Criado por Victor Zverovich. Biblioteca de formatação moderna e segura de strings em C++. Licença: *MIT*.
 * **[retcomm-studio (Retro-Studio)](https://github.com/RetroPortingToolKit/Retro-Studio)**: Criado por Alex Vanderveen. Ferramental de análise e validação de imagens multi-disco. Licença: *MIT*.
-* **[libjuice](https://github.com/paullouisageneau/libjuice)**: Criado por Paul-Louis Ageneau. Biblioteca de protocolo de transporte ICE para conexão de rede P2P (*Netplay*). Licença: *MPL-2.0*.
+* **[libjuice](https://github.com/paullouisageneau/libjuice)**: Criado por Paul-Louis Ageneau. Biblioteca ICE usada pelo netplay do PSXRecomp. Licença: *MPL-2.0*. O netplay vem desligado neste build e a biblioteca não faz parte do executável.
 
 ### 9. Toolchain & Ambiente Operacional
-* **[MinGW-w64](https://www.mingw-w64.org/) & [GCC (GNU Compiler Collection)](https://gcc.gnu.org/)**: Toolchain de compilação C/C++ utilizada para compilar o executável de 64 bits para Windows e o launcher nativo.
+* **[LLVM / Clang](https://llvm.org/) com alvo [MinGW-w64](https://www.mingw-w64.org/)**: Toolchain C/C++ usada para compilar o executável de 64 bits para Windows e o launcher. O build é reproduzível: o mesmo commit com o mesmo compilador gera arquivos idênticos.
 * **[Microsoft Corporation](https://www.microsoft.com/)**: Win32 API, biblioteca GDI+ e biblioteca Common Controls v6 (ComCtl32) que dão vida à interface gráfica do Launcher.
 * **[CMake](https://cmake.org/) & [Ninja](https://ninja-build.org/)**: Sistema de automação de build e geração de projetos.
 
 ### 10. Comunidade & Colaboradores
 * **Comunidade R.A.I.D. (Retro AI Development)**: Pelo espaço de discussão técnica, engenharia reversa assistida por inteligência artificial e incentivo à preservação de clássicos dos videogames.
 
-### 11. Recursos e Melhorias Exclusivas Deste Port
-* **Assistente de Instalação com Extração Direta ISO 9660**: Leitor de setores Mode 2 Form 1 que extrai automaticamente o executável `SLUS_009.23` de imagens `.bin`/`.iso` sem necessidade de programas de terceiros.
-* **Controles Modernos 3D**: Movimentação analógica em 360 graus relativa à câmera com corrida automática (*auto-run*) no analógico esquerdo, mantendo integralmente o controle tanque clássico no D-Pad.
-* **Interpolação Poligonal Temporal Contínua**: Fluidez total sincronizada a altas taxas de atualização (60Hz, 120Hz, 144Hz, 165Hz, 240Hz ou sincronização nativa com o monitor).
-* **Launcher Gráfico Nativo em Win32/GDI+**: Painel de configurações visual em tempo real para resolução interna, proporção de tela, filtros, controles e áudio.
-* **Pular Cutscenes e FMVs (Auto-Skip)**: Bypass instantâneo de cenas em vídeo MDEC e áudio XA via botão de ação ou configuração.
-* **Preservação de Saves Nativos**: Estrutura de cartões de memória PS1 mantida em arquivos `.mcd` binários reais, compatíveis com consoles físicos e outros emuladores.
+### 11. O Que Este Port Acrescenta
+O estado de cada item (funciona, precisa de teste, problemas conhecidos) está no [README](README.md).
+* **Assistente de instalação**: lê setores Mode 2 Form 1 e extrai o `SLUS_009.23` da sua imagem `.cue`/`.bin`, sem programas de terceiros. Recusa ISOs de 2048 bytes e discos que não sejam o americano.
+* **Launcher nativo em Win32/GDI+**: configurações de resolução interna, proporção de tela, filtros, controles, áudio e cheats, em três idiomas.
+* **Portas rápidas**: pulam a animação da porta, e a sala seguinte carrega na velocidade máxima do PC atrás da tela preta. O tempo do jogo não muda.
+* **Cache de overlays gerado a partir do disco**: perfil AOT (`aot/`) com os 17 overlays de menu e os 21 módulos de inimigos, e um reconhecedor de `switch` ampliado no recompilador.
+* **Controles modernos (experimentais)**: movimento relativo à câmera no analógico, com o controle tanque clássico como padrão.
+* **Pular cenas e FMVs**: usa o próprio mecanismo de pulo do jogo (Select, ou Esc/Tab no teclado).
+* **Saves nativos**: cartões de memória do PS1 em arquivos `.mcd` padrão.
+* **Abertura rápida**: a animação da BIOS é pulada e a impressão digital do disco fica guardada.
 
 ---
 *Project RE: Visited - Resident Evil 3 — Um tributo à história dos videogames e à engenharia de software de preservação.*

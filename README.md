@@ -19,13 +19,16 @@
 | Part | How it runs |
 |---|---|
 | Main executable (`SLUS_009.23`, 3,328 functions) | **Statically recompiled** MIPS → C → x86-64. Runs as native code. |
-| Overlays (code the game loads from the CD for rooms, menus, inventory, etc.) | **Recompiled with the same recompiler** into native shards (`cache/`). The release ships shards for the areas played so far. Code not yet in the cache runs on a small interpreter the first time, is recorded, and is compiled in the background by the bundled toolchain (`overlay_toolchain/`: embedded Python + TinyCC), so it runs natively from the next visit on. |
-| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulated in software** by the PSXRecomp runtime (rendered with OpenGL/SDL2), as in other static recompilation projects. |
+| Overlays (code the game loads from the CD for menus and enemies) | **Recompiled with the same recompiler** into native shards (`cache/`). Since v1.7.0 the cache is built **from the original disc**, not from play sessions: all 17 menu overlays and all 21 enemy code modules, 59 images in total ([aot/README.md](aot/README.md)). Anything still missing runs on a small interpreter the first time and is compiled in the background by the bundled toolchain (`overlay_toolchain/`: embedded Python + TinyCC). |
+| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulated in software** by the PSXRecomp runtime (rendered with OpenGL/SDL3), as in other static recompilation projects. |
 | BIOS | OpenBIOS (MIT, from PCSX-Redux), bundled. The boot animation is skipped. |
 
-**Measured, not assumed:** in about 20 minutes of gameplay across four sessions (new game, the RPD, doors, stairs, combat, inventory, item box, saving), interpreted instructions were at most **0.03%–0.15%** of the emulated CPU's work; the rest ran as native code. Each run writes these numbers to `psx_last_run_report.json` (`interp_hist`).
+**Measured, not assumed:** each run writes how much code was interpreted to `psx_last_run_report.json` (`interp_hist`).
 
-Earlier releases (up to v1.6.0) shipped without the overlay cache and toolchain, so on players' machines the room code ran interpreted. That is fixed in v1.6.1.
+- With the v1.6.1 cache, about 20 minutes of play across four sessions (new game, the RPD, doors, stairs, combat, inventory, item box, saving) peaked at **0.03%–0.15%** of the emulated CPU's work.
+- With the disc-built cache, a session in the RPD with zombies and doors measured **0.0061%**, and 17 instructions in the enemy code. What remains is BIOS code in RAM.
+
+Earlier releases (up to v1.6.0) shipped without the overlay cache and toolchain, so the room code ran interpreted on players' machines. v1.6.1 fixed that with a cache from the maintainer's play sessions. v1.7.0 replaces it with one built from the disc.
 
 This is not a decompilation: the game code is machine-translated, not rewritten, and the hardware is emulated. That is also why PS1 traits like polygon wobble remain: the GTE's fixed-point math is reproduced faithfully.
 
@@ -42,20 +45,19 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Feature | Status |
 |---|---|
 | Launcher setup wizard (extracts `SLUS_009.23` from your `.cue`/`.bin`) | Works |
-| Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
 | Classic (tank) controls | Works (default) |
 | Modern screen-relative stick (`modern_controls`) | Known issues: works, but feels erratic in small rooms; off by default until refined |
-| Skip door animations (`fast_doors`) | Works (silent transition with a short fade) |
+| Fast doors (`fast_doors`) | Works. Skips the door animation, and the next room loads at full host speed behind the black screen (the save-room door went from ~3.8 s to ~1 s). Gameplay speed is unchanged |
 | Skipping in-engine cutscenes with Select (Esc/Tab on keyboard) | Works (uses the game's own skip) |
 | FMV skip | Works; some FMVs can only be skipped after a certain point, as in the original game |
 | Fast startup (BIOS animation skipped, disc fingerprint cached) | Works |
 | Memory card saves (`saves/*.mcd`, standard PS1 format) | Works |
 | Audio | Works; the experimental mix (`spu_hq`) can sound clipped and is off by default |
-| Cheats (launcher toggles + F6/F7/F8) | Works in the maintainer's earlier tests; not re-tested in v1.6.1 |
+| Cheats (launcher toggles + F6/F7/F8) | Works in the maintainer's earlier tests; not re-tested since v1.6.0 |
 | Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
-| Rumble (SDL2) | Needs testing |
+| Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
-| PGXP geometry correction | Known issues: stops wobble but causes artifacts on faces; off by default |
+| PGXP geometry correction | Known issues: stops wobble. The black cracks on faces are much smaller since v1.7.0, because seam vertices are welded, but small artifacts remain. Off by default |
 | Intro/story text speed | Known issues: text advances too fast |
 | 60 FPS / frame interpolation | **Removed.** It never worked properly (it was placebo) |
 

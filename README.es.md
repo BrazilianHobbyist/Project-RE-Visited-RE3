@@ -19,13 +19,16 @@
 | Parte | Cómo se ejecuta |
 |---|---|
 | Ejecutable principal (`SLUS_009.23`, 3.328 funciones) | **Recompilado estáticamente** MIPS → C → x86-64. Se ejecuta como código nativo. |
-| Overlays (código que el juego carga desde el CD para salas, menús, inventario, etc.) | **Recompilados con el mismo recompilador** en shards nativos (`cache/`). La versión incluye los shards de las zonas jugadas hasta ahora. El código que aún no está en la caché se ejecuta en un intérprete pequeño la primera vez, se registra y se compila en segundo plano con el kit incluido (`overlay_toolchain/`: Python embebido + TinyCC), y a partir de la siguiente visita se ejecuta de forma nativa. |
-| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulados por software** en el runtime de PSXRecomp (renderizado con OpenGL/SDL2), como en otros proyectos de recompilación estática. |
+| Overlays (código que el juego carga desde el CD para menús y enemigos) | **Recompilados con el mismo recompilador** en shards nativos (`cache/`). Desde la v1.7.0 la caché se genera **a partir del disco original**, no de sesiones de juego: los 17 overlays de menú y los 21 módulos de código de enemigos, 59 imágenes en total ([aot/README.md](aot/README.md)). Lo que aún falte se ejecuta en un intérprete pequeño la primera vez y se compila en segundo plano con el kit incluido (`overlay_toolchain/`: Python embebido + TinyCC). |
+| GPU, GTE, SPU, CD-ROM, MDEC, timers | **Emulados por software** en el runtime de PSXRecomp (renderizado con OpenGL/SDL3), como en otros proyectos de recompilación estática. |
 | BIOS | OpenBIOS (MIT, de PCSX-Redux), incluida. Se salta la animación de arranque. |
 
-**Medido, no supuesto:** en unos 20 minutos de juego, en cuatro sesiones (partida nueva, la comisaría, puertas, escaleras, combate, inventario, baúl, guardado), las instrucciones interpretadas fueron como máximo el **0,03%–0,15%** del trabajo de la CPU emulada; el resto se ejecutó como código nativo. Cada ejecución guarda estas cifras en `psx_last_run_report.json` (`interp_hist`).
+**Medido, no supuesto:** cada ejecución guarda en `psx_last_run_report.json` (`interp_hist`) cuánto código se interpretó.
 
-Las versiones anteriores (hasta la v1.6.0) se publicaron sin la caché de overlays ni el kit, así que en los equipos de los jugadores el código de las salas se ejecutaba interpretado. Esto se corrige en la v1.6.1.
+- Con la caché de la v1.6.1, unos 20 minutos de juego en cuatro sesiones (partida nueva, la comisaría, puertas, escaleras, combate, inventario, baúl, guardado) llegaron como máximo al **0,03%–0,15%** del trabajo de la CPU emulada.
+- Con la caché generada a partir del disco, una sesión en la comisaría con zombis y puertas midió **0,0061%**, con 17 instrucciones en el código de los enemigos. Lo que queda es código de la BIOS en RAM.
+
+Las versiones anteriores (hasta la v1.6.0) se publicaron sin la caché de overlays ni el kit, así que el código de las salas se ejecutaba interpretado en los equipos de los jugadores. La v1.6.1 lo corrigió con una caché de las sesiones de juego del mantenedor. La v1.7.0 la sustituye por una caché generada a partir del disco.
 
 No es una descompilación: el código del juego se traduce automáticamente, no se reescribe, y el hardware se emula. Por eso se mantienen rasgos del PS1 como el temblor de polígonos: la aritmética de punto fijo del GTE se reproduce fielmente.
 
@@ -44,17 +47,17 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Asistente de instalación del launcher (extrae `SLUS_009.23` de tu `.cue`/`.bin`) | Funciona |
 | Control clásico (tanque) | Funciona (por defecto) |
 | Stick moderno relativo a la pantalla (`modern_controls`) | Problemas conocidos: funciona, pero resulta impreciso en salas pequeñas; desactivado por defecto hasta refinarlo |
-| Saltar la animación de las puertas (`fast_doors`) | Funciona (transición en silencio, con un fundido corto) |
+| Puertas rápidas (`fast_doors`) | Funciona. Salta la animación de la puerta, y la sala siguiente carga a la velocidad máxima del PC tras la pantalla negra (la puerta de la sala de guardado pasó de ~3,8 s a ~1 s). La velocidad del juego no cambia |
 | Saltar cinemáticas en tiempo real con Select (Esc/Tab en teclado) | Funciona (usa el salto del propio juego) |
 | Saltar FMV | Funciona; algunos FMV solo se pueden saltar a partir de cierto punto, como en el juego original |
 | Arranque rápido (animación de la BIOS omitida, huella del disco guardada) | Funciona |
 | Guardado en memory card (`saves/*.mcd`, formato estándar de PS1) | Funciona |
 | Audio | Funciona; la mezcla experimental (`spu_hq`) puede sonar saturada y viene desactivada |
-| Trucos (opciones del launcher + F6/F7/F8) | Funcionaron en pruebas anteriores del mantenedor; no se han vuelto a probar en la v1.6.1 |
+| Trucos (opciones del launcher + F6/F7/F8) | Funcionaron en pruebas anteriores del mantenedor; no se han vuelto a probar desde la v1.6.0 |
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
-| Vibración (SDL2) | Requiere pruebas |
+| Vibración | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
-| Corrección geométrica PGXP | Problemas conocidos: elimina el temblor, pero causa fallos en las caras; desactivada por defecto |
+| Corrección geométrica PGXP | Problemas conocidos: elimina el temblor. Las grietas negras en las caras son mucho menores desde la v1.7.0, porque los vértices de las costuras se sueldan, pero quedan pequeños fallos. Desactivada por defecto |
 | Velocidad del texto de introducción | Problemas conocidos: el texto avanza demasiado rápido |
 | 60 FPS / interpolación de fotogramas | **Eliminado.** Nunca funcionó realmente (era placebo) |
 

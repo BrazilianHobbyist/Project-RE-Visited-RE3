@@ -1,62 +1,57 @@
 # Progresso: Project RE: Visited - RE3
 
-Última revisão: 19/10/2026. Só entra aqui o que foi medido ou verificado. Afirmações sem evidência ficam em "não verificado".
+Última revisão: 20/10/2026. Só entra aqui o que foi medido ou verificado. Afirmações sem evidência ficam em "Não verificado".
 
 ## Estado verificado
 
-- **Executável principal:** recompilado estaticamente de verdade (`generated/`, C gerado pelo PSXRecomp a partir de `SLUS_009.23`). Nenhum core de emulador de terceiros embutido: busca no exe por mednafen/libretro/beetle/lightrec/duckstation/pcsx não encontra nada (a única ocorrência de "Beetle" é um comentário de shader).
-- **Overlays:** recompilados pelo mesmo recompilador em shards nativos (`cache/`). Medição por instrução (histograma `interp_hist` no `psx_last_run_report.json`, adicionado em 19/10): em ~20 min de jogo em 4 sessões, instruções interpretadas ≤ 0,03%–0,15% dos ciclos da CPU emulada.
-  - **Correção:** o número antigo "~94% interpretado" vinha de `disp_native`/`disp_interp`, que contam entradas no despachante (uma função nativa inteira conta 1; o interpretador conta por bloco). Não mede tempo de execução e superestima muito o interpretador.
-  - Até a v1.6.0 o zip não levava cache nem `overlay_toolchain`, então na máquina do jogador as salas rodavam sempre interpretadas. A v1.6.1 inclui os dois (567 shards; Python 3.13.1 + TinyCC 0.9.27). Testado numa pasta limpa sem gcc: o cache é usado, e o kit compila sozinho com TinyCC (144 shards, 0 falhas).
-- **Cache de overlays:** gerado com `compile_overlays.py --cps` a partir dos snapshots em `ResidentEvil3-PCPort/overlay_captures.json.d` (capturas de jogo do mantenedor; privadas, nunca no pacote). Tag `cg18_d1867bb4_gcc15c8ed0_f0`, igual à do `game.toml` da release.
-- **Hardware (GPU/GTE/SPU/CD/MDEC):** emulado pelo runtime do PSXRecomp.
-- **Abertura:** animação da BIOS pulada (`bios_hle = true`); SHA-256 do disco memorizado em `%LOCALAPPDATA%\psxrecomp\disc_sha256_memo.txt`; DirectInput desligado por padrão (o `SDL_DINPUT_JoystickDetect` travava ~9 s no PC do mantenedor). Janela em 0,4 s a partir da segunda abertura.
+- **Executável principal:** recompilado estaticamente de verdade. O C é gerado pelo PSXRecomp a partir do `SLUS_009.23`, em `generated/`, que não é versionado e vem do disco do usuário. Não há core de emulador de terceiros embutido: uma busca no exe por mednafen, libretro, beetle, lightrec, duckstation e pcsx não encontra nada (a única ocorrência de "Beetle" é um comentário de shader).
+- **Base:** PSXRecomp `1698a218`, com SDL3. As mudanças do RE3 ficam em `patches/psxrecomp_runtime.patch`.
+- **Overlays gerados a partir do disco:** perfil AOT em `aot/`, gerado por `tools/make_aot_profile.py`. Cobre:
+  - 17 overlays de menu em `CD_DATA/BIN`;
+  - 21 módulos de código de inimigos, membros dos arquivos de sala `R*.BIN`, em dois slots (`0x80100000` / `0x8010D000`). São 42 imagens.
+
+  A auditoria do upstream aprovou 59/59 pares. Toda instrução executada nas 71 capturas de jogo do mantenedor (14.810 de inimigos e 6.266 de menus) está coberta por uma função compilada a partir do disco, com bytes idênticos. Na demonstração da tela de título, só com esse cache e sem compilação em tempo real, nenhuma instrução de inimigo foi interpretada.
+- **Reconhecedor de `switch` ampliado:** agora aceita a forma `sltiu; beq; X; lui; addiu; sll`, que aparece em 141 lugares no jogo. A mudança está no C++ e no Python, em paridade e com testes. Etiqueta do cache: `cg18_a8839e97_gcc15c8ed0_f2`.
+- **Interpretador:** a medição é por instrução (`interp_hist` no `psx_last_run_report.json`).
+  - Cache da v1.6.1: no máximo 0,03%–0,15% em ~20 min.
+  - Cache do disco, sessão de 20/10 na delegacia: 0,0061%, com 17 instruções no código de inimigos. O resto é código da BIOS na RAM.
+  - O número antigo de "~94% interpretado" vinha de contadores do despachante e não media tempo de execução.
+- **Portas rápidas:** o turbo cobre a leitura real da sala, medida pela linha do tempo do CD (`re3_door_timeline`). Primeiro vem o modelo da porta, depois uma pausa e então a leitura da sala. A porta da sala do save caiu de ~3,8 s para ~1 s. Testado pelo mantenedor ("impecáveis").
+- **Detector de travamento:** os alarmes falsos (`spin_freeze`) em todo boot eram as telas fixas de aviso e do logo da Capcom. O laço agora precisa ficar parado por 30 s antes de registrar. Num boot de 30 s, nenhum arquivo foi criado.
+- **Build reproduzível:** um clone limpo com `build.ps1 -Regen` gera o C idêntico (201/201 arquivos) e o executável e o launcher idênticos byte a byte ao build de desenvolvimento (Clang 22.1.8).
+- **Abertura:** a animação da BIOS é pulada (`bios_hle = true`) e o SHA-256 do disco fica memorizado. O DirectInput vem desligado por padrão.
 
 ## Problemas abertos
 
-- Texto de introdução rápido demais.
-- PGXP deforma personagens.
-- Controles modernos: imprecisos em salas pequenas ("desgovernados"); desligados por padrão até o refino.
-- `spin_freeze` registrado por volta do quadro 130–170 em toda abertura. O jogo segue normalmente (quadros a 60 fps); parece alarme falso do detector durante a espera da BIOS. Não confirmado.
+- **Correção geométrica (PGXP):** a solda de vértices fechou as fendas grandes nos rostos, mas ainda sobram pequenas falhas (teste do mantenedor, 20/10). Segue desligada por padrão.
+- **Texto de introdução:** avança rápido demais.
+- **Controles modernos:** imprecisos em salas pequenas. Desligados por padrão.
+- **Overlay de título:** um `switch` do TITLE.BIN usa uma quarta forma ainda não reconhecida, o que dá ~1,9 mil instruções interpretadas por sessão.
+- **A reportar ao upstream (decisão do mantenedor):**
+  - o resolvedor de tabelas em C++ recusa produtores com fim não alinhado a 4 bytes, e o Python aceita;
+  - o `ws_cull_edge_interp_test` não linka;
+  - o `test_aot_overlay_discovery.py` depende de um caminho fixo do MinGW;
+  - o bug de compilação de overlay no kernel (`func_00003A4C`).
 
 ## Não verificado
 
-Resolução interna, 16:9, vibração e texturas com correção de perspectiva: código presente e opções lidas pelo runtime, mas sem teste reproduzível registrado. Cheats funcionaram em testes antigos do mantenedor; não retestados na v1.6.1.
+- Resolução interna, 16:9, vibração e texturas com correção de perspectiva: o código existe e as opções são lidas, mas não há teste reproduzível registrado.
+- Cheats: funcionaram em testes antigos do mantenedor e não foram retestados desde a v1.6.0.
 
-## Pendências da auditoria (18/10/2026)
+## Pendências
 
-- [x] Release v1.6.0 publicada (19/10/2026), testada pelo mantenedor.
-- Observação: um travamento único no boot da BIOS (`spin_freeze`, frame 152, `0x1FC0CC98`) em 18/10 às 23:19; não se repetiu nas execuções seguintes. Investigar se reaparecer.
-- [x] Commits passam a sair como BrazilianHobbyist.
-- [x] `build.ps1` aplica `patches/re3_door_*.patch` no código gerado (idempotente, falha visível). Testado com `generated/` limpo e já aplicado.
-- [ ] `build.ps1 -Regen` chamava um script inexistente; corrigido para `psxrecomp_cli.py generate`, **não testado**.
-- [x] Patch do runtime auditado por inteiro (19/10/2026). Revertidos ao upstream: `cdrom.c` (o hack de pular falas tinha mudado o modelo do drive para todas as leituras), ritmo de quadros (o relógio só rodava no netplay), `config_loader`. Removidos: interpolação de geometria morta (gerava `interp_audit.log`), pan & scan dormente (rastreava todo polígono), opção de câmera do *Muppet Monster*, variáveis mortas. Mantidos: FXAA, esticar 16:9 / 4:3 com bordas, recorte dos FMVs, controles, portas, áudio, cheats, vibração.
-- [x] "Controles modernos" reescritos: movimento relativo à tela de verdade (direção da Jill escrita na RAM a partir da câmera), giro com velocidade limitada (`modern_turn_speed`, padrão 90), escadas e empurrar só com "para frente". Testado pelo mantenedor.
-- [x] Launcher revisado (v1.6.0):
-  - o instalador só aceita o disco USA (`SLUS_009.23`) e recusa ISO de 2048 bytes, com mensagem clara;
-  - avisa se o tamanho da imagem difere do dump conhecido;
-  - os logs não inventam mais resultados e estão traduzidos nos 3 idiomas;
-  - layout em duas colunas (cabe em telas de 768 px);
-  - textos de opções, cheats e créditos corrigidos;
-  - `modern_turn_speed` é preservado ao salvar, e falhas de gravação são informadas.
-  Testado com automação: instalação com o disco real, rejeição de ISO e de disco PAL falsos, capturas em EN e PT-BR.
-- [x] Bloco de "câmera no analógico direito" do *Muppet Monster Adventure* removido (runtime e config_loader).
-- FMV: alguns vídeos só podem ser pulados após certo ponto. Isso é comportamento do jogo original; decidido não contornar.
-- [x] Funções de inventário sem gatilho (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`) removidas.
-- [x] F8 (munição máxima): ramo do fuzil inalcançável corrigido; a mensagem não promete mais "255 balas".
-- Cheats auditados no código: o endereço do inventário (`0x800D2134`) e os IDs de pistola, espingarda, munição e fita conferem com o RAM. **Não verificados:** o byte de status forçado pela vida infinita (`0x800CCC97`), e o fato de "armas no baú", "boutique" e "mercenários" ligarem o mesmo bitmask (`0x800D1F32 |= 0xFFE0`), ou seja, marcar um liga os três. O mantenedor testou os cheats em versões anteriores e eles funcionaram.
-- Pulo de cutscene: Esc/Tab no teclado funcionam como Select (pulam cutscenes; em gameplay fazem o que o Select faz). Comportamento aceito.
-- [x] Launcher auditado por inteiro (ver item "Launcher revisado (v1.6.0)" acima).
-- [x] Cópias antigas da raiz do workspace movidas para `_arquivo_antigo/`; ferramentas não sincronizam mais para lá. Uma única pasta de execução (`ResidentEvil3-PCPort`).
-- [x] Release passa a usar `game.toml` e `settings.default.toml` do repositório (a v1.5.1 levou as configurações da pasta de testes, incluindo `frame_interpolation = true`).
+- [ ] v1.7.0: empacotar com o cache gerado a partir do disco (`tools\manage_project.ps1 -Action package` já usa a etiqueta nova).
 - [ ] Responder issues (aguardando decisão do mantenedor).
+- [ ] Refinar os controles modernos.
+- [ ] Decidir o modelo de distribuição: gerar o código recompilado na máquina do usuário (o caminho `build.ps1 -Regen` já é reproduzível) em vez de distribuir o `.exe` com o código do jogo traduzido.
+- [ ] Um roteiro curto de teste jogável, com logs, antes de cada release.
 
-- [x] v1.6.1 preparada (19/10/2026): cache de overlays + kit no pacote, correção da tela preta ao pular falas (hack `cdrom_skip_current_xa` removido), abertura rápida, controle clássico como padrão.
+## Histórico da auditoria (18–20/10/2026)
 
-## Prioridades
-
-1. Build reproduzível: o `.exe` distribuído deve vir de um commit limpo (o último relatório de execução indica build `-dirty`).
-2. Ampliar o cache de overlays jogando mais áreas; avaliar a extração AOT a partir do disco (`docs/AOT_SHARDING.md` do PSXRecomp) para não depender de capturas.
-3. Refinar os controles modernos (salas pequenas).
-4. Decidir o modelo de distribuição: gerar o código recompilado na máquina do usuário em vez de distribuir o `.exe` com o código do jogo traduzido.
-5. Um roteiro de teste jogável curto, com logs, antes de cada release.
+- O patch do runtime foi auditado por inteiro.
+  - Voltaram ao upstream: `cdrom.c` (o hack de pular falas causava tela preta), o ritmo de quadros e o `config_loader`.
+  - Foram removidos: a interpolação morta (placebo), o pan & scan dormente, a câmera do *Muppet Monster* e funções sem gatilho.
+- Os créditos foram corrigidos: Ghidra não mapeou as funções (as sementes vêm de uma varredura de `jal`), e o Beetle é só referência do upstream.
+- A v1.6.1 saiu com cache de overlays e kit (Python 3.13.1 + TinyCC 0.9.27). Até a v1.6.0, o código das salas rodava interpretado na máquina dos jogadores.
+- O launcher foi revisado: recusa ISO de 2048 bytes e discos que não sejam o americano, tem logs honestos nos 3 idiomas e o layout em duas colunas.
+- Commits passam a sair como BrazilianHobbyist, há uma única pasta de execução, e as cópias antigas estão em `_arquivo_antigo/`.
