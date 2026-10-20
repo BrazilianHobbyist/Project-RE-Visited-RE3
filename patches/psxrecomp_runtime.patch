@@ -161,6 +161,37 @@ index 72ce5e7a..65c0e3f0 100644
      update_live();
      return count;
  }
+diff --git a/runtime/src/freeze_heartbeat.c b/runtime/src/freeze_heartbeat.c
+index f3fb810e..69fcd794 100644
+--- a/runtime/src/freeze_heartbeat.c
++++ b/runtime/src/freeze_heartbeat.c
+@@ -126,6 +126,7 @@ static int    s_sym_initialized = 0;
+  * activity (boot, FMV decode, save load) doesn't trip it; short enough
+  * that real wedges dump within seconds. */
+ #define WEDGE_WINDOW_TICKS 20u
++#define SPIN_PERSIST_TICKS 300u   /* 30 s: see the spin persistence gate */
+ /* Thresholds and the classifier live in freeze_dump_policy.{h,c} (unit-tested). */
+ 
+ /* Per-ring caps for auto-dump. Newest-first window. The old 4-16K caps
+@@ -861,6 +862,18 @@ static void heartbeat_write(void) {
+                                                    gcp_sample_fn),
+                                                mdec_recently_active);
+         }
++        /* A spin must stay pinned for SPIN_PERSIST_TICKS consecutive ticks
++         * (30 s), not just one 2 s window. Timed static screens wait in the
++         * libgpu VSync loop with every pinned signal still: RE3's violence
++         * warning and Capcom logo (~5 s each, 0x80080600 v_wait) dumped a
++         * spin_freeze on every boot. A real logical hang never resolves, so
++         * it still dumps, 30 s in. */
++        static uint32_t s_spin_ticks = 0;
++        if (wedge_kind == FREEZE_WEDGE_SPIN) {
++            if (++s_spin_ticks < SPIN_PERSIST_TICKS) wedge_kind = 0;
++        } else {
++            s_spin_ticks = 0;
++        }
+     }
+ 
+     if (!s_wedge_classification_paused &&
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
 index b09a29e9..80f60a19 100644
 --- a/runtime/src/gpu.c
