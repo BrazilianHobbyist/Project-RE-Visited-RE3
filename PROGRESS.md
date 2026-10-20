@@ -30,7 +30,7 @@ Resolução interna, 16:9, vibração e texturas com correção de perspectiva: 
 - [x] Commits passam a sair como BrazilianHobbyist.
 - [x] `build.ps1` aplica `patches/re3_door_*.patch` no código gerado (idempotente, falha visível). Testado com `generated/` limpo e já aplicado.
 - [ ] `build.ps1 -Regen` chamava um script inexistente; corrigido para `psxrecomp_cli.py generate`, **não testado**.
-- [ ] Auditar o resto de `patches/psxrecomp_runtime.patch` (cheats, skip de FMV/cutscene, vídeo). Áudio já revisado.
+- [x] Patch do runtime auditado por inteiro (19/10/2026). Revertidos ao upstream: `cdrom.c` (o hack de pular falas tinha mudado o modelo do drive para todas as leituras), ritmo de quadros (o relógio só rodava no netplay), `config_loader`. Removidos: interpolação de geometria morta (gerava `interp_audit.log`), pan & scan dormente (rastreava todo polígono), opção de câmera do *Muppet Monster*, variáveis mortas. Mantidos: FXAA, esticar 16:9 / 4:3 com bordas, recorte dos FMVs, controles, portas, áudio, cheats, vibração.
 - [x] "Controles modernos" reescritos: movimento relativo à tela de verdade (direção da Jill escrita na RAM a partir da câmera), giro com velocidade limitada (`modern_turn_speed`, padrão 90), escadas e empurrar só com "para frente". Testado pelo mantenedor.
 - [x] Launcher revisado (v1.6.0):
   - o instalador só aceita o disco USA (`SLUS_009.23`) e recusa ISO de 2048 bytes, com mensagem clara;
@@ -40,7 +40,7 @@ Resolução interna, 16:9, vibração e texturas com correção de perspectiva: 
   - textos de opções, cheats e créditos corrigidos;
   - `modern_turn_speed` é preservado ao salvar, e falhas de gravação são informadas.
   Testado com automação: instalação com o disco real, rejeição de ISO e de disco PAL falsos, capturas em EN e PT-BR.
-- [ ] Bloco de "câmera no analógico direito" do *Muppet Monster Adventure* esquecido em `controller_pad_buttons` (sobra de outro projeto; inativo).
+- [x] Bloco de "câmera no analógico direito" do *Muppet Monster Adventure* removido (runtime e config_loader).
 - FMV: alguns vídeos só podem ser pulados após certo ponto. Isso é comportamento do jogo original; decidido não contornar.
 - [x] Funções de inventário sem gatilho (`re3_quick_weapon_switch`, `re3_quick_reload`, `re3_combine_ammo_stacks`) removidas.
 - [x] F8 (munição máxima): ramo do fuzil inalcançável corrigido; a mensagem não promete mais "255 balas".
