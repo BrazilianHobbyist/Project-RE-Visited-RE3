@@ -89,6 +89,22 @@ index 96d52cd8..df5e0475 100644
      /* Recursion fingerprint (build-independent GUEST addresses): the func entered
       * when the native stack guard tripped, plus the recent recompiled-function-
       * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
+diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
+index 903f2f97..0369da98 100644
+--- a/runtime/src/debug_server.c
++++ b/runtime/src/debug_server.c
+@@ -5831,6 +5831,11 @@ static void handle_pgxp(int id, const char *json)
+     int cu = json_get_int(json, "culling", -1);
+     if (cu >= 0)
+         pgxp_set_culling(cu != 0);
++    int we = json_get_int(json, "weld", -1);
++    if (we >= 0) {
++        extern void gpu_pgxp_weld_set(int enabled);
++        gpu_pgxp_weld_set(we);
++    }
+     /* tolerance is fractional (sub-pixel), so scan it directly — json_get_int
+      * would truncate 0.5 to 0. */
+     const char *p = strstr(json, "\"tolerance\"");
 diff --git a/runtime/src/dirty_ram_interp.c b/runtime/src/dirty_ram_interp.c
 index afe81bf5..9c960997 100644
 --- a/runtime/src/dirty_ram_interp.c
@@ -146,7 +162,7 @@ index 72ce5e7a..65c0e3f0 100644
      return count;
  }
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index b09a29e9..e5d2d892 100644
+index b09a29e9..80f60a19 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
 @@ -54,6 +54,7 @@
@@ -184,8 +200,58 @@ index b09a29e9..e5d2d892 100644
          ws_nw_extra() <= 0 || gr_backend() != GR_BACKEND_OPENGL ||
          gp0_cmd_source_addr == UINT32_MAX) return 1;
      const uint32_t op = gp0_cmd_buf[0] >> 24;
-@@ -4702,12 +4703,14 @@ uint32_t gpu_texture_correction_hits(void) {
+@@ -4700,14 +4701,64 @@ uint32_t gpu_texture_correction_hits(void) {
+  * is the G1.1 crack the tri_mixed counter measures. The integer delta folds
+  * in draw offsets and any widescreen adjustment already applied by the
   * caller. */
++/* Vertex weld (RE3): models built from rigid parts (head, face, limbs) keep
++ * a duplicate of every seam vertex in each part, each transformed by its own
++ * matrix. On the PS1 both copies snap to the same integer pixel, so the seam
++ * is closed; their precise positions differ by up to a pixel and open a crack
++ * the background shows through (measured on Jill's face: 16 of 130 packet
++ * words drawn at two precise positions in one frame). Within a frame, every
++ * vertex whose packet word (integer x,y) was already drawn reuses the first
++ * position resolved for it, so vertices coincident in the original image stay
++ * coincident. Distinct points sharing a pixel move by under one pixel. */
++#define PGXP_WELD_CAP 16384u
++static int s_pgxp_weld = -1;
++static uint32_t s_weld_gen = 0, s_weld_frame = 0xFFFFFFFFu;
++static uint32_t s_weld_key[PGXP_WELD_CAP], s_weld_stamp[PGXP_WELD_CAP];
++static int32_t  s_weld_x[PGXP_WELD_CAP], s_weld_y[PGXP_WELD_CAP];
++static uint8_t  s_weld_src[PGXP_WELD_CAP];
++void gpu_pgxp_weld_set(int enabled) { s_pgxp_weld = enabled ? 1 : 0; }
++static int pgxp_weld_enabled(void) {
++    if (s_pgxp_weld < 0) {
++        const char *e = getenv("PSX_PGXP_WELD");
++        s_pgxp_weld = (e && e[0] == '0') ? 0 : 1;
++    }
++    return s_pgxp_weld;
++}
++static void pgxp_weld(uint32_t word, int32_t *px, int32_t *py, int *src) {
++    if ((uint32_t)s_frame_count != s_weld_frame) {
++        s_weld_frame = (uint32_t)s_frame_count;
++        if (++s_weld_gen == 0) {
++            memset(s_weld_stamp, 0, sizeof s_weld_stamp);
++            s_weld_gen = 1;
++        }
++    }
++    uint32_t h = (word * 2654435761u) >> 18;          /* 14 bits */
++    for (uint32_t probe = 0; probe < 32u; probe++, h = (h + 1u) & (PGXP_WELD_CAP - 1u)) {
++        if (s_weld_stamp[h] != s_weld_gen) {
++            s_weld_stamp[h] = s_weld_gen;
++            s_weld_key[h] = word;
++            s_weld_x[h] = *px; s_weld_y[h] = *py;
++            s_weld_src[h] = (uint8_t)*src;
++            return;
++        }
++        if (s_weld_key[h] == word) {
++            *px = s_weld_x[h]; *py = s_weld_y[h];
++            *src = s_weld_src[h];
++            return;
++        }
++    }
++}
++
  static void prepare_precise_triangle(int i0, int i1, int i2,
                                       const int32_t vx[3], const int32_t vy[3]) {
 +    const int game_active = fntrace_is_game_started();
@@ -200,7 +266,7 @@ index b09a29e9..e5d2d892 100644
              ws_native_wide_active() &&
              psx_gpu_triangle_oversize(raw_x,raw_y,0,1,2));
      }
-@@ -4749,8 +4752,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+@@ -4749,8 +4800,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
       * feature is on: with them off no depth command is sent per triangle. */
      const int want_depth = gl_renderer_pgxp_render_wanted();
      if (want_depth) gr_set_depth_triangle(0, 0.0f, 0.0f, 0.0f);
@@ -211,7 +277,19 @@ index b09a29e9..e5d2d892 100644
          gr_set_precise_triangle(0, 0,0, 0,0, 0,0);
          return;
      }
-@@ -4830,6 +4833,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+@@ -4773,8 +4824,10 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+         px = raw_x * 65536;
+         py = raw_y * 65536;
+         sz = 0;
+-        if (geometry)
++        if (geometry) {
+             src = pgxp_get_precise_vertex(addr, word, raw_x, raw_y, &px, &py, &sz);
++            if (pgxp_weld_enabled()) pgxp_weld(word, &px, &py, &src);
++        }
+         if (src != PGXP_SRC_NATIVE) {
+             any_precise = 1;
+             n_precise++;
+@@ -4830,6 +4883,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
   * CPU-built sprite with one corner copied from SXY) would otherwise become
   * mixed triangles, so it keeps the shortcut and counts as rect_partial. */
  static int textured_quad_precise_vertices(const int idx[4]) {
@@ -220,7 +298,7 @@ index b09a29e9..e5d2d892 100644
      if (!gte_geometry_correction_enabled() && !s_texture_correction_enabled)
          return 0;
      if (gp0_cmd_source_addr == 0xFFFFFFFFu) return 0;
-@@ -4878,7 +4883,7 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
+@@ -4878,7 +4933,7 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
  static void prepare_texture_triangle(int i0, int i1, int i2) {
      gr_set_perspective_triangle(0, 0.0f, 0.0f, 0.0f);
      s_texcorr.attempts++;
