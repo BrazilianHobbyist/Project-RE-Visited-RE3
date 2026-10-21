@@ -21,6 +21,8 @@
 - **Build reproduzível:** um clone limpo com `build.ps1 -Regen` gera o C idêntico (201/201 arquivos) e o executável e o launcher idênticos byte a byte ao build de desenvolvimento (Clang 22.1.8).
 - **Abertura:** a animação da BIOS é pulada (`bios_hle = true`) e o SHA-256 do disco fica memorizado. O DirectInput vem desligado por padrão.
 
+- **PGXP (patches vindos do MMA, 21/10):** dois patches do runtime foram incorporados: rastreamento de vértices guardados com deslocamento de bits e profundidade do canto recortado de quads pelo plano. Medido na Dark Room com a Jill girando, a parcela de texturas sem profundidade (desenhadas sem correção de perspectiva) caiu de 17,3% para 16,1%. Com a geometria ligada só para medir, os triângulos ficaram em 82% precisos, 17% mistos e 0,8% nativos, sem mudança; `cpu_mode` também não muda nada no RE3. Não houve diferença visual. Os testes `pgxp_test`, `texture_plane_depth_test`, `native_wide_projection_test` e `gpu_textured_dot_nw_shift_exec_test` passam; os testes da GPU precisaram de um stub de `fntrace_is_game_started`. Os ~16% restantes têm outra causa, ainda não investigada.
+
 ## Problemas abertos
 
 - **Correção geométrica (PGXP):** a solda de vértices fechou as fendas grandes nos rostos, mas ainda sobram pequenas falhas (teste do mantenedor, 20/10). Segue desligada por padrão.

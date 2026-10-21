@@ -186,6 +186,31 @@ index 32b03dc9..cb9c64e2 100644
      check_static_discovery_provenance()
      check_static_dispatch_provenance()
      check_owned_direct_call_is_interior()
+diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
+index 09ea52de..71d0583e 100644
+--- a/runtime/CMakeLists.txt
++++ b/runtime/CMakeLists.txt
+@@ -1089,8 +1089,11 @@ if(BUILD_TESTING)
+         src/ws_ui_group.c
+         src/psx_video_timing.c
+         src/gpu_timeline.c)
++    add_executable(texture_plane_depth_test tests/test_texture_plane_depth.c
++        src/psx_video_timing.c
++        src/gpu_timeline.c)
+     foreach(_anchor_test ws_view_anchor ws_view_anchor_gpu native_wide_projection
+-                         gpu_render_pass_provenance)
++                         gpu_render_pass_provenance texture_plane_depth)
+         target_include_directories(${_anchor_test}_test PRIVATE include src)
+         if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+             target_compile_options(${_anchor_test}_test PRIVATE -ffunction-sections -fdata-sections)
+@@ -1106,6 +1109,7 @@ if(BUILD_TESTING)
+     add_test(NAME ws_view_anchor_gpu_test COMMAND ws_view_anchor_gpu_test)
+     add_test(NAME native_wide_projection_test COMMAND native_wide_projection_test)
+     add_test(NAME gpu_render_pass_provenance_test COMMAND gpu_render_pass_provenance_test)
++    add_test(NAME texture_plane_depth_test COMMAND texture_plane_depth_test)
+ 
+     add_executable(ws_repeat_rect_test tests/test_ws_repeat_rect.c)
+     target_include_directories(ws_repeat_rect_test PRIVATE include)
 diff --git a/runtime/include/debug_server.h b/runtime/include/debug_server.h
 index d3033f79..e7945f3f 100644
 --- a/runtime/include/debug_server.h
@@ -215,6 +240,31 @@ index 4a27bdb2..ee263d78 100644
  
  /* Scanline post-process (host display setting). on toggles the effect; strength
   * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
+diff --git a/runtime/include/pgxp.h b/runtime/include/pgxp.h
+index 8b5d4455..ef3199a2 100644
+--- a/runtime/include/pgxp.h
++++ b/runtime/include/pgxp.h
+@@ -398,8 +398,20 @@ typedef struct PGXPTriRecord {
+     int32_t  x16[3];        /* position handed to the rasterizer (16.16,     */
+     int32_t  y16[3];        /* draw offset and widescreen already applied)   */
+     uint16_t z[3];          /* validated GTE depth handed on (0 = none)       */
++    uint8_t  tex;           /* PGXP_TEX_* (texture-correction outcome)        */
+ } PGXPTriRecord;
++/* Texture-correction outcome of a recorded triangle (pgxp_tri_ring "tex"). */
++enum {
++    PGXP_TEX_UNTEXTURED  = 0,
++    PGXP_TEX_ARMED       = 1,  /* drawn with perspective-correct UVs          */
++    PGXP_TEX_NO_DEPTH    = 2,  /* a vertex had no recorded Z, or Z == 0       */
++    PGXP_TEX_NO_SOURCE   = 3,  /* CPU-built primitive, no packet address      */
++    PGXP_TEX_OFF         = 4,  /* texture correction off                      */
++    PGXP_TEX_PLANE_DEPTH = 5   /* armed; one quad corner's Z from the plane   */
++};
+ void pgxp_note_triangle_detail(const PGXPTriRecord *rec);
++/* Annotates the triangle just recorded (same draw) with its texture outcome. */
++void pgxp_note_triangle_texture(uint8_t tex);
+ /* Returns the total number of triangles ever recorded. */
+ uint64_t pgxp_tri_ring(const PGXPTriRecord **ring, uint32_t *cap);
+ 
 diff --git a/runtime/include/window_fullscreen.h b/runtime/include/window_fullscreen.h
 index 2a74dd5c..ae3127dd 100644
 --- a/runtime/include/window_fullscreen.h
@@ -294,7 +344,7 @@ index 96d52cd8..df5e0475 100644
       * when the native stack guard tripped, plus the recent recompiled-function-
       * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 903f2f97..49cd8d9f 100644
+index 903f2f97..ad51422a 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
 @@ -351,6 +351,16 @@ static uint64_t        s_history_count = 0;
@@ -314,6 +364,15 @@ index 903f2f97..49cd8d9f 100644
  /* ---- Watchpoints ---- */
  #define MAX_WATCHPOINTS 8
  typedef struct {
+@@ -5737,7 +5747,7 @@ static void handle_pgxp_tri_ring(int id, const char *json)
+             p += (size_t)snprintf(buf + p, sz - p,
+                 "%s[%u,\"0x%08X\",%d,%d,%d,%d,%u,%u]", i ? "," : "", r->vidx[i], r->word[i],
+                 r->raw_x[i], r->raw_y[i], r->x16[i], r->y16[i], r->src[i], r->z[i]);
+-        p += (size_t)snprintf(buf + p, sz - p, "]}");
++        p += (size_t)snprintf(buf + p, sz - p, "],\"tex\":%u}", r->tex);
+     }
+     snprintf(buf + p, sz - p, "]}");
+     debug_server_send_line(buf);
 @@ -5831,6 +5841,11 @@ static void handle_pgxp(int id, const char *json)
      int cu = json_get_int(json, "culling", -1);
      if (cu >= 0)
@@ -488,7 +547,7 @@ index f3fb810e..69fcd794 100644
  
      if (!s_wedge_classification_paused &&
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index b09a29e9..80f60a19 100644
+index b09a29e9..0b2f56a9 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
 @@ -54,6 +54,7 @@
@@ -624,15 +683,156 @@ index b09a29e9..80f60a19 100644
      if (!gte_geometry_correction_enabled() && !s_texture_correction_enabled)
          return 0;
      if (gp0_cmd_source_addr == 0xFFFFFFFFu) return 0;
-@@ -4878,7 +4933,7 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
+@@ -4872,30 +4927,104 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
+     if (no_depth)      *no_depth      = s_texcorr.no_depth;
+ }
+ 
++/* Depth of a quad corner the GTE never projected, from the other three.
++ *
++ * A game that clips a floor quad against the near plane builds the new corner
++ * with CPU math, so it has no recorded Z, while the quad's other corners do.
++ * Leaving its triangle affine next to perspective-correct neighbours draws a
++ * visible texture break along their shared edge. A quad is planar, and on a
++ * plane 1/Z is an affine function of screen position, so the three known
++ * corners fix the plane and give 1/Z at the fourth. Packet integers are used
++ * for all four corners so they share one coordinate space. Returns 0 (keep the
++ * triangle affine) when the known corners are collinear or the result is not
++ * a plausible depth for this quad. */
++static int quad_plane_depth(const int idx[4], const uint16_t z[4], int missing,
++                            uint16_t *out) {
++    double x[3], y[3], q[3], qmin = 0.0, qmax = 0.0;
++    int n = 0;
++    for (int i = 0; i < 4; i++) {
++        if (i == missing) continue;
++        int32_t rx, ry;
++        parse_vertex(gp0_cmd_buf[idx[i]], &rx, &ry);
++        x[n] = rx; y[n] = ry; q[n] = 1.0 / (double)z[i];
++        if (n == 0 || q[n] < qmin) qmin = q[n];
++        if (n == 0 || q[n] > qmax) qmax = q[n];
++        n++;
++    }
++    int32_t mx, my;
++    parse_vertex(gp0_cmd_buf[idx[missing]], &mx, &my);
++    const double det = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
++    if (det > -1.0 && det < 1.0) return 0;
++    const double a = ((q[1] - q[0]) * (y[2] - y[0]) - (q[2] - q[0]) * (y[1] - y[0])) / det;
++    const double b = ((x[1] - x[0]) * (q[2] - q[0]) - (x[2] - x[0]) * (q[1] - q[0])) / det;
++    const double qm = q[0] + a * ((double)mx - x[0]) + b * ((double)my - y[0]);
++    /* A clipped corner lies on an edge of the quad: its depth cannot be far
++     * outside the known corners'. Reject extrapolations past 8x. */
++    if (!(qm > qmin / 8.0) || !(qm < qmax * 8.0)) return 0;
++    const double zm = 1.0 / qm;
++    if (zm < 1.0 || zm > 65535.0) return 0;
++    *out = (uint16_t)(zm + 0.5);
++    return 1;
++}
++
+ /* Enable perspective UVs only when every position word came from an exact
+  * SWC2 projection store at that same DMA packet address. This preserves the
+- * association through ordering-table reordering and rejects CPU-built UI. */
++ * association through ordering-table reordering and rejects CPU-built UI.
++ * For one half of a quad, `iq` is the packet index of the quad's other corner
++ * (-1 for a plain triangle): with three corners projected, the fourth's depth
++ * comes from their plane (quad_plane_depth). */
++static void prepare_texture_triangle_q(int i0, int i1, int i2, int iq);
  static void prepare_texture_triangle(int i0, int i1, int i2) {
++    prepare_texture_triangle_q(i0, i1, i2, -1);
++}
++
++static void prepare_texture_triangle_q(int i0, int i1, int i2, int iq) {
      gr_set_perspective_triangle(0, 0.0f, 0.0f, 0.0f);
      s_texcorr.attempts++;
 -    if (!s_texture_correction_enabled) { s_texcorr.no_correction++; return; }
-+    if (!fntrace_is_game_started() || !s_texture_correction_enabled) { s_texcorr.no_correction++; return; }
-     if (gp0_cmd_source_addr == 0xFFFFFFFFu) { s_texcorr.no_source++; return; }
-     int indices[3] = { i0, i1, i2 };
-     uint16_t z[3];
+-    if (gp0_cmd_source_addr == 0xFFFFFFFFu) { s_texcorr.no_source++; return; }
+-    int indices[3] = { i0, i1, i2 };
+-    uint16_t z[3];
+-    for (int i = 0; i < 3; i++) {
++    if (!fntrace_is_game_started() || !s_texture_correction_enabled) {
++        s_texcorr.no_correction++;
++        pgxp_note_triangle_texture(PGXP_TEX_OFF);
++        return;
++    }
++    if (gp0_cmd_source_addr == 0xFFFFFFFFu) {
++        s_texcorr.no_source++;
++        pgxp_note_triangle_texture(PGXP_TEX_NO_SOURCE);
++        return;
++    }
++    const int nv = iq >= 0 ? 4 : 3;
++    int indices[4] = { i0, i1, i2, iq };
++    uint16_t z[4] = { 0, 0, 0, 0 };
++    int missing = -1, n_missing = 0;
++    for (int i = 0; i < nv; i++) {
+         uint32_t addr = GPU_RAM_KEY((gp0_cmd_source_addr + (uint32_t)indices[i] * 4u));
+         if (!gte_precision_load_word(addr, gp0_cmd_buf[indices[i]], NULL, NULL, &z[i]) ||
+             z[i] == 0) {
+-            s_texcorr.no_depth++;
+-            return;
++            z[i] = 0;
++            missing = i;
++            n_missing++;
+         }
+     }
++    uint8_t outcome = PGXP_TEX_ARMED;
++    if (n_missing == 1 && nv == 4 && missing < 3 &&
++        quad_plane_depth(indices, z, missing, &z[missing])) {
++        outcome = PGXP_TEX_PLANE_DEPTH;
++    } else if (n_missing > 0 && !(n_missing == 1 && missing == 3)) {
++        /* (Only the other half's corner missing leaves this half whole.) */
++        s_texcorr.no_depth++;
++        pgxp_note_triangle_texture(PGXP_TEX_NO_DEPTH);
++        return;
++    }
+     float q[3] = { 1.0f / (float)z[0], 1.0f / (float)z[1], 1.0f / (float)z[2] };
+     float qmax = q[0];
+     if (q[1] > qmax) qmax = q[1];
+     if (q[2] > qmax) qmax = q[2];
+-    if (qmax <= 0.0f) { s_texcorr.no_depth++; return; }
++    if (qmax <= 0.0f) {
++        s_texcorr.no_depth++;
++        pgxp_note_triangle_texture(PGXP_TEX_NO_DEPTH);
++        return;
++    }
+     s_texcorr.armed++;
++    pgxp_note_triangle_texture(outcome);
+     gr_set_perspective_triangle(1, q[0] / qmax, q[1] / qmax, q[2] / qmax);
+ }
+ 
+@@ -5498,7 +5627,7 @@ static void gp0_exec_textured_quad(void) {
+         int32_t tx[3] = { vx[0], vx[1], vx[2] };
+         int32_t ty[3] = { vy[0], vy[1], vy[2] };
+         prepare_precise_triangle(1, 3, 5, tx, ty);
+-        prepare_texture_triangle(1, 3, 5);
++        prepare_texture_triangle_q(1, 3, 5, 7);
+         gr_draw_textured_triangle(vx[0], vy[0], u[0], v[0],
+                                   vx[1], vy[1], u[1], v[1],
+                                   vx[2], vy[2], u[2], v[2],
+@@ -5508,7 +5637,7 @@ static void gp0_exec_textured_quad(void) {
+         int32_t tx[3] = { vx[2], vx[1], vx[3] };
+         int32_t ty[3] = { vy[2], vy[1], vy[3] };
+         prepare_precise_triangle(5, 3, 7, tx, ty);
+-        prepare_texture_triangle(5, 3, 7);
++        prepare_texture_triangle_q(5, 3, 7, 1);
+         gr_draw_textured_triangle(vx[2], vy[2], u[2], v[2],
+                                   vx[1], vy[1], u[1], v[1],
+                                   vx[3], vy[3], u[3], v[3],
+@@ -5627,7 +5756,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+         int32_t tx[3] = { vx[0], vx[1], vx[2] };
+         int32_t ty[3] = { vy[0], vy[1], vy[2] };
+         prepare_precise_triangle(1, 4, 7, tx, ty);
+-        prepare_texture_triangle(1, 4, 7);
++        prepare_texture_triangle_q(1, 4, 7, 10);
+         gr_draw_shaded_textured_triangle(vx[0], vy[0], u[0], v[0], c[0],
+                                          vx[1], vy[1], u[1], v[1], c[1],
+                                          vx[2], vy[2], u[2], v[2], c[2],
+@@ -5637,7 +5766,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+         int32_t tx[3] = { vx[2], vx[1], vx[3] };
+         int32_t ty[3] = { vy[2], vy[1], vy[3] };
+         prepare_precise_triangle(7, 4, 10, tx, ty);
+-        prepare_texture_triangle(7, 4, 10);
++        prepare_texture_triangle_q(7, 4, 10, 1);
+         gr_draw_shaded_textured_triangle(vx[2], vy[2], u[2], v[2], c[2],
+                                          vx[1], vy[1], u[1], v[1], c[1],
+                                          vx[3], vy[3], u[3], v[3], c[3],
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
 index 331ad862..ba519943 100644
 --- a/runtime/src/gpu_gl_renderer.c
@@ -2212,6 +2412,418 @@ index b43d46cf..d094a776 100644
  #endif
          if (!hashed && s.cached_prepare) return false;
          if (!hashed) digest.clear();
+diff --git a/runtime/src/pgxp.cpp b/runtime/src/pgxp.cpp
+index df92faf0..2a423724 100644
+--- a/runtime/src/pgxp.cpp
++++ b/runtime/src/pgxp.cpp
+@@ -64,6 +64,17 @@ enum {
+     PGXP_F_DX = 1u << 4,
+     PGXP_F_DY = 1u << 5,
+     PGXP_F_VXY = PGXP_F_VX | PGXP_F_VY,
++    /* Packed-shift tier (exact bit movement: both tiers). Engines park a projected SXY word
++     * shifted left by a few bits with clip flags ORed into the freed low
++     * bits ((SXY << k) | flags), and shift it back (SRA k) when they build
++     * the packet. While parked the word's halves are not coordinates, so
++     * VX/VY/DX/DY/VZ move into the saved bits and every half consumer sees
++     * an untracked word; x16/y16/z still describe the SXY word that bits
++     * k..31 hold. Only SRA k by the same amount restores them. */
++    PGXP_F_SHIFTED = 1u << 6,
++    PGXP_SHIFT_POS = 7,                       /* k (1..15) in bits 7..10     */
++    PGXP_SHIFT_MASK = 0xFu << PGXP_SHIFT_POS,
++    PGXP_SAVED_POS = 11,                      /* VX VY VZ DX DY in 11..15    */
+ };
+ 
+ struct PGXPValue {
+@@ -266,6 +277,7 @@ extern "C" void pgxp_note_triangle(int precise) {
+ 
+ static PGXPTriRecord s_tri_ring[PGXP_TRI_RING_CAP];
+ static uint64_t      s_tri_seq = 0;
++static int           s_tri_open = 0;   /* last record awaits its texture outcome */
+ 
+ static int ck_in_pass(void);                  /* render-pass checkpoint open */
+ 
+@@ -274,6 +286,17 @@ extern "C" void pgxp_note_triangle_detail(const PGXPTriRecord *rec) {
+     *r = *rec;
+     r->seq = s_tri_seq++;
+     r->pass = ck_in_pass() ? 1u : 0u;
++    r->tex = PGXP_TEX_UNTEXTURED;
++    s_tri_open = 1;
++}
++
++/* The texture outcome belongs to the triangle recorded by the same draw.
++ * With geometry correction off nothing is recorded, so the latch keeps the
++ * outcome from landing on an older triangle. */
++extern "C" void pgxp_note_triangle_texture(uint8_t tex) {
++    if (!s_tri_open) return;
++    s_tri_open = 0;
++    s_tri_ring[(s_tri_seq - 1) % PGXP_TRI_RING_CAP].tex = tex;
+ }
+ 
+ extern "C" uint64_t pgxp_tri_ring(const PGXPTriRecord **ring, uint32_t *cap) {
+@@ -548,9 +571,19 @@ static inline int pv_live(const PGXPValue *pv) {
+ 
+ /* Drop whichever tracked halves no longer match the actual guest word; the
+  * depth belongs to the whole vertex, so any half going stale kills it too. */
++static inline uint32_t pv_shift(const PGXPValue *pv) {
++    return (pv->flags & PGXP_F_SHIFTED) ? (pv->flags & PGXP_SHIFT_MASK) >> PGXP_SHIFT_POS : 0u;
++}
++
+ static inline void pv_validate(PGXPValue *pv, uint32_t actual) {
+     if (pv->gen != s_gen) return;
+     uint32_t diff = pv->value ^ actual;
++    if (const uint32_t k = pv_shift(pv)) {
++        /* A parked word survives changes to its flag bits only. */
++        if (diff >> k) pv->flags = 0;
++        pv->value = actual;
++        return;
++    }
+     if (diff) pv->flags &= (uint16_t)~PGXP_F_PROJECTION;
+     if ((pv->flags & PGXP_F_VX) && (diff & 0x0000FFFFu))
+         pv->flags &= (uint16_t)~(PGXP_F_VX | PGXP_F_DX | PGXP_F_VZ);
+@@ -761,7 +794,8 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
+     case 0x29: {                               /* SH                          */
+         int hi_half = (addr >> 1) & 1;
+         uint32_t half = value & 0xFFFFu;
+-        if (dst->gen != s_gen) pv_reset(dst, half << (hi_half ? 16 : 0));
++        if (dst->gen != s_gen || (dst->flags & PGXP_F_SHIFTED))
++            pv_reset(dst, half << (hi_half ? 16 : 0));
+         /* Patch the stored half into the tracked word; the other half's
+          * validity (if any) survives untouched. Depth never survives a
+          * half-write — the vertex it described no longer exists whole. */
+@@ -793,6 +827,7 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
+     }
+     case 0x28: {                               /* SB                          */
+         if (dst->gen != s_gen) return;         /* nothing tracked: stay dead  */
++        if (dst->flags & PGXP_F_SHIFTED) { pv_kill(dst); return; }
+         uint32_t shift = (addr & 3u) * 8u;
+         dst->value = (dst->value & ~(0xFFu << shift)) |
+                      ((value & 0xFFu) << shift);
+@@ -1048,8 +1083,71 @@ static inline void keep_depth(PGXPValue *dst, const PGXPValue *p,
+     }
+ }
+ 
++/* Packed-shift tier helpers (see PGXP_F_SHIFTED). The halves a parked word
++ * keeps are saved as VX VY VZ DX DY: bits 0, 1, 2, 4, 5 of flags. */
++static inline uint16_t shift_save(uint16_t f) {
++    return (uint16_t)(((f & 7u) | ((f >> 1) & 0x18u)) << PGXP_SAVED_POS);
++}
++static inline uint16_t shift_restore(uint16_t f) {
++    const uint16_t v = (uint16_t)(f >> PGXP_SAVED_POS);
++    return (uint16_t)((v & 7u) | ((v & 0x18u) << 1));
++}
++
++/* SLL k (1..15) of a whole tracked vertex word that round-trips (SRA k of
++ * the result gives the word back): park its shadow in the result. */
++static int shift_park(PGXPValue *dst, const PGXPValue *src, uint32_t s1,
++                      uint32_t result, uint32_t k) {
++    if (k == 0 || k >= 16 || !src || src->gen != s_gen) return 0;
++    if (src->flags & PGXP_F_SHIFTED) return 0;
++    if (!comp_tracked(src, s1, 0) || !comp_tracked(src, s1, 1)) return 0;
++    if (((int32_t)result >> k) != (int32_t)s1) return 0;
++    *dst = *src;
++    dst->value = result;
++    dst->flags = (uint16_t)(PGXP_F_SHIFTED | (k << PGXP_SHIFT_POS) |
++                            shift_save(src->flags & (PGXP_F_VXY | PGXP_F_VZ |
++                                                     PGXP_F_DX | PGXP_F_DY)));
++    return 1;
++}
++
++/* SRA k of a word parked by SLL k: the shifted-out bits were the flags, the
++ * result is the vertex word again. Each restored half must still be the
++ * result's half (half_exact), or it is dropped. */
++static int shift_unpark(PGXPValue *dst, const PGXPValue *src, uint32_t s1,
++                        uint32_t result, uint32_t k) {
++    if (!src || src->gen != s_gen || pv_shift(src) != k || src->value != s1) return 0;
++    if (((int32_t)s1 >> k) != (int32_t)result) return 0;
++    PGXPValue v = *src;
++    v.value = result;
++    v.flags = shift_restore(src->flags);
++    pv_reset(dst, result);
++    for (int hi = 0; hi < 2; hi++) {
++        const uint16_t want = hi ? PGXP_F_VY : PGXP_F_VX;
++        if (!(v.flags & want) || !half_exact(&v, result, hi)) continue;
++        if (hi) dst->y16 = v.y16; else dst->x16 = v.x16;
++        dst->flags |= (uint16_t)(v.flags & (want | (hi ? PGXP_F_DY : PGXP_F_DX)));
++    }
++    if ((dst->flags & PGXP_F_VXY) == PGXP_F_VXY && (v.flags & PGXP_F_VZ)) {
++        dst->z = v.z;
++        dst->flags |= PGXP_F_VZ;
++    }
++    return 1;
++}
++
++/* AND / OR / XOR on a parked word that leave bits k..31 as they were (the
++ * clip-flag ORs into the low bits) keep it parked. */
++static int shift_keep(PGXPValue *dst, const PGXPValue *src, uint32_t sval,
++                      uint32_t result) {
++    const uint32_t k = src ? pv_shift(src) : 0u;
++    if (!k || src->gen != s_gen || src->value != sval || ((sval ^ result) >> k)) return 0;
++    *dst = *src;
++    dst->value = result;
++    return 1;
++}
++
+ static void alu_bitwise(PGXPValue *dst, const PGXPValue *a, uint32_t s1,
+                         const PGXPValue *b, uint32_t s2, uint32_t result) {
++    if (shift_keep(dst, a, s1, result) || (b && shift_keep(dst, b, s2, result)))
++        return;
+     pv_reset(dst, result);
+     /* Prefer the operand that is a whole vertex, so a vertex ORed with flags
+      * keeps its depth even when the flag word happens to share a field. */
+@@ -1215,6 +1313,13 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+             uint32_t sh = (funct < 4) ? f_shamt(instr) : (s2 & 31u);
+             const PGXPValue *src = gpr_shadow(rt, &ca);
+             int right = (funct & 3u) != 0;
++            if (sh != 16) {                    /* exact: both tiers           */
++                PGXPValue shifted;
++                const int done = right ? (funct & 3u) == 3u &&
++                                         shift_unpark(&shifted, src, s1, result, sh)
++                                       : shift_park(&shifted, src, s1, result, sh);
++                if (done) { *dst = shifted; return; }
++            }
+             pv_reset(dst, result);
+             if (!s_cpu_mode || sh != 16 || src->gen != s_gen)
+                 return;
+@@ -1341,7 +1446,8 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+         alu_bitwise(dst, a, s1, nullptr, imm, result);
+         /* ORI into a zero low half writes an exact constant there (the
+          * lui/ori and repack idioms). */
+-        if (op == 0x0D && !(dst->flags & PGXP_F_VX) && (s1 & 0xFFFFu) == 0) {
++        if (op == 0x0D && !(dst->flags & (PGXP_F_VX | PGXP_F_SHIFTED)) &&
++            (s1 & 0xFFFFu) == 0) {
+             dst->x16 = ((int32_t)(int16_t)imm) << 16;
+             dst->flags |= PGXP_F_VX;
+         }
+diff --git a/runtime/tests/gpu_exec_stubs.inc b/runtime/tests/gpu_exec_stubs.inc
+index 249ff1ed..21173d69 100644
+--- a/runtime/tests/gpu_exec_stubs.inc
++++ b/runtime/tests/gpu_exec_stubs.inc
+@@ -170,6 +170,9 @@ int pgxp_probe_precise_vertex(uint32_t addr, uint32_t packet_word,
+ }
+ void pgxp_note_triangle(int precise) { (void)precise; }
+ void pgxp_note_triangle_detail(const PGXPTriRecord *rec) { (void)rec; }
++void pgxp_note_triangle_texture(uint8_t tex) { (void)tex; }
++/* RE3 gates GPU enhancements on game entry; these fixtures model gameplay. */
++int fntrace_is_game_started(void) { return 1; }
+ void pgxp_note_rect_bypass(int all_precise) {
+     if (all_precise) g_test_rect_bypass++;
+     else             g_test_rect_partial++;
+@@ -286,8 +289,12 @@ void gr_set_precise_triangle(int enabled, int32_t x0, int32_t y0,
+     memcpy(fixture_precise_triangle.xy, xy, sizeof xy);
+     if (enabled) g_test_precise_triangles++;
+ }
++static struct { int enabled; float q[3]; } fixture_perspective_triangle;
+ void gr_set_perspective_triangle(int enabled, float q0, float q1, float q2) {
+-    (void)enabled; (void)q0; (void)q1; (void)q2;
++    fixture_perspective_triangle.enabled = enabled;
++    fixture_perspective_triangle.q[0] = q0;
++    fixture_perspective_triangle.q[1] = q1;
++    fixture_perspective_triangle.q[2] = q2;
+ }
+ void gr_set_depth_triangle(int enabled, float z0, float z1, float z2) {
+     (void)enabled; (void)z0; (void)z1; (void)z2;
+diff --git a/runtime/tests/test_gpu_gp0_history_guard.py b/runtime/tests/test_gpu_gp0_history_guard.py
+index db644c3e..b08fa222 100644
+--- a/runtime/tests/test_gpu_gp0_history_guard.py
++++ b/runtime/tests/test_gpu_gp0_history_guard.py
+@@ -326,6 +326,7 @@ void pgxp_invalidate_all(void) {}
+ void pgxp_invalidate_word(uint32_t addr) { (void)addr; }
+ void pgxp_note_triangle(int precise) { (void)precise; }
+ void pgxp_note_triangle_detail(const PGXPTriRecord *rec) { (void)rec; }
++void pgxp_note_triangle_texture(uint8_t tex) { (void)tex; }
+ void pgxp_note_rect_bypass(int all_precise) { (void)all_precise; }
+ int pgxp_probe_precise_vertex(uint32_t addr, uint32_t packet_word,
+                               int32_t int_x, int32_t int_y)
+diff --git a/runtime/tests/test_pgxp.cpp b/runtime/tests/test_pgxp.cpp
+index 6128e68f..120878b2 100644
+--- a/runtime/tests/test_pgxp.cpp
++++ b/runtime/tests/test_pgxp.cpp
+@@ -991,6 +991,83 @@ int main(void) {
+         pgxp_set_tolerance(-1.0f);
+     }
+ 
++    /* --- packed shift (Muppet Monster Adventure 0x80019034 / 0x80019150):
++     *   mfc2 s1,SXY0; sll v1,s1,4; ori v1,v1,1; ori v1,v1,2; sw v1,0(t2)
++     *   ... lw fp,0(t4); sra fp,fp,4; sw fp,8(packet)
++     * The vertex table holds (SXY << 4) | clip flags. Exact bit movement, so
++     * it must survive in both tiers, depth included. (The test reads SXY2,
++     * where pgxp_gte_push_sxy lands; the game reads SXY0 after RTPT.) --- */
++    {
++        const uint32_t P4 = PACKED << 4;
++        const uint32_t TBL = 0x800B9204u;
++        int32_t x, y; uint16_t z;
++        pgxp_gte_push_sxy(X16, Y16, SZ3, PACKED);
++        psx_pgxp_cop2(nullptr, MFC2(17, 14), PACKED, 0);
++        psx_pgxp_alu(nullptr, SLL(17, 3, 4), P4, PACKED, 4u);
++        psx_pgxp_alu(nullptr, ORI(3, 3, 1), P4 | 1u, P4, 1u);
++        psx_pgxp_alu(nullptr, ORI(3, 3, 2), P4 | 3u, P4 | 1u, 2u);
++        psx_pgxp_store(nullptr, SW(10, 3), TBL, P4 | 3u);
++        /* parked: the table word itself is not a vertex */
++        CHECK(lookup(TBL, P4 | 3u, 0, 0, nullptr, nullptr, nullptr) ==
++              PGXP_SRC_NATIVE);
++        psx_pgxp_load(nullptr, LW(12, 30), TBL, P4 | 3u);
++        psx_pgxp_alu(nullptr, SRA(30, 30, 4), PACKED, P4 | 3u, 4u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B, PACKED);
++        CHECK(lookup(ADDR_B, PACKED, 160, 80, &x, &y, &z) == PGXP_SRC_DATAFLOW);
++        CHECK(x == X16 && y == Y16 && z == SZ3);
++
++        /* negative Y round-trips through the arithmetic shift */
++        const uint32_t NEG = (0xFFF6u << 16) | 160u;           /* y = -10 */
++        pgxp_gte_push_sxy(X16, (int32_t)(-10 * 65536) + 0x4000, SZ3, NEG);
++        psx_pgxp_cop2(nullptr, MFC2(17, 14), NEG, 0);
++        psx_pgxp_alu(nullptr, SLL(17, 3, 4), NEG << 4, NEG, 4u);
++        psx_pgxp_alu(nullptr, SRA(3, 30, 4), NEG, NEG << 4, 4u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B, NEG);
++        CHECK(lookup(ADDR_B, NEG, 160, -10, &x, &y, nullptr) == PGXP_SRC_DATAFLOW);
++        CHECK(y == (int32_t)(-10 * 65536) + 0x4000);
++
++        /* a write above the flag bits, a different shift back, or a logical
++         * shift of a negative word: the vertex is gone */
++        pgxp_gte_push_sxy(X16, Y16, SZ3, PACKED);
++        psx_pgxp_cop2(nullptr, MFC2(17, 14), PACKED, 0);
++        psx_pgxp_alu(nullptr, SLL(17, 3, 4), P4, PACKED, 4u);
++        psx_pgxp_alu(nullptr, ORI(3, 4, 0x10), P4 | 0x10u, P4, 0x10u);
++        psx_pgxp_alu(nullptr, SRA(4, 30, 4), PACKED | 1u, P4 | 0x10u, 4u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B, PACKED | 1u);
++        CHECK(lookup(ADDR_B, PACKED | 1u, 161, 80, nullptr, nullptr, nullptr) ==
++              PGXP_SRC_NATIVE);
++        psx_pgxp_alu(nullptr, SRA(3, 30, 3), P4 >> 3, P4, 3u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B, P4 >> 3);
++        CHECK(lookup(ADDR_B, P4 >> 3, 0, 0, nullptr, nullptr, nullptr) ==
++              PGXP_SRC_NATIVE);
++
++        /* a Y the shift overflows never parks */
++        const uint32_t BIG = (0x0900u << 16) | 160u;
++        pgxp_gte_push_sxy(X16, 0x0900 << 16, SZ3, BIG);
++        psx_pgxp_cop2(nullptr, MFC2(17, 14), BIG, 0);
++        psx_pgxp_alu(nullptr, SLL(17, 3, 4), BIG << 4, BIG, 4u);
++        psx_pgxp_alu(nullptr, SRA(3, 30, 4), (uint32_t)((int32_t)(BIG << 4) >> 4),
++                     BIG << 4, 4u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B,
++                       (uint32_t)((int32_t)(BIG << 4) >> 4));
++        CHECK(lookup(ADDR_B, (uint32_t)((int32_t)(BIG << 4) >> 4), 160, 0,
++                     nullptr, nullptr, nullptr) == PGXP_SRC_NATIVE);
++
++        /* SH into a parked word forgets it */
++        pgxp_gte_push_sxy(X16, Y16, SZ3, PACKED);
++        psx_pgxp_cop2(nullptr, MFC2(17, 14), PACKED, 0);
++        psx_pgxp_alu(nullptr, SLL(17, 3, 4), P4, PACKED, 4u);
++        psx_pgxp_store(nullptr, SW(10, 3), TBL, P4);
++        psx_pgxp_store(nullptr, SH(10, 0), TBL, 0u);
++        psx_pgxp_load(nullptr, LW(12, 30), TBL, P4 & 0xFFFF0000u);
++        psx_pgxp_alu(nullptr, SRA(30, 30, 4), (uint32_t)((int32_t)(P4 & 0xFFFF0000u) >> 4),
++                     P4 & 0xFFFF0000u, 4u);
++        psx_pgxp_store(nullptr, SW(12, 30), ADDR_B,
++                       (uint32_t)((int32_t)(P4 & 0xFFFF0000u) >> 4));
++        CHECK(lookup(ADDR_B, (uint32_t)((int32_t)(P4 & 0xFFFF0000u) >> 4), 0, 0,
++                     nullptr, nullptr, nullptr) == PGXP_SRC_NATIVE);
++    }
++
+     /* --- stats sanity: dataflow hits were counted --- */
+     {
+         PGXPStats st;
+diff --git a/runtime/tests/test_texture_plane_depth.c b/runtime/tests/test_texture_plane_depth.c
+new file mode 100644
+index 00000000..4a437f02
+--- /dev/null
++++ b/runtime/tests/test_texture_plane_depth.c
+@@ -0,0 +1,96 @@
++/* A floor quad clipped against the near plane gets one corner built by CPU
++ * math, with no recorded Z. Its triangle must still be drawn perspective-
++ * correct, with that corner's depth taken from the plane of the other three
++ * (1/Z is affine in screen space on a plane); otherwise it draws affine beside
++ * perspective-correct neighbours and the texture breaks along their edge.
++ * Execute the GPU texture preparation path and check the recovered depth and
++ * every case that must stay affine. */
++#define main gpu_fixture_main
++#include "test_gpu_textured_dot_nw_shift_exec.c"
++#undef main
++#include <math.h>
++
++static const int idx[4] = { 1, 4, 7, 10 };
++
++/* Quad corners on screen; the plane is 1/Z = 0.001 + 0.00001 * y. */
++static const int32_t qx[4] = { 100, 200, 100, 200 };
++static const int32_t qy[4] = { 100, 100, 200, 200 };
++static uint16_t plane_z(int32_t y) { return (uint16_t)(1.0 / (0.001 + 0.00001 * y) + 0.5); }
++
++static void setup_quad(int missing_mask) {
++    reset_gpu_state_for_test();
++    memset(fixture_projections, 0, sizeof fixture_projections);
++    memset(&fixture_perspective_triangle, 0, sizeof fixture_perspective_triangle);
++    s_texture_correction_enabled = 1;
++    gp0_cmd_source_addr = 0x10004u;
++    for (int i = 0; i < 4; i++) {
++        uint32_t word = pack_vertex((int16_t)qx[i], (int16_t)qy[i]);
++        gp0_cmd_buf[idx[i]] = word;
++        fixture_projections[i].addr = gp0_cmd_source_addr + (uint32_t)idx[i] * 4u;
++        fixture_projections[i].word = word;
++        fixture_projections[i].x16 = qx[i] * 65536;
++        fixture_projections[i].y16 = qy[i] * 65536;
++        fixture_projections[i].z = (missing_mask >> i) & 1 ? 0 : plane_z(qy[i]);
++        fixture_projections[i].valid = 1;
++    }
++}
++
++/* q ratios handed to the rasterizer for triangle (7,4,10): corner order
++ * idx[2], idx[1], idx[3]. */
++static void expect_plane_ratios(void) {
++    const double q[3] = { 1.0 / plane_z(qy[2]), 1.0 / plane_z(qy[1]),
++                          1.0 / plane_z(qy[3]) };
++    double qmax = q[0];
++    for (int i = 1; i < 3; i++) if (q[i] > qmax) qmax = q[i];
++    for (int i = 0; i < 3; i++)
++        assert(fabs(fixture_perspective_triangle.q[i] - q[i] / qmax) < 0.002);
++}
++
++int main(void) {
++    /* All four corners projected: plain perspective. */
++    setup_quad(0);
++    prepare_texture_triangle_q(7, 4, 10, 1);
++    assert(fixture_perspective_triangle.enabled);
++    expect_plane_ratios();
++
++    /* The clipped corner (10) has no Z: recovered from corners 1, 4, 7. */
++    setup_quad(1 << 3);
++    uint64_t no_depth_before = s_texcorr.no_depth;
++    prepare_texture_triangle_q(7, 4, 10, 1);
++    assert(fixture_perspective_triangle.enabled);
++    assert(s_texcorr.no_depth == no_depth_before);
++    expect_plane_ratios();
++
++    /* The other half does not use corner 10: unaffected either way. */
++    prepare_texture_triangle_q(1, 4, 7, 10);
++    assert(fixture_perspective_triangle.enabled);
++
++    /* Two corners without Z leave only two points: no plane, stays affine. */
++    setup_quad((1 << 3) | (1 << 2));
++    prepare_texture_triangle_q(7, 4, 10, 1);
++    assert(!fixture_perspective_triangle.enabled);
++
++    /* A plain triangle has no fourth corner to recover from. */
++    setup_quad(1 << 3);
++    prepare_texture_triangle(7, 4, 10);
++    assert(!fixture_perspective_triangle.enabled);
++
++    /* Collinear known corners do not define a plane. */
++    setup_quad(1 << 3);
++    for (int i = 0; i < 3; i++) {
++        uint32_t word = pack_vertex((int16_t)(100 + 50 * i), (int16_t)(100 + 50 * i));
++        gp0_cmd_buf[idx[i]] = word;
++        fixture_projections[i].word = word;
++    }
++    prepare_texture_triangle_q(7, 4, 10, 1);
++    assert(!fixture_perspective_triangle.enabled);
++
++    /* A corner whose plane depth would lie behind the camera is rejected. */
++    setup_quad(1 << 3);
++    gp0_cmd_buf[idx[3]] = pack_vertex(200, -1000);
++    prepare_texture_triangle_q(7, 4, 10, 1);
++    assert(!fixture_perspective_triangle.enabled);
++
++    puts("texture_plane_depth_test: ok");
++    return 0;
++}
 diff --git a/tools/compile_overlays.py b/tools/compile_overlays.py
 index ad363d5c..46d183c7 100644
 --- a/tools/compile_overlays.py
