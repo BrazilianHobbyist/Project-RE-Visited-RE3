@@ -41,6 +41,8 @@ Copie `<tmp>\stage\cache\...\<etiqueta>` para `ResidentEvil3-PCPort\cache\SLUS-0
 
 `tools\manage_project.ps1 -Action consolidate` copia o build para `ResidentEvil3-PCPort`. Teste pelo launcher daquela pasta. Uma funcionalidade só é "funciona" no README depois de testada no jogo.
 
+Para investigar com o servidor de debug (TCP 4370), use `.\tools\run_debug.ps1` (`-Build` recompila o `build_dbg`). O build de release não tem servidor. Veja `docs\WIDESCREEN_PLAYTEST.md`.
+
 ## Release
 
 1. `tools\manage_project.ps1 -Action audit`: confira git limpo e build igual ao da pasta de execução.

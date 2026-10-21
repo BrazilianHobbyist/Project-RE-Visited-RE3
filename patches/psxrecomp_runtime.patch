@@ -186,6 +186,22 @@ index 32b03dc9..cb9c64e2 100644
      check_static_discovery_provenance()
      check_static_dispatch_provenance()
      check_owned_direct_call_is_interior()
+diff --git a/runtime/include/debug_server.h b/runtime/include/debug_server.h
+index d3033f79..e7945f3f 100644
+--- a/runtime/include/debug_server.h
++++ b/runtime/include/debug_server.h
+@@ -108,6 +108,11 @@ uint32_t debug_server_get_tcp_drops(void);
+ /* Record the current frame's state into the ring buffer.
+  * Call after vblank processing. */
+ void debug_server_record_frame(void);
++
++/* Title-specific per-frame data (up to 32 bytes) for the frame record's
++ * game_data field. The next debug_server_record_frame stores it, then it is
++ * cleared, so a frame where the title wrote nothing records zeros. */
++void debug_server_set_game_data(const void *data, int len);
+ /* Operator capture mark (hotkey, present thread): freeze the always-on display
+  * and GP0 rings at this instant and save the presented native-wide frame, so a
+  * transient glitch can be read back afterwards over TCP (capture_mark). */
 diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
 index 4a27bdb2..ee263d78 100644
 --- a/runtime/include/gpu_gl_renderer.h
@@ -278,10 +294,27 @@ index 96d52cd8..df5e0475 100644
       * when the native stack guard tripped, plus the recent recompiled-function-
       * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 903f2f97..0369da98 100644
+index 903f2f97..49cd8d9f 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -5831,6 +5831,11 @@ static void handle_pgxp(int id, const char *json)
+@@ -351,6 +351,16 @@ static uint64_t        s_history_count = 0;
+ static uint32_t s_snapshot_addrs[RAM_SNAPSHOT_REGIONS];
+ static int      s_snapshot_active[RAM_SNAPSHOT_REGIONS];
+ 
++/* ---- Title-specific per-frame data (debug_server_set_game_data) ---- */
++static uint8_t  s_game_data[32];
++
++void debug_server_set_game_data(const void *data, int len)
++{
++    if (!data || len <= 0) return;
++    if (len > (int)sizeof(s_game_data)) len = (int)sizeof(s_game_data);
++    memcpy(s_game_data, data, (size_t)len);
++}
++
+ /* ---- Watchpoints ---- */
+ #define MAX_WATCHPOINTS 8
+ typedef struct {
+@@ -5831,6 +5841,11 @@ static void handle_pgxp(int id, const char *json)
      int cu = json_get_int(json, "culling", -1);
      if (cu >= 0)
          pgxp_set_culling(cu != 0);
@@ -293,6 +326,80 @@ index 903f2f97..0369da98 100644
      /* tolerance is fractional (sub-pixel), so scan it directly — json_get_int
       * would truncate 0.5 to 0. */
      const char *p = strstr(json, "\"tolerance\"");
+@@ -10104,6 +10119,53 @@ static void handle_set_snapshot(int id, const char *json)
+     send_fmt("{\"id\":%d,\"ok\":true,\"slot\":%d,\"addr\":\"0x%08X\"}", id, slot, addr);
+ }
+ 
++/* frame_history_dump start=<f0> end=<f1> [out=path]: write the frame-history
++ * records in [f0,f1] to a CSV (one row per frame still in the ring): pad
++ * buttons, the title's game_data and the four snapshot regions, all as hex.
++ * Large ranges must not ride TCP, hence the file (like ws_census). */
++static void handle_frame_history_dump(int id, const char *json)
++{
++    if (!s_frame_history) { send_err(id, "ring buffer not allocated"); return; }
++    int f0 = json_get_int(json, "start", -1);
++    int f1 = json_get_int(json, "end", -1);
++    if (f0 < 0 || f1 < f0) { send_err(id, "missing or bad start/end"); return; }
++    char path[512];
++    if (!json_get_str(json, "out", path, sizeof(path)))
++        snprintf(path, sizeof(path), "psx_frame_history.csv");
++    FILE *fp = fopen(path, "w");
++    if (!fp) { send_err(id, "cannot open file"); return; }
++    fprintf(fp, "frame,pad_buttons,game_data");
++    for (int i = 0; i < RAM_SNAPSHOT_REGIONS; i++) fprintf(fp, ",snap%d_addr,snap%d", i, i);
++    fputc('\n', fp);
++    static const char H[] = "0123456789abcdef";
++    uint64_t oldest = (s_history_count > FRAME_HISTORY_CAP)
++                    ? s_history_count - FRAME_HISTORY_CAP : 0;
++    int rows = 0;
++    for (uint64_t f = (uint64_t)f0; f <= (uint64_t)f1 && f < s_history_count; f++) {
++        if (f < oldest) continue;
++        const PSXFrameRecord *r = &s_frame_history[(uint32_t)(f % FRAME_HISTORY_CAP)];
++        if (r->frame_number != (uint32_t)f) continue;
++        fprintf(fp, "%u,0x%04X,", r->frame_number, r->pad_buttons);
++        for (size_t j = 0; j < sizeof(r->game_data); j++) {
++            fputc(H[r->game_data[j] >> 4], fp);
++            fputc(H[r->game_data[j] & 15], fp);
++        }
++        for (int i = 0; i < RAM_SNAPSHOT_REGIONS; i++) {
++            fprintf(fp, ",0x%08X,", r->snapshot_addr[i]);
++            for (int j = 0; j < RAM_SNAPSHOT_SIZE; j++) {
++                fputc(H[r->snapshot_data[i][j] >> 4], fp);
++                fputc(H[r->snapshot_data[i][j] & 15], fp);
++            }
++        }
++        fputc('\n', fp);
++        rows++;
++    }
++    fclose(fp);
++    send_fmt("{\"id\":%d,\"ok\":true,\"rows\":%d,\"oldest\":%llu,\"newest\":%llu}",
++             id, rows, (unsigned long long)oldest,
++             (unsigned long long)(s_history_count ? s_history_count - 1 : 0));
++}
++
+ static void handle_get_snapshots(int id, const char *json)
+ {
+     (void)json;
+@@ -16338,6 +16400,7 @@ static const CmdEntry s_commands[] = {
+     { "read_frame_ram",    handle_read_frame_ram },
+     { "set_snapshot",      handle_set_snapshot },
+     { "get_snapshots",     handle_get_snapshots },
++    { "frame_history_dump", handle_frame_history_dump },
+     { "screenshot",        handle_present_screenshot },
+     { "screenshot_file",   handle_screenshot_file },
+     { "screenshot_hires",  handle_screenshot_hires },
+@@ -17211,8 +17274,9 @@ void debug_server_record_frame(void)
+         }
+     }
+ 
+-    /* Game-specific data */
+-    memset(r->game_data, 0, sizeof(r->game_data));
++    /* Game-specific data (debug_server_set_game_data), one frame's worth */
++    memcpy(r->game_data, s_game_data, sizeof(r->game_data));
++    memset(s_game_data, 0, sizeof(s_game_data));
+ 
+     /* Last function */
+     strcpy(r->last_func, "(no tracking)");
 diff --git a/runtime/src/dirty_ram_interp.c b/runtime/src/dirty_ram_interp.c
 index afe81bf5..9c960997 100644
 --- a/runtime/src/dirty_ram_interp.c
@@ -708,7 +815,7 @@ index 331ad862..ba519943 100644
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 95300459..a1e9242a 100644
+index 95300459..4320363c 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1997,7 +1997,7 @@ static void reset_mod_owned_presentation(void) {
@@ -893,7 +1000,7 @@ index 95300459..a1e9242a 100644
      return boot_mode;
  }
  
-@@ -5831,11 +5879,572 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5831,11 +5879,639 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -1342,6 +1449,44 @@ index 95300459..a1e9242a 100644
 + * controls idea in Fusion-Fix (PC build); no code from it is used. */
 +static int re3_wrap_angle(int a) { return ((a + 2048) & 4095) - 2048; }
 +
++/* Per-frame decision trace of the modern controls, stored in the debug
++ * server's frame history (game_data, 32 bytes) and read back with
++ * frame_history_dump. Debug-tools builds only; no effect on behaviour. */
++enum Re3CtrlPath : uint8_t {
++    RE3_CTRL_NONE = 0,
++    RE3_CTRL_FREE = 1,          /* screen-relative turn + walk/run */
++    RE3_CTRL_FORWARD_ONLY = 2,  /* stairs / pushing: forward only */
++    RE3_CTRL_EXIT_INACTIVE = 3, /* no RAM / game not started / aiming */
++    RE3_CTRL_EXIT_STATE = 4,    /* UI open, mode != 1 or routine > 4 */
++    RE3_CTRL_EXIT_NO_AXIS = 5,  /* degenerate camera axis */
++    RE3_CTRL_DEADZONE = 6,      /* stick below 0.26 */
++    RE3_CTRL_DPAD = 7,          /* physical D-pad held: tank path */
++};
++#pragma pack(push, 1)
++struct Re3CtrlTrace {
++    uint8_t  magic;             /* 'C' */
++    uint8_t  path;              /* Re3CtrlPath; tank fallback ran if path is 3..5 */
++    uint8_t  mode, routine;
++    int16_t  lx, ly;            /* raw SDL stick */
++    int16_t  yaw_before, yaw_after;
++    int16_t  target_raw, target;   /* before / after the camera-cut hold */
++    uint8_t  hold, cut;
++    uint16_t clear;             /* buttons injected (active-high) */
++    int16_t  fx, fz;            /* forward axis * 1000 */
++    int32_t  flen;              /* camera-to-Jill ground distance (pre-normalise) */
++    uint32_t cam_sig;
++};
++#pragma pack(pop)
++static_assert(sizeof(Re3CtrlTrace) == 32, "fits PSXFrameRecord::game_data");
++
++static void re3_ctrl_trace_emit(const Re3CtrlTrace& t) {
++#ifndef PSX_NO_DEBUG_TOOLS
++    debug_server_set_game_data(&t, (int)sizeof t);
++#else
++    (void)t;
++#endif
++}
++
 +static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
 +                                     bool aiming, uint16_t* buttons) {
 +    extern uint64_t s_frame_count;
@@ -1353,9 +1498,14 @@ index 95300459..a1e9242a 100644
 +    static bool s_hold = false;
 +    static int s_hold_yaw = 0;
 +    static double s_hold_stick = 0.0;
++    Re3CtrlTrace tr = {};
++    tr.magic = 'C';
++    tr.lx = lx; tr.ly = ly;
 +
 +    if (!g_psx_ram || !fntrace_is_game_started() || aiming) {
 +        s_hold = false;
++        tr.path = RE3_CTRL_EXIT_INACTIVE;
++        re3_ctrl_trace_emit(tr);
 +        return false;
 +    }
 +    /* controller_pad_buttons can run several times per frame; turn once. */
@@ -1376,9 +1526,13 @@ index 95300459..a1e9242a 100644
 +     * the stair animation. */
 +    const bool forward_only = routine == 9 || routine == 10 ||
 +                              routine == 14 || routine == 15;
++    tr.mode = mode; tr.routine = routine;
++    tr.yaw_before = tr.yaw_after = (int16_t)(*(int16_t*)(pl + 0x6E) & 4095);
 +    if ((ui_flags & 0x00080808u) != 0 || mode != 1 ||
 +        (routine > 4 && !forward_only)) {
 +        s_hold = false;
++        tr.path = RE3_CTRL_EXIT_STATE;
++        re3_ctrl_trace_emit(tr);
 +        return false;
 +    }
 +
@@ -1398,8 +1552,16 @@ index 95300459..a1e9242a 100644
 +        fx = m[2][0]; fz = m[2][2];
 +        flen = std::sqrt(fx * fx + fz * fz);
 +    }
-+    if (flen < 1e-6) return false;
++    tr.flen = (int32_t)std::lround(std::sqrt((px - cam_x) * (px - cam_x) +
++                                             (pz - cam_z) * (pz - cam_z)));
++    if (flen < 1e-6) {
++        tr.path = RE3_CTRL_EXIT_NO_AXIS;
++        re3_ctrl_trace_emit(tr);
++        return false;
++    }
 +    fx /= flen; fz /= flen;
++    tr.fx = (int16_t)std::lround(fx * 1000.0);
++    tr.fz = (int16_t)std::lround(fz * 1000.0);
 +    double rx = fz, rz = -fx;                       /* perpendicular */
 +    if (rx * m[0][0] + rz * m[0][2] < 0.0) { rx = -rx; rz = -rz; }
 +
@@ -1413,11 +1575,14 @@ index 95300459..a1e9242a 100644
 +    const double stick_deg = std::atan2(sy, sx) * 180.0 / 3.141592653589793;
 +    int16_t* p_yaw = (int16_t*)(pl + 0x6E);
 +    const int yaw = *p_yaw & 4095;
++    tr.target_raw = (int16_t)target;
++    tr.cam_sig = sig;
 +    if (sig != s_cam_sig) {
 +        if (s_cam_sig != 0) {
 +            s_hold = true;
 +            s_hold_yaw = yaw;
 +            s_hold_stick = stick_deg;
++            tr.cut = 1;
 +        }
 +        s_cam_sig = sig;
 +    }
@@ -1427,6 +1592,8 @@ index 95300459..a1e9242a 100644
 +        if (dd > 35.0) s_hold = false;
 +        else target = s_hold_yaw;
 +    }
++    tr.hold = s_hold ? 1 : 0;
++    tr.target = (int16_t)target;
 +
 +    if (forward_only) {
 +        uint16_t clear = 0;
@@ -1437,6 +1604,9 @@ index 95300459..a1e9242a 100644
 +        *buttons &= (uint16_t)~clear;
 +        s_last_clear = clear;
 +        s_last_handled = true;
++        tr.path = RE3_CTRL_FORWARD_ONLY;
++        tr.clear = clear;
++        re3_ctrl_trace_emit(tr);
 +        return true;
 +    }
 +
@@ -1460,13 +1630,17 @@ index 95300459..a1e9242a 100644
 +    *buttons &= (uint16_t)~clear;
 +    s_last_clear = clear;
 +    s_last_handled = true;
++    tr.path = RE3_CTRL_FREE;
++    tr.yaw_after = (int16_t)(*p_yaw & 4095);
++    tr.clear = clear;
++    re3_ctrl_trace_emit(tr);
 +    return true;
 +}
 +
  static uint16_t controller_pad_buttons(const ControllerMap& map,
                                         SDL_GameController* h,
                                         bool suppress_stick_axes,
-@@ -5853,6 +6462,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5853,6 +6529,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
                  source.id >= 0 && source.id < 32 &&
                  (claimed_buttons & (1u << source.id)))
                  continue;
@@ -1477,7 +1651,7 @@ index 95300459..a1e9242a 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5861,6 +6474,67 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5861,6 +6541,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -1495,6 +1669,13 @@ index 95300459..a1e9242a 100644
 +        /* Physical D-pad wins and keeps the original tank path. */
 +        const bool dpad_held = (buttons & 0x00F0u) != 0x00F0u;
 +        const bool aiming_now = (buttons & 0x0800u) == 0; /* R1 */
++        if (mag < 0.26 || dpad_held) {
++            Re3CtrlTrace tr = {};
++            tr.magic = 'C';
++            tr.path = dpad_held ? RE3_CTRL_DPAD : RE3_CTRL_DEADZONE;
++            tr.lx = lx; tr.ly = ly;
++            re3_ctrl_trace_emit(tr);
++        }
 +        if (mag >= 0.26 && !dpad_held &&
 +            re3_screen_relative_move(lx, ly, mag, aiming_now, &buttons)) {
 +            /* Screen-relative movement handled (player in free control). */
@@ -1545,7 +1726,7 @@ index 95300459..a1e9242a 100644
      return buttons;
  }
  
-@@ -5983,6 +6657,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -5983,6 +6731,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -1556,7 +1737,7 @@ index 95300459..a1e9242a 100644
      }
  }
  
-@@ -6333,14 +7011,13 @@ static void apply_input_override_to_sio(int override_word) {
+@@ -6333,14 +7085,13 @@ static void apply_input_override_to_sio(int override_word) {
          s_debug_profile_injected[0] = true;
  #endif
      PlayerInput& p = g_players[0];
@@ -1573,7 +1754,7 @@ index 95300459..a1e9242a 100644
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
-@@ -6618,6 +7295,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
+@@ -6618,6 +7369,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
      if (!eff_analog && !p.steering_wheel && !host_view) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1593,7 +1774,7 @@ index 95300459..a1e9242a 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6686,6 +7376,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6686,6 +7450,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog && !p.steering_wheel) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -1613,7 +1794,7 @@ index 95300459..a1e9242a 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6695,9 +7398,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6695,9 +7472,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
  }
  
  static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
@@ -1633,7 +1814,7 @@ index 95300459..a1e9242a 100644
                             pad.analog);
  }
  
-@@ -6790,7 +7501,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
+@@ -6790,7 +7575,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
  /* Build a netplay pad blob from a debug-server override without writing SIO. */
  static void capture_override_pad(int override_word, PsxNetPad* out) {
      PlayerInput& p = g_players[0];
@@ -1642,7 +1823,7 @@ index 95300459..a1e9242a 100644
      uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
      int axes = 0;
  #ifndef PSX_NO_DEBUG_TOOLS
-@@ -8689,6 +9400,43 @@ static bool drain_host_events() {
+@@ -8689,6 +9474,43 @@ static bool drain_host_events() {
                  debug_force_cd_reinsert();
                  host_osd_push("CD reinsert", 1500);
              }
@@ -1686,7 +1867,7 @@ index 95300459..a1e9242a 100644
              else if (!key_repeat &&
                       host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
                                               (int)key, (int)scancode,
-@@ -9086,6 +9834,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9086,6 +9908,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * old fast_boot snapshot restore; all guest timing is authentic. */
      if (psx_bios_hle_boot_turbo_active())
          turbo_loads_active = 1;
@@ -1699,7 +1880,7 @@ index 95300459..a1e9242a 100644
      probe_turbo = turbo_loads_active;
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
-@@ -9145,7 +9899,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9145,7 +9973,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * paths cannot fork peers during the episode window. */
      if (!psx_netplay_is_resimulating() && !psx_selfcheck_resim_active()) {
          sdl_audio_update(fmv_skip_active,
@@ -1709,7 +1890,7 @@ index 95300459..a1e9242a 100644
      }
  #endif
  
-@@ -9160,6 +9915,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9160,6 +9989,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -1717,7 +1898,7 @@ index 95300459..a1e9242a 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -9592,6 +10348,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9592,6 +10422,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {
@@ -1725,7 +1906,7 @@ index 95300459..a1e9242a 100644
                  gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
                                           (int)present_w, (int)h, g_video_aa ? 1 : 0,
                                           (fmv_frame || nw_pin) ? 1 : 0);
-@@ -9797,9 +10554,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9797,9 +10628,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
          gl_renderer_note_present_depth24(depth24_frame ? 1 : 0);
@@ -1752,7 +1933,7 @@ index 95300459..a1e9242a 100644
          netplay_note_present();
      } else {
      if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -9840,11 +10613,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9840,11 +10687,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -1767,7 +1948,7 @@ index 95300459..a1e9242a 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -17451,11 +18225,7 @@ int main(int argc, char** argv) {
+@@ -17451,11 +18299,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1779,7 +1960,7 @@ index 95300459..a1e9242a 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -17466,8 +18236,8 @@ int main(int argc, char** argv) {
+@@ -17466,8 +18310,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -1790,7 +1971,7 @@ index 95300459..a1e9242a 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -18255,6 +19025,7 @@ int main(int argc, char** argv) {
+@@ -18255,6 +19099,7 @@ int main(int argc, char** argv) {
                  "DEPRECATED and ignored; enable the \"Fast Loading (host "
                  "pacing)\" mod instead. The stale key is dropped on the next "
                  "settings save.\n");
@@ -1798,7 +1979,7 @@ index 95300459..a1e9242a 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -18359,6 +19130,38 @@ int main(int argc, char** argv) {
+@@ -18359,6 +19204,38 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1837,7 +2018,7 @@ index 95300459..a1e9242a 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -18389,14 +19192,9 @@ int main(int argc, char** argv) {
+@@ -18389,14 +19266,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1854,7 +2035,7 @@ index 95300459..a1e9242a 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -18410,17 +19208,10 @@ int main(int argc, char** argv) {
+@@ -18410,17 +19282,10 @@ int main(int argc, char** argv) {
              "ignoring the legacy value\n");
          g_turbo_loads_enabled = 0;
      }
@@ -1876,7 +2057,7 @@ index 95300459..a1e9242a 100644
  
      /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
       * aspect to native 4:3 so neither a legacy game.toml offer/default nor a
-@@ -18439,20 +19230,9 @@ int main(int argc, char** argv) {
+@@ -18439,20 +19304,9 @@ int main(int argc, char** argv) {
          g_video_aspect_den = ws_offered ? 9 : 3;
      }
  
@@ -1898,7 +2079,7 @@ index 95300459..a1e9242a 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -18812,6 +19592,7 @@ int main(int argc, char** argv) {
+@@ -18812,6 +19666,7 @@ int main(int argc, char** argv) {
  #ifdef SDL_HINT_WINDOWS_DPI_SCALING
      SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
  #endif
@@ -1906,7 +2087,7 @@ index 95300459..a1e9242a 100644
          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
              launcher_boot_timing_mark("host:after_sdl_init");
              recomp_launcher_set_preserve_sdl(1);
-@@ -19938,6 +20719,9 @@ int main(int argc, char** argv) {
+@@ -19938,6 +20793,9 @@ int main(int argc, char** argv) {
              (void)psx_mod_set_fixed_display_aspect(index == 2 ? 21u : index == 1 ? 16u : 4u,
                                                   index ? 9u : 3u);
          }
@@ -1916,7 +2097,7 @@ index 95300459..a1e9242a 100644
          apply_netplay_local_viewport_aspect(netplay);
          for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
              if (g_mod_controller_mode_override[i] >= 0)
-@@ -19969,6 +20753,7 @@ int main(int argc, char** argv) {
+@@ -19969,6 +20827,7 @@ int main(int argc, char** argv) {
      };
      if (!start_mod_session(net_cfg.enabled)) return 1;
  
@@ -1924,7 +2105,7 @@ index 95300459..a1e9242a 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -20609,21 +21394,20 @@ session_reboot:
+@@ -20609,21 +21468,20 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");

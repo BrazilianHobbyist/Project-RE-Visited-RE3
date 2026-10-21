@@ -40,7 +40,8 @@
 
 ## Pendências
 
-- [ ] v1.7.0: empacotar com o cache gerado a partir do disco (`tools\manage_project.ps1 -Action package` já usa a etiqueta nova).
+- [x] v1.7.0: publicada, com o cache gerado a partir do disco.
+- [ ] Widescreen: coletar capturas do warehouse até a delegacia (`docs/WIDESCREEN_PLAYTEST.md`) para separar cena, interface e telas 2D.
 - [ ] Responder issues (aguardando decisão do mantenedor).
 - [ ] Refinar os controles modernos.
 - [ ] Decidir o modelo de distribuição: gerar o código recompilado na máquina do usuário (o caminho `build.ps1 -Regen` já é reproduzível) em vez de distribuir o `.exe` com o código do jogo traduzido.
