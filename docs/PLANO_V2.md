@@ -61,7 +61,7 @@ O que já se sabe (`docs/WIDESCREEN_FINDINGS.md`): ranks 0–15 da ordem de dese
 3. **Aceite:** um trajeto roteirizado ida e volta pelo corredor sem inversão (a direção da Jill acompanha o analógico em todos os quadros fora da zona morta).
 4. **Controle do Xbox:** não é necessário para o roteiro, porque a entrada é injetada. Ele só serve para o teste final do mantenedor, que decide se os controles modernos viram padrão.
 
-## Fase 5: problemas menores
+## Fase 5: problemas menores (corrigida segundo o mantenedor, 27/10)
 
 - **Texto de introdução rápido demais:** medir o tempo de cada tela (quadros) contra o original e corrigir se for causado pelo runtime.
 - **`switch` do TITLE.BIN, quarta forma:** ensinar a forma ao reconhecedor (C++ e Python, com testes), regenerar e conferir que zera as ~1,9 mil instruções interpretadas.
