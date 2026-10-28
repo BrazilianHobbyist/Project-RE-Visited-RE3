@@ -90,4 +90,5 @@ tools/model_tool/*.png
 *.diff
 *.patch
 !patches/*.patch
+!patches/runtime/*.patch
 build_dbg/

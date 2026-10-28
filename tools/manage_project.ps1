@@ -108,14 +108,13 @@ function Invoke-Audit {
 function Invoke-Consolidate {
     Write-Section "CONSOLIDANDO E ORGANIZANDO O PROJETO"
 
-    # 1. Atualizar o arquivo de patch do runtime a partir do submodule psxrecomp
-    Write-Host "[1/5] Exportando diff atual do psxrecomp para patches/psxrecomp_runtime.patch..." -ForegroundColor Cyan
-    # Redireciona via cmd: capturar a saída do git pelo PowerShell recodifica o
-    # texto (CP850/CRLF) e corrompe o patch. Foi a causa do patch quebrado.
-    $git = (Get-Command git).Source
-    # diff HEAD: inclui as mudancas ja preparadas (staged) no submodule.
-    cmd /c "`"$git`" -C `"$RepoDir\psxrecomp`" diff HEAD > `"$RepoDir\patches\psxrecomp_runtime.patch`""
-    if ($LASTEXITCODE -ne 0) { throw "Falha ao exportar o patch do runtime." }
+    # 1. Conferir que patches/runtime reproduz o submodule (a exportacao e manual,
+    #    por tema: tools/runtime_patches.py export|rebuild)
+    Write-Host "[1/5] Conferindo patches/runtime contra o psxrecomp..." -ForegroundColor Cyan
+    $st = & python "$RepoDir\tools\runtime_patches.py" status
+    if ($st -and $st[0] -eq "dirty") {
+        throw "psxrecomp tem mudancas fora de patches/runtime. Use tools\runtime_patches.py export|rebuild."
+    }
 
     # 2. Sincronizar executavel compilado do jogo
     $builtExe = "$RepoDir\build\Resident_Evil_3__Nemesis_Recompiled.exe"

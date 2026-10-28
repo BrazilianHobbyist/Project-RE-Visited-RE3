@@ -5,7 +5,7 @@
 ## Estado verificado
 
 - **Executável principal:** recompilado estaticamente de verdade. O C é gerado pelo PSXRecomp a partir do `SLUS_009.23`, em `generated/`, que não é versionado e vem do disco do usuário. Não há core de emulador de terceiros embutido: uma busca no exe por mednafen, libretro, beetle, lightrec, duckstation e pcsx não encontra nada (a única ocorrência de "Beetle" é um comentário de shader).
-- **Base:** PSXRecomp `1698a218`, com SDL3. As mudanças do RE3 ficam em `patches/psxrecomp_runtime.patch`.
+- **Base:** PSXRecomp `958ae0e3` (desde 27/10; antes `1698a218`), com SDL3. As mudanças do RE3 ficam em `patches/runtime/` (7 patches por tema, aplicados em ordem; ver `WORKFLOW.md`).
 - **Overlays gerados a partir do disco:** perfil AOT em `aot/`, gerado por `tools/make_aot_profile.py`. Cobre:
   - 17 overlays de menu em `CD_DATA/BIN`;
   - 21 módulos de código de inimigos, membros dos arquivos de sala `R*.BIN`, em dois slots (`0x80100000` / `0x8010D000`). São 42 imagens.
@@ -31,6 +31,13 @@
   - Evidência (capturas a 1920×1080): texto de abertura do save, nome do item no inventário e menu GAME CONFIG ficam com contornos suaves no lugar da escada de pixels (`captures/font_ab_on` × `font_ab_off`, `cfg_on` × `cfg_off`). Os PNGs do launcher (C++) são idênticos pixel a pixel aos do protótipo em Python (`tools/make_font_upscale.py`). `tools/test_launcher_sharp_font.py` dirige o launcher real num sandbox: 16/16 OK. Smoke test com o pacote gerado pelo launcher: todas as checagens OK.
   - Não verificado: arquivos (FILE), mapa e textos com outras paletas, além do limite de tempo das legendas. O interior dos glifos tem um pontilhado que o EPX mantém. O launcher novo ainda não foi compilado na pasta de execução.
 - **Ícones de botão Xbox/Nintendo: não aplicável do jeito do MMA (27/10).** No RE3, os botões só aparecem na tela KEY CONFIG (controle, □, R1). Essa tela inteira é um bitmap de 16 bits de 320×240 copiado da CPU para o framebuffer (`copy_cpu_vram`), não uma textura, e o carregador do runtime não substitui escritas de VRAM (`vram-write-*` é recusado pelo parser). A fonte do jogo não tem glifos de botão.
+- **Manutenção do runtime (27/10, Fase 1 do `docs/PLANO_V2.md`):**
+  - O `psxrecomp_runtime.patch` (140 KB) virou 7 patches por tema em `patches/runtime/`, gerenciados por `tools/runtime_patches.py` (status / ensure / export / rebuild). A soma dos 7 reproduz exatamente a árvore anterior (mesma árvore git).
+  - PSXRecomp atualizado de `1698a218` para `958ae0e3` (10 commits, entre eles VSync em monitores mais rápidos que 60 Hz). Os 7 patches aplicaram limpos. O recompilador não mudou, e os DLLs de overlay do cache continuam carregando (3 de 3 no smoke test). Smoke test: todas as checagens OK, 59,7 FPS, 0 underruns, `no_depth` 15,8%.
+  - Testes do runtime (sem `ctest`; cada `add_test` rodado direto): com os patches, 221 passam, contra 219 no upstream puro. Nenhuma falha nova; `bios_module_host_test` e `texture_plane_depth_test` passam só com os patches. A memória do SHA do disco quebrava 5 testes `mod_*`, porque eles regravam o disco com mesmo tamanho e mesma data. Ela agora só vale no exe do RE3 (`PSX_RE3_DISC_MEMO`, no `CMakeLists.txt`).
+  - Build reproduzível: dois `build.ps1 -Clean` no mesmo estado dão o mesmo exe byte a byte.
+  - `pgxp-texture-zguard` (MMA): REFUTADO para o RE3. `no_depth` 15,84% → 16,05%, dentro da variação entre rodadas, e o RE3 não mostra os leques de textura que o patch corrige. Não foi aplicado.
+  - O upstream já está 219 commits além de `958ae0e3` (60 FPS, recuperação de cena no widescreen, sincronia de áudio). Fica como opção avaliada à parte.
 
 ## Problemas abertos
 

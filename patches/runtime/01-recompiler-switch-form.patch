@@ -1,0 +1,231 @@
+diff --git a/recompiler/src/function_analysis.cpp b/recompiler/src/function_analysis.cpp
+index 82ca9bba..d7c61c79 100644
+--- a/recompiler/src/function_analysis.cpp
++++ b/recompiler/src/function_analysis.cpp
+@@ -898,13 +898,18 @@ bool resolve_exact_bounded_jump_table(
+ 
+     // Exact guards: sltiu; beq; nop; sll, or sltiu; beq; lui; addiu; sll.
+     // The latter schedules the table's LUI in the bounds branch's delay slot.
+-    // Keep both forms in parity with the Python capture verifier.
++    // A third form fills that delay slot with one unrelated instruction and
++    // keeps the LUI after it: sltiu; beq; X; lui; addiu; sll (Resident Evil 3
++    // enemy modules, 141 sites across the title). X is not control flow and
++    // writes none of the index, table base or upper registers.
++    // Keep all forms in parity with the Python capture verifier.
+     if (sll_pc < entry + 12u) return false;
+     uint32_t guard_pc = sll_pc - 8u;
+     uint32_t bound_pc = sll_pc - 12u;
+     auto before_scale = read(sll_pc - 4u);
+     if (!before_scale.has_value()) return false;
+     bool scheduled_base = *before_scale != 0u;
++    bool hoisted_delay = false;
+     if (scheduled_base) {
+         // R3000 JR would see the old target register without this load delay.
+         if (lw_pc != jr_pc - 8u) return false;
+@@ -922,6 +927,22 @@ bool resolve_exact_bounded_jump_table(
+             upper_reg == index_reg || base_reg == index_reg) {
+             return false;
+         }
++        auto at_guard = read(guard_pc);
++        if (!at_guard.has_value()) return false;
++        if (((*at_guard >> 26) & 0x3Fu) != 0x04u) {
++            if (sll_pc < entry + 20u) return false;
++            auto delay_word = read(sll_pc - 12u);
++            if (!delay_word.has_value() || *delay_word == 0u ||
++                is_control(sll_pc - 12u, *delay_word) ||
++                exact_instruction_writes_gpr(*delay_word, index_reg) ||
++                exact_instruction_writes_gpr(*delay_word, base_reg) ||
++                exact_instruction_writes_gpr(*delay_word, upper_reg)) {
++                return false;
++            }
++            hoisted_delay = true;
++            guard_pc -= 4u;
++            bound_pc -= 4u;
++        }
+     }
+     auto guard_word_opt = read(guard_pc);
+     auto bound_word = read(bound_pc);
+@@ -999,7 +1020,8 @@ bool resolve_exact_bounded_jump_table(
+             break;
+         }
+     }
+-    if (scheduled_base && (lui_pc != guard_pc + 4u || low_pc != sll_pc - 4u))
++    if (scheduled_base &&
++        (lui_pc != guard_pc + (hoisted_delay ? 8u : 4u) || low_pc != sll_pc - 4u))
+         return false;
+     if (lui_pc == 0u || (in_delay_slot(lui_pc) && !scheduled_base) ||
+         (low_pc != 0u && in_delay_slot(low_pc)) ||
+diff --git a/recompiler/tests/reachable_discovery_test.cpp b/recompiler/tests/reachable_discovery_test.cpp
+index 3dfe2aa7..61a9dad8 100644
+--- a/recompiler/tests/reachable_discovery_test.cpp
++++ b/recompiler/tests/reachable_discovery_test.cpp
+@@ -187,10 +187,62 @@ void check_scheduled_switch() {
+     }
+ }
+ 
++// sltiu; beq; X; lui; addiu; sll: one unrelated instruction fills the bounds
++// branch's delay slot and the table constant follows it (RE3 enemy modules).
++ApeSwitchFixture make_hoisted_delay_switch() {
++    auto f = make_ape_switch();
++    const size_t text = 2048;
++    put32(f.image, text + 0x500, 0);
++    put32(f.image, text + 0x504, 0x2C620003u); // sltiu v0,v1,3
++    put32(f.image, text + 0x508, 0x1040001Du); // beq v0,zero,+0x580
++    put32(f.image, text + 0x50C, 0x00C0A021u); // addu s4,a2,zero (delay)
++    put32(f.image, text + 0x510, 0x3C028001u); // lui v0,0x8001
++    put32(f.image, text + 0x514, 0x24420A00u); // addiu v0,v0,0xa00
++    put32(f.image, text + 0x518, 0x00031880u); // sll v1,v1,2
++    put32(f.image, text + 0x51C, 0x00621821u); // addu v1,v1,v0
++    put32(f.image, text + 0x520, 0x8C620000u); // lw v0,0(v1)
++    return f;
++}
++
++void check_hoisted_delay_switch() {
++    const size_t text = 2048;
++    auto f = make_hoisted_delay_switch();
++    auto exe = parse(f.image);
++    PSXRecomp::ExactJumpTable table;
++    CHECK(PSXRecomp::resolve_exact_bounded_jump_table(
++              exe, f.entry, kLoad + 0x600u, f.jr_pc, 2u, table) &&
++          table.table_base == f.table && table.table_count == 3u,
++          "hoisted-delay table constant resolves exactly");
++    std::set<uint32_t> targets;
++    for (auto target : table.targets) targets.insert(target.second);
++    CHECK(targets == std::set<uint32_t>(f.cases.begin(), f.cases.end()),
++          "hoisted-delay table has exactly the expected case targets");
++    PSXRecomp::FunctionAnalyzer analyzer(exe);
++    auto result = analyzer.analyze_exact_entries({f.entry});
++    for (auto target : f.cases)
++        CHECK(result.exact_reachable_pcs.count(target),
++              "hoisted-delay switch cases are reached from the function root");
++    const std::vector<std::pair<size_t, uint32_t>> mutations = {
++        {0x50C, 0x00C01821u}, // delay slot writes the index (v1)
++        {0x50C, 0x00C01021u}, // delay slot writes the table register (v0)
++        {0x50C, 0x10000004u}, // delay slot is a branch
++        {0x50C, 0x0C000000u}, // delay slot is a call
++        {0x504, 0x2C630003u}, // bound writes the index
++        {0x508, 0x5040001Du}, // BEQL
++    };
++    for (const auto& change : mutations) {
++        auto broken = f;
++        put32(broken.image, text + change.first, change.second);
++        CHECK(!resolves_ape_switch(broken, broken.entry),
++              "unsafe hoisted-delay mutation fails closed");
++    }
++}
++
+ } // namespace
+ 
+ int main() {
+     check_scheduled_switch();
++    check_hoisted_delay_switch();
+     auto image = make_exe_buffer(0x2000);
+     const size_t text = 2048;
+ 
+diff --git a/recompiler/tests/test_aot_overlay_discovery.py b/recompiler/tests/test_aot_overlay_discovery.py
+index 32b03dc9..cb9c64e2 100644
+--- a/recompiler/tests/test_aot_overlay_discovery.py
++++ b/recompiler/tests/test_aot_overlay_discovery.py
+@@ -235,6 +235,51 @@ def check_bounded_jump_table_discovery():
+         LOAD + 0x60, 2, (LOAD, LOAD + 0x180)) == set()
+ 
+ 
++def check_hoisted_delay_jump_table_discovery():
++    # sltiu; beq; X; lui; addiu; sll: an unrelated instruction fills the
++    # bounds branch's delay slot (parity with reachable_discovery_test.cpp).
++    data = bytearray(0x1000)
++    for offset, word in (
++        (0x504, 0x2C620003),  # sltiu v0,v1,3
++        (0x508, 0x1040001D),  # beq v0,zero,+0x580
++        (0x50C, 0x00C0A021),  # addu s4,a2,zero (delay slot)
++        (0x510, 0x3C028001),  # lui v0,0x8001
++        (0x514, 0x24420A00),  # addiu v0,v0,0xa00
++        (0x518, 0x00031880),  # sll v1,v1,2
++        (0x51C, 0x00621821),  # addu v1,v1,v0
++        (0x520, 0x8C620000),  # lw v0,0(v1)
++        (0x528, 0x00400008),  # jr v0
++        (0x580, 0x03E00008),
++    ):
++        put(data, offset, word)
++    cases = {LOAD + off for off in (0x540, 0x550, 0x560)}
++    for i, target in enumerate(sorted(cases)):
++        put(data, 0xA00 + i * 4, target)
++        put(data, target - LOAD, 0x24020001 + i)
++        put(data, target - LOAD + 4, 0x03E00008)
++
++    def resolve(image):
++        return MOD._find_jump_table_targets(
++            image, LOAD, len(image), LOAD + 0x500, LOAD + 0x600,
++            LOAD + 0x528, 2)
++
++    assert resolve(data) == cases
++    walk = MOD._walk_overlay_function(
++        data, LOAD, len(data), LOAD + 0x500, LOAD + 0x600)
++    assert walk['jump_table_targets'] == cases
++    for offset, word in (
++        (0x50C, 0x00C01821),  # delay slot writes the index (v1)
++        (0x50C, 0x00C01021),  # delay slot writes the table register (v0)
++        (0x50C, 0x10000004),  # delay slot is a branch
++        (0x50C, 0x0C000000),  # delay slot is a call
++        (0x504, 0x2C630003),  # bound writes the index
++        (0x508, 0x5040001D),  # BEQL
++    ):
++        broken = bytearray(data)
++        put(broken, offset, word)
++        assert resolve(broken) == set(), hex(offset)
++
++
+ def check_scheduled_jump_table_discovery():
+     # Independent synthetic function: a checked input in v1, the table base
+     # in v0, and three cases returning distinct values. No captured game bytes.
+@@ -3932,6 +3977,7 @@ def main():
+     check_composite_call_boundaries()
+     check_bounded_jump_table_discovery()
+     check_scheduled_jump_table_discovery()
++    check_hoisted_delay_jump_table_discovery()
+     check_static_discovery_provenance()
+     check_static_dispatch_provenance()
+     check_owned_direct_call_is_interior()
+diff --git a/tools/compile_overlays.py b/tools/compile_overlays.py
+index ad363d5c..46d183c7 100644
+--- a/tools/compile_overlays.py
++++ b/tools/compile_overlays.py
+@@ -1248,6 +1248,7 @@ def _find_jump_table_targets(data: bytes, load_addr: int, size: int,
+     sltiu_pc = sll_pc - 12
+     branch_pc = sll_pc - 8
+     scheduled_base = _word_at(data, load_addr, sll_pc - 4) != 0
++    hoisted_delay = False
+     if scheduled_base:
+         # R3000 load delay: JR must not consume the immediately preceding LW.
+         if lw_pc != jr_pc - 8:
+@@ -1263,6 +1264,21 @@ def _find_jump_table_targets(data: bytes, load_addr: int, size: int,
+                 ((upper >> 16) & 31) != ((lower >> 21) & 31) or
+                 index_reg in (table_reg, (upper >> 16) & 31)):
+             return set()
++        # Third form: sltiu; beq; X; lui; addiu; sll, with one unrelated
++        # instruction in the bounds branch's delay slot (parity with
++        # function_analysis.cpp resolve_exact_bounded_jump_table).
++        at_branch = _word_at(data, load_addr, branch_pc)
++        if at_branch is None:
++            return set()
++        if ((at_branch >> 26) & 0x3F) != 0x04:
++            delay = _word_at(data, load_addr, sll_pc - 12)
++            if (delay is None or delay == 0 or _is_control_flow(delay) or
++                    any(_instruction_writes_gpr(delay, reg) for reg in
++                        (index_reg, table_reg, (upper >> 16) & 31))):
++                return set()
++            hoisted_delay = True
++            sltiu_pc -= 4
++            branch_pc -= 4
+     if sltiu_pc < entry or (sltiu_pc >= entry + 4 and
+             _is_control_flow(_word_at(data, load_addr, sltiu_pc - 4))):
+         return set()
+@@ -1323,7 +1339,7 @@ def _find_jump_table_targets(data: bytes, load_addr: int, size: int,
+     else:
+         return set()
+ 
+-    if scheduled_base and (constant_pc != branch_pc + 4 or
++    if scheduled_base and (constant_pc != branch_pc + (8 if hoisted_delay else 4) or
+                            table_def_pc != sll_pc - 4):
+         return set()
+ 

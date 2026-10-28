@@ -1,0 +1,300 @@
+diff --git a/runtime/include/debug_server.h b/runtime/include/debug_server.h
+index d3033f79..e7945f3f 100644
+--- a/runtime/include/debug_server.h
++++ b/runtime/include/debug_server.h
+@@ -108,6 +108,11 @@ uint32_t debug_server_get_tcp_drops(void);
+ /* Record the current frame's state into the ring buffer.
+  * Call after vblank processing. */
+ void debug_server_record_frame(void);
++
++/* Title-specific per-frame data (up to 32 bytes) for the frame record's
++ * game_data field. The next debug_server_record_frame stores it, then it is
++ * cleared, so a frame where the title wrote nothing records zeros. */
++void debug_server_set_game_data(const void *data, int len);
+ /* Operator capture mark (hotkey, present thread): freeze the always-on display
+  * and GP0 rings at this instant and save the presented native-wide frame, so a
+  * transient glitch can be read back afterwards over TCP (capture_mark). */
+diff --git a/runtime/src/crash_trace.c b/runtime/src/crash_trace.c
+index 96d52cd8..df5e0475 100644
+--- a/runtime/src/crash_trace.c
++++ b/runtime/src/crash_trace.c
+@@ -636,6 +636,61 @@ void psx_crash_trace_dump(const char *reason, void *seh_info) {
+             (unsigned long long)disp_interp);
+     }
+ 
++    /* Interpreted instructions by 4 KiB RAM page (nonzero pages only), plus
++     * the guest clock, so interpreter share can be measured on Release. */
++    {
++        extern uint64_t g_interp_page_insns[513];
++        extern uint64_t g_dirty_ram_insns_run;
++        extern uint64_t psx_cycle_count;
++        extern uint64_t g_idle_skip_cycles;
++        append_fmt(buf, sizeof(buf), &pos,
++            "  \"interp_hist\": {\n"
++            "    \"insns_total\": %llu,\n"
++            "    \"guest_cycles\": %llu,\n"
++            "    \"idle_skip_cycles\": %llu,\n"
++            "    \"pages\": {",
++            (unsigned long long)g_dirty_ram_insns_run,
++            (unsigned long long)psx_cycle_count,
++            (unsigned long long)g_idle_skip_cycles);
++        int first = 1;
++        for (int i = 0; i < 513; i++) {
++            if (!g_interp_page_insns[i]) continue;
++            char key[16];
++            if (i == 512) snprintf(key, sizeof(key), "other");
++            else          snprintf(key, sizeof(key), "0x%05X", (unsigned)i << 12);
++            append_fmt(buf, sizeof(buf), &pos, "%s\"%s\": %llu",
++                first ? "" : ", ", key,
++                (unsigned long long)g_interp_page_insns[i]);
++            first = 0;
++        }
++        append_fmt(buf, sizeof(buf), &pos, "}\n  },\n");
++    }
++
++    /* RE3 door transitions: wall time from door start to the new room's
++     * fade-in (main.cpp re3_door_audio_begin/end). */
++    {
++        extern uint32_t g_re3_door_count;
++        extern double   g_re3_door_ms_total, g_re3_door_ms_max;
++        append_fmt(buf, sizeof(buf), &pos,
++            "  \"re3_doors\": { \"count\": %u, \"avg_ms\": %.1f, \"max_ms\": %.1f },\n",
++            g_re3_door_count,
++            g_re3_door_count ? g_re3_door_ms_total / g_re3_door_count : 0.0,
++            g_re3_door_ms_max);
++        extern uint32_t g_re3_dl_count;
++        extern double   g_re3_dl_pre_ms, g_re3_dl_post_ms, g_re3_dl_post_max;
++        append_fmt(buf, sizeof(buf), &pos,
++            "  \"re3_door_loads\": { \"count\": %u, \"avg_cd_before_ms\": %.1f,"
++            " \"avg_cd_after_ms\": %.1f, \"max_cd_after_ms\": %.1f },\n",
++            g_re3_dl_count,
++            g_re3_door_count ? g_re3_dl_pre_ms / g_re3_door_count : 0.0,
++            g_re3_dl_count ? g_re3_dl_post_ms / g_re3_dl_count : 0.0,
++            g_re3_dl_post_max);
++        extern void re3_door_timeline_json(char* out, int cap);
++        static char tl[24 * 1024];
++        re3_door_timeline_json(tl, (int)sizeof(tl));
++        append_fmt(buf, sizeof(buf), &pos, "  \"re3_door_timeline\": %s,\n", tl);
++    }
++
+     /* Recursion fingerprint (build-independent GUEST addresses): the func entered
+      * when the native stack guard tripped, plus the recent recompiled-function-
+      * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
+diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
+index 461d2143..46de97fa 100644
+--- a/runtime/src/debug_server.c
++++ b/runtime/src/debug_server.c
+@@ -353,6 +353,16 @@ static uint64_t        s_history_count = 0;
+ static uint32_t s_snapshot_addrs[RAM_SNAPSHOT_REGIONS];
+ static int      s_snapshot_active[RAM_SNAPSHOT_REGIONS];
+ 
++/* ---- Title-specific per-frame data (debug_server_set_game_data) ---- */
++static uint8_t  s_game_data[32];
++
++void debug_server_set_game_data(const void *data, int len)
++{
++    if (!data || len <= 0) return;
++    if (len > (int)sizeof(s_game_data)) len = (int)sizeof(s_game_data);
++    memcpy(s_game_data, data, (size_t)len);
++}
++
+ /* ---- Watchpoints ---- */
+ #define MAX_WATCHPOINTS 8
+ typedef struct {
+@@ -10136,6 +10146,53 @@ static void handle_set_snapshot(int id, const char *json)
+     send_fmt("{\"id\":%d,\"ok\":true,\"slot\":%d,\"addr\":\"0x%08X\"}", id, slot, addr);
+ }
+ 
++/* frame_history_dump start=<f0> end=<f1> [out=path]: write the frame-history
++ * records in [f0,f1] to a CSV (one row per frame still in the ring): pad
++ * buttons, the title's game_data and the four snapshot regions, all as hex.
++ * Large ranges must not ride TCP, hence the file (like ws_census). */
++static void handle_frame_history_dump(int id, const char *json)
++{
++    if (!s_frame_history) { send_err(id, "ring buffer not allocated"); return; }
++    int f0 = json_get_int(json, "start", -1);
++    int f1 = json_get_int(json, "end", -1);
++    if (f0 < 0 || f1 < f0) { send_err(id, "missing or bad start/end"); return; }
++    char path[512];
++    if (!json_get_str(json, "out", path, sizeof(path)))
++        snprintf(path, sizeof(path), "psx_frame_history.csv");
++    FILE *fp = fopen(path, "w");
++    if (!fp) { send_err(id, "cannot open file"); return; }
++    fprintf(fp, "frame,pad_buttons,game_data");
++    for (int i = 0; i < RAM_SNAPSHOT_REGIONS; i++) fprintf(fp, ",snap%d_addr,snap%d", i, i);
++    fputc('\n', fp);
++    static const char H[] = "0123456789abcdef";
++    uint64_t oldest = (s_history_count > FRAME_HISTORY_CAP)
++                    ? s_history_count - FRAME_HISTORY_CAP : 0;
++    int rows = 0;
++    for (uint64_t f = (uint64_t)f0; f <= (uint64_t)f1 && f < s_history_count; f++) {
++        if (f < oldest) continue;
++        const PSXFrameRecord *r = &s_frame_history[(uint32_t)(f % FRAME_HISTORY_CAP)];
++        if (r->frame_number != (uint32_t)f) continue;
++        fprintf(fp, "%u,0x%04X,", r->frame_number, r->pad_buttons);
++        for (size_t j = 0; j < sizeof(r->game_data); j++) {
++            fputc(H[r->game_data[j] >> 4], fp);
++            fputc(H[r->game_data[j] & 15], fp);
++        }
++        for (int i = 0; i < RAM_SNAPSHOT_REGIONS; i++) {
++            fprintf(fp, ",0x%08X,", r->snapshot_addr[i]);
++            for (int j = 0; j < RAM_SNAPSHOT_SIZE; j++) {
++                fputc(H[r->snapshot_data[i][j] >> 4], fp);
++                fputc(H[r->snapshot_data[i][j] & 15], fp);
++            }
++        }
++        fputc('\n', fp);
++        rows++;
++    }
++    fclose(fp);
++    send_fmt("{\"id\":%d,\"ok\":true,\"rows\":%d,\"oldest\":%llu,\"newest\":%llu}",
++             id, rows, (unsigned long long)oldest,
++             (unsigned long long)(s_history_count ? s_history_count - 1 : 0));
++}
++
+ static void handle_get_snapshots(int id, const char *json)
+ {
+     (void)json;
+@@ -16418,6 +16475,7 @@ static const CmdEntry s_commands[] = {
+     { "read_frame_ram",    handle_read_frame_ram },
+     { "set_snapshot",      handle_set_snapshot },
+     { "get_snapshots",     handle_get_snapshots },
++    { "frame_history_dump", handle_frame_history_dump },
+     { "screenshot",        handle_present_screenshot },
+     { "screenshot_file",   handle_screenshot_file },
+     { "screenshot_hires",  handle_screenshot_hires },
+@@ -17293,8 +17351,9 @@ void debug_server_record_frame(void)
+         }
+     }
+ 
+-    /* Game-specific data */
+-    memset(r->game_data, 0, sizeof(r->game_data));
++    /* Game-specific data (debug_server_set_game_data), one frame's worth */
++    memcpy(r->game_data, s_game_data, sizeof(r->game_data));
++    memset(s_game_data, 0, sizeof(s_game_data));
+ 
+     /* Last function */
+     strcpy(r->last_func, "(no tracking)");
+diff --git a/runtime/src/dirty_ram_interp.c b/runtime/src/dirty_ram_interp.c
+index afe81bf5..9c960997 100644
+--- a/runtime/src/dirty_ram_interp.c
++++ b/runtime/src/dirty_ram_interp.c
+@@ -512,6 +512,15 @@ uint32_t g_overlay_region_floor = OVERLAY_REGION_FLOOR_DEFAULT;
+  * high-loading game pins it; main.cpp sets it at game load. See the header. */
+ uint32_t g_text_image_lo = DIRTY_RAM_KERNEL_WINDOW_END;
+ 
++/* Interpreted-instruction histogram by 4 KiB physical page of main RAM
++ * ([512] = anything outside the 2 MiB window, e.g. BIOS ROM). Written to the
++ * run report so interpreter time can be attributed on a Release build. */
++uint64_t g_interp_page_insns[513];
++static inline void interp_hist_note(uint32_t pc) {
++    uint32_t p = pc & 0x1FFFFFFFu;
++    g_interp_page_insns[p < 0x200000u ? (p >> 12) : 512]++;
++}
++
+ #ifdef PSX_HAS_GAME_DISPATCH
+ extern int psx_dispatch_game_compiled(CPUState* cpu, uint32_t addr);
+ extern int psx_game_address_in_text(uint32_t addr);
+@@ -1481,6 +1490,7 @@ static void exec_delay_slot(CPUState *cpu, uint32_t pc) {
+     uint32_t dummy_next = 0;
+     (void)exec_one_fetched(cpu, pc, insn, &dummy_next);
+     g_dirty_ram_insns_run++;
++    interp_hist_note(pc);
+     /* CYCLE MODEL: the delay-slot instruction is a real retired R3000A instruction
+      * and is charged its own per-instruction interlock INSIDE exec_one (top-of-fn
+      * §1+deps+DO_LDS, or psx_cyc_load_* for a load delay slot) — so a branch+slot
+@@ -2866,6 +2876,7 @@ static void psx_run_precise(CPUState *cpu, uint32_t bcyc, int deadline_entry) {
+         cosim_exec_one_begin();
+         int transferred = exec_one(cpu, pc, &next_pc);  /* charges its own interlock */
+         g_dirty_ram_insns_run++;
++        interp_hist_note(pc);
+ #ifdef PSX_COSIM
+         if (!cosim_exec_one_did_hook()) { extern void cosim_instr(uint32_t); cosim_instr(pc); }
+ #endif
+@@ -3423,6 +3434,7 @@ static int dirty_ram_dispatch_inner(CPUState* cpu, uint32_t addr, uint32_t stop_
+             OV_FPLOG_RET1();
+         }
+         g_dirty_ram_insns_run++;
++        interp_hist_note(pc);
+         insns_executed++;
+         /* COP0 software-interrupt latency: an MTC0 to CAUSE or SR that makes a
+          * software interrupt deliverable (CAUSE.IP0/IP1 & SR.IM0/IM1 & IEc)
+diff --git a/runtime/src/freeze_heartbeat.c b/runtime/src/freeze_heartbeat.c
+index f3fb810e..69fcd794 100644
+--- a/runtime/src/freeze_heartbeat.c
++++ b/runtime/src/freeze_heartbeat.c
+@@ -126,6 +126,7 @@ static int    s_sym_initialized = 0;
+  * activity (boot, FMV decode, save load) doesn't trip it; short enough
+  * that real wedges dump within seconds. */
+ #define WEDGE_WINDOW_TICKS 20u
++#define SPIN_PERSIST_TICKS 300u   /* 30 s: see the spin persistence gate */
+ /* Thresholds and the classifier live in freeze_dump_policy.{h,c} (unit-tested). */
+ 
+ /* Per-ring caps for auto-dump. Newest-first window. The old 4-16K caps
+@@ -861,6 +862,18 @@ static void heartbeat_write(void) {
+                                                    gcp_sample_fn),
+                                                mdec_recently_active);
+         }
++        /* A spin must stay pinned for SPIN_PERSIST_TICKS consecutive ticks
++         * (30 s), not just one 2 s window. Timed static screens wait in the
++         * libgpu VSync loop with every pinned signal still: RE3's violence
++         * warning and Capcom logo (~5 s each, 0x80080600 v_wait) dumped a
++         * spin_freeze on every boot. A real logical hang never resolves, so
++         * it still dumps, 30 s in. */
++        static uint32_t s_spin_ticks = 0;
++        if (wedge_kind == FREEZE_WEDGE_SPIN) {
++            if (++s_spin_ticks < SPIN_PERSIST_TICKS) wedge_kind = 0;
++        } else {
++            s_spin_ticks = 0;
++        }
+     }
+ 
+     if (!s_wedge_classification_paused &&
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index c9499ddf..fbb41be2 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -9657,6 +9657,43 @@ static bool drain_host_events() {
+                 host_osd_push(rc == PSX_DISC_TRAY_OK ? "CD reinsert" :
+                               "Disc changes are unavailable in this game mode.", 1500);
+             }
++            else if (!key_repeat && key == SDLK_F6) {
++                g_infinite_health = !g_infinite_health;
++                host_osd_push(g_infinite_health ? "God Mode (Vida Infinita): ATIVADA" : "God Mode (Vida Infinita): DESATIVADA", 1500);
++            }
++            else if (!key_repeat && key == SDLK_F7) {
++                g_infinite_ammo = !g_infinite_ammo;
++                host_osd_push(g_infinite_ammo ? "Municao Infinita: ATIVADA" : "Municao Infinita: DESATIVADA", 1500);
++            }
++            else if (!key_repeat && key == SDLK_F8) {
++                re3_max_out_ammo();
++            }
++            else if (!key_repeat && key == SDLK_F10 && g_psx_ram &&
++                     std::getenv("PSX_RE3_RAMDUMP")) {
++                /* Developer diagnostic (opt-in via PSX_RE3_RAMDUMP=1): dump
++                 * main RAM + video/audio state for reverse-engineering. */
++                static int s_dump_n = 0;
++                char name[64];
++                std::snprintf(name, sizeof(name), "ramdump_%02d.bin", ++s_dump_n);
++                if (FILE* f = std::fopen(name, "wb")) {
++                    std::fwrite(g_psx_ram, 1, 0x200000, f);
++                    std::fclose(f);
++                    const int d24 = gpu_display_is_depth24() != 0;
++                    const int md = mdec_recently_active(8) != 0;
++                    const int xa = cdrom_xa_stream_active() != 0;
++                    char msg[96];
++                    std::snprintf(msg, sizeof(msg), "RAM dump %02d  d24=%d mdec=%d xa=%d fmv=%d",
++                                  s_dump_n, d24, md, xa, d24 && md);
++                    host_osd_push(msg, 3000);
++                    std::snprintf(name, sizeof(name), "ramdump_%02d.txt", s_dump_n);
++                    if (FILE* t = std::fopen(name, "w")) {
++                        std::fprintf(t, "frame=%llu depth24=%d mdec_recent8=%d mdec_decodes=%u xa=%d\n",
++                                     (unsigned long long)s_frame_count, d24, md,
++                                     (unsigned)mdec_get_decode_count(), xa);
++                        std::fclose(t);
++                    }
++                }
++            }
+             else if (!key_repeat &&
+                      host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
+                                              (int)key, (int)scancode,

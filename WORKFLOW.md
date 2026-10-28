@@ -11,13 +11,24 @@ Não existem outras cópias do executável ou dos documentos.
 ## Alterar o runtime (submodule `psxrecomp`)
 
 1. Edite os arquivos em `psxrecomp/`.
-2. `.\build.ps1` (avisa em amarelo que o submodule tem mudanças além do patch; é esperado).
-3. Antes de commitar, exporte o patch **pelo cmd**, nunca capturando a saída do git no PowerShell (isso corrompe acentos e o BOM). Use `diff HEAD`: um `diff` simples perde as mudanças que já estão preparadas (*staged*) no submódulo.
-   ```
-   cmd /c "git -C psxrecomp diff HEAD > patches\psxrecomp_runtime.patch"
-   ```
+2. `.\build.ps1` (avisa que o submodule tem mudanças além de `patches/runtime`; é esperado).
+3. Antes de commitar, grave a mudança num patch por tema, com `tools\runtime_patches.py`, que escreve os bytes direto do git (o PowerShell recodifica a saída e corrompe patches):
+   - assunto novo: `py -3 tools\runtime_patches.py export NN-tema` (vira o último da sequência);
+   - mudança num tema existente: `py -3 tools\runtime_patches.py rebuild NN-tema` (reescreve só aquele; os seguintes precisam continuar aplicando).
+   `status` deve terminar em `applied`. Os patches aplicam em ordem de nome sobre o commit do submódulo:
+
+   | Patch | Conteúdo |
+   |---|---|
+   | `01-recompiler-switch-form` | terceira forma de `switch` limitado (C++, Python, testes) |
+   | `02-pgxp` | solda de vértices, rastreio de deslocamento, profundidade pelo plano, porta "jogo começou" |
+   | `03-presentation` | 16:9 esticado, FXAA, recorte do depth24 em FMV, janela em primeiro plano |
+   | `04-doors-audio` | portas rápidas: fronteira de carga e fade do áudio |
+   | `05-settings-input-cheats` | `settings.toml` do RE3, controles modernos, cheats, vibração, DirectInput |
+   | `06-diagnostics` | dados por quadro, histórico, histograma do interpretador, vigia de travamento |
+   | `07-misc` | memória do SHA do disco, clamp de draw distance |
+
    Se a mudança for no recompilador (`recompiler/src/`), a etiqueta do cache muda. Regenere o C (`.\build.ps1 -Regen -DiscPath <cue>`) e o cache de overlays (veja abaixo).
-4. Commite o patch em `RE3Recomp`. O submodule continua apontando para o commit original do PSXRecomp.
+4. Commite os patches em `RE3Recomp`. O submodule continua apontando para o commit original do PSXRecomp.
 
 ## Alterar o código gerado (`generated/`)
 

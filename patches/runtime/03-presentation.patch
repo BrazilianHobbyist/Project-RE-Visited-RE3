@@ -1,0 +1,307 @@
+diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
+index 4a27bdb2..ee263d78 100644
+--- a/runtime/include/gpu_gl_renderer.h
++++ b/runtime/include/gpu_gl_renderer.h
+@@ -287,6 +287,8 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
+  * stretches the 4:3 frame; pair with gte_set_display_aspect (cpu_state.h)
+  * for the widescreen field-of-view hack. */
+ void gl_renderer_set_display_aspect(int num, int den);
++/* 1 = stretch 4:3 content to the window (16:9 "stretched"); 0 = pillarbox. */
++void gl_renderer_set_aspect_stretch(int enabled);
+ 
+ /* Scanline post-process (host display setting). on toggles the effect; strength
+  * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
+diff --git a/runtime/include/window_fullscreen.h b/runtime/include/window_fullscreen.h
+index 2a74dd5c..ae3127dd 100644
+--- a/runtime/include/window_fullscreen.h
++++ b/runtime/include/window_fullscreen.h
+@@ -66,6 +66,7 @@ static inline int psx_window_fullscreen_set(SDL_Window* window,
+         SDL_SetWindowResizable(window, SDL_FALSE);
+         SDL_SetWindowPosition(window, desktop.x, desktop.y);
+         SDL_SetWindowSize(window, desktop.w, desktop.h);
++        SDL_RaiseWindow(window);
+         SDL_SyncWindow(window);
+ #elif defined(PSX_SDL3)
+         if (!SDL_SetWindowFullscreen(window, true)) return -1;
+diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
+index f4bc939c..0b2f56a9 100644
+--- a/runtime/src/gpu.c
++++ b/runtime/src/gpu.c
+@@ -4251,7 +4251,7 @@ const uint16_t* gpu_get_vram(void) {
+  * Only FB-class A0s (w >= 256 halfwords) grow the span; texture uploads must
+  * not collapse it. During present-hold, ignore updates entirely. */
+ static void depth24_note_upload(uint32_t x, uint32_t w) {
+-    if (!(display_depth & 1u) || w < 256u) return;
++    if (!(display_depth & 1u)) return;
+     if (s_d24_present_hold > 0) return;
+     uint32_t x1 = x + w;
+     if (x1 > 1024u) x1 = 1024u;
+diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
+index dab81837..f938529d 100644
+--- a/runtime/src/gpu_gl_renderer.c
++++ b/runtime/src/gpu_gl_renderer.c
+@@ -625,6 +625,7 @@ static GLint         s_present_uTex = -1, s_present_uUvRect = -1;
+ static GLint         s_present_uTexSize = -1, s_present_uSharpScale = -1;
+ static GLint         s_present_uSharp = -1;
+ static GLint         s_present_uGamma = -1;
++static GLint         s_present_uFxaa = -1;
+ /* Host-side presentation state. The shader applies this only to the source
+  * image being presented; overlays and already-composed hold-last images set
+  * the uniform back to the identity explicitly. */
+@@ -1307,6 +1308,7 @@ static void hold_capture_drawable(void) {
+ }
+ 
+ /* Defined after present_target_quad (letterbox helpers). */
++static int s_aspect_stretch = 1;
+ static void letterbox_rect_aspect(int ww, int wh, int num, int den,
+                                   int *x, int *y, int *w, int *h);
+ static void letterbox_rect(int ww, int wh, int *x, int *y, int *w, int *h);
+@@ -1326,7 +1328,7 @@ static void hiw_capture_size(int sw, int sh, int force_4_3, int *cw, int *ch) {
+     if (!s_hiw || !s_win) return;
+     SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     if (ww < 1 || wh < 1) return;
+-    if (force_4_3) letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
++    if (force_4_3 && !s_aspect_stretch) letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+     if (lw > 0 && lh > 0 && (int64_t)lw * lh < (int64_t)sw * sh) {
+         *cw = lw; *ch = lh;
+@@ -1640,6 +1642,7 @@ static const char *PRESENT_FS =
+     "uniform int  u_sharp;\n"
+     "uniform float u_gamma;\n"
+     "uniform int  u_chroma;   /* [video] fmv_chroma_smoothing (24-bit frames) */\n"
++    "uniform int u_fxaa;\n"
+     PSX_SCANLINE_UNIFORMS
+     /* Catmull-Rom bicubic via 9 bilinear taps. Sharper than plain bilinear at
+      * the same smoothness, with mild overshoot that reads as edge definition.
+@@ -1692,11 +1695,41 @@ static const char *PRESENT_FS =
+     "      acc += texture(u_tex, clamp((base + vec2(i, j) * st) / u_tex_size, lo, hi));\n"
+     "  return acc / float(n.x * n.y);\n"
+     "}\n"
++    /* FXAA-lite (luma edge detect + blur along the edge normal). Runs on the
++     * presented colour only, so VRAM mask/alpha semantics are untouched. */
++    "float fx_luma(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }\n"
++    "vec3 fxaa(vec2 uv){\n"
++    "  vec2 px = 1.0 / vec2(textureSize(u_tex, 0));\n"
++    "  vec2 lo = min(u_uv_rect.xy, u_uv_rect.zw);\n"
++    "  vec2 hi = max(u_uv_rect.xy, u_uv_rect.zw);\n"
++    "  vec3 rgbM = texture(u_tex, uv).rgb;\n"
++    "  vec3 rgbNW = texture(u_tex, clamp(uv + vec2(-1.0,-1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbNE = texture(u_tex, clamp(uv + vec2( 1.0,-1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbSW = texture(u_tex, clamp(uv + vec2(-1.0, 1.0)*px, lo, hi)).rgb;\n"
++    "  vec3 rgbSE = texture(u_tex, clamp(uv + vec2( 1.0, 1.0)*px, lo, hi)).rgb;\n"
++    "  float lM = fx_luma(rgbM), lNW = fx_luma(rgbNW), lNE = fx_luma(rgbNE);\n"
++    "  float lSW = fx_luma(rgbSW), lSE = fx_luma(rgbSE);\n"
++    "  float lmin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));\n"
++    "  float lmax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));\n"
++    "  if (lmax - lmin < max(0.0312, lmax * 0.125)) return rgbM;\n"
++    "  vec2 dir;\n"
++    "  dir.x = -((lNW + lNE) - (lSW + lSE));\n"
++    "  dir.y =  ((lNW + lSW) - (lNE + lSE));\n"
++    "  float dr = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0/128.0);\n"
++    "  float rcp = 1.0 / (min(abs(dir.x), abs(dir.y)) + dr);\n"
++    "  dir = clamp(dir * rcp, vec2(-8.0), vec2(8.0)) * px;\n"
++    "  vec3 a = 0.5 * (texture(u_tex, clamp(uv + dir*(1.0/3.0-0.5), lo, hi)).rgb +\n"
++    "                  texture(u_tex, clamp(uv + dir*(2.0/3.0-0.5), lo, hi)).rgb);\n"
++    "  vec3 b = a*0.5 + 0.25*(texture(u_tex, clamp(uv + dir*-0.5, lo, hi)).rgb +\n"
++    "                         texture(u_tex, clamp(uv + dir* 0.5, lo, hi)).rgb);\n"
++    "  float lb = fx_luma(b);\n"
++    "  return (lb < lmin || lb > lmax) ? a : b;\n"
++    "}\n"
+     "void main(){\n"
+     "  vec2 uv = v_uv;\n"
+     "  vec4 c;\n"
+     "  if (u_sharp == 2) { c = bicubic(uv); }\n"
+-    "  else if (u_sharp == 3) { c = area_resolve(uv); }\n"
++    "  else if (u_sharp == 3) { c = area_resolve(uv); if (u_fxaa != 0) c.rgb = mix(c.rgb, fxaa(uv), 0.5); }\n"
+     "  else {\n"
+     "    if (u_sharp == 1) {\n"
+     "      vec2 scale = max(u_sharp_scale, vec2(1.0));\n"
+@@ -1711,6 +1744,7 @@ static const char *PRESENT_FS =
+     "      uv = clamp(uv, lo, hi);\n"
+     "    }\n"
+     "    c = texture(u_tex, uv);\n"
++    "    if (u_fxaa != 0) c.rgb = fxaa(uv);\n"
+     "  }\n"
+     /* MDEC decodes 4:2:0 video: one Cb/Cr pair per 2x2 pixels, upsampled by
+      * replication, so saturated edges in a 24-bit movie frame show 2-pixel
+@@ -5744,6 +5778,7 @@ static int fmv_filter_mode(void) {
+  * the historical straight sample. */
+ static void present_set_sharp(int mode, int tex_w, int tex_h,
+                               int out_w, int out_h) {
++    if (s_present_uFxaa >= 0) p_glUniform1i(s_present_uFxaa, 0);
+     if (s_present_uSharp < 0) return;
+     if (mode <= 0 || tex_w <= 0 || tex_h <= 0) {
+         p_glUniform1i(s_present_uSharp, 0);
+@@ -5812,6 +5847,10 @@ void gl_renderer_set_display_aspect(int num, int den) {
+     s_aspect_num = num; s_aspect_den = den;
+ }
+ 
++void gl_renderer_set_aspect_stretch(int enabled) {
++    s_aspect_stretch = enabled ? 1 : 0;
++}
++
+ /* Scanline post-process toggle (host display setting). strength is the depth of
+  * the dark gap between lines, 0..1 (0 = off-looking, 1 = fully black gap). The
+  * actual darkening is applied per-draw in the present/interpolation shaders and
+@@ -6477,6 +6516,8 @@ int gl_renderer_init_context(SDL_Window *win) {
+                 p_glGetUniformLocation(s_present_prog, "u_gamma");
+             s_present_uChroma =
+                 p_glGetUniformLocation(s_present_prog, "u_chroma");
++            s_present_uFxaa =
++                p_glGetUniformLocation(s_present_prog, "u_fxaa");
+             s_present_uScanline =
+                 p_glGetUniformLocation(s_present_prog, "u_scanline");
+             s_present_uScanStrength =
+@@ -6613,7 +6654,7 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+     glViewport(0, 0, ww, wh);
+     glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
+     int lx, ly, lw, lh;
+-    if (force_4_3)
++    if (force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -6632,15 +6673,15 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+         ly += (lh - content_h) / 2;
+         lh = content_h;
+     }
+-    /* Optional trailing-column crop (depth24 margin): shrink the draw width
+-     * left-aligned so cleared black remains on the right — never stretch. */
++    /* Optional trailing-column crop (depth24 margin): crop the padding in UV
++     * space and stretch the active content across the present rect, centred. */
+     float uv_x1 = 1.f;
+     int crop = (content_w > 0 && content_w < src_w && src_w > 0);
+     if (crop) {
+         uv_x1 = (float)content_w / (float)src_w;
+-        lw = (lw * content_w) / src_w;
+-        if (lw < 1) lw = 1;
+     }
++    if (lw < ww) lx = (ww - lw) / 2;
++    if (lh < wh) ly = (wh - lh) / 2;
+     /* This is the low-res source path (24-bit FMV, and the forced-CPU present
+      * diagnostic): a 320x192-class image blown up to fill the window, so how it
+      * is reconstructed is very visible. `linear` (the video AA setting) allows
+@@ -7852,7 +7893,7 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
+     uint64_t present_t0 = SDL_GetPerformanceCounter();
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
+-    if (s_interp_force_4_3)
++    if (s_interp_force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -10101,6 +10142,8 @@ static void present_target_quad(GLuint tex, float tex_w, float tex_h,
+     } else {
+         present_set_sharp(0, 0, 0, 0, 0);
+     }
++    if (linear && s_present_uFxaa >= 0 && v_flip)
++        p_glUniform1i(s_present_uFxaa, 1);
+     /* Scanline at the native line grid. v_uv is normalized against tex_h (the
+      * full VRAM/FBO texture), and one texel row is one PS1 scanline, so tex_h is
+      * the phase pitch; h is the displayed line count for the output-scale gate.
+@@ -10226,7 +10269,7 @@ int gl_renderer_present_hold_last(void) {
+         present_target_quad(s_hold_tex, s_hold_tw, s_hold_th,
+                             0, 0, s_hold_tw, s_hold_th, 0, lx, ly, lw, lh, 0, 0, 1);
+     } else {
+-        if (s_hold_force_4_3)
++        if (s_hold_force_4_3 && !s_aspect_stretch)
+             letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+         else
+             letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -10295,7 +10338,7 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+     gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
+-    if (force_4_3)
++    if (force_4_3 && !s_aspect_stretch)
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index b46655f8..8885ab85 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -2262,7 +2262,7 @@ static bool          g_ws_engaged = true;
+ /* Wide-aspect strategy: native-wide (render the wider FOV into a wider frame,
+  * present 1:1 — the GTE is NOT squashed) vs. the legacy squash hack. Default
+  * native-wide; toggle live via the ws_nw TCP command for A/B comparison. */
+-static int           g_ws_native_wide = 1;
++static int           g_ws_native_wide = 0;
+ /* Logical present width for the SDL_Renderer (software) path; 640*scale at
+  * 4:3, wider for wide aspects. Height is always 480*scale. Set at window
+  * creation alongside SDL_RenderSetLogicalSize. */
+@@ -10000,9 +10000,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+          * Set video AA off to get nearest back. */
+         gl_renderer_set_fmv_filter(g_video_fmv_filter);
+         gl_renderer_note_present_depth24(depth24_frame ? 1 : 0);
++        /* RE3: crop the trailing columns gpu_depth24_stage_scanout blacked
++         * out (same start column rule), so a 320-wide movie in a wider CRTC
++         * mode is shown centred instead of left-aligned beside a black bar. */
++        int d24_content_w = 0;
++        if (depth24_frame && !local_viewport_crop_applied && !game_view_applied) {
++            const uint32_t margin = (uint32_t)g_video_depth24_trailing_margin;
++            if (present_w >= 8u && margin > 0u && margin < present_w) {
++                uint32_t start = present_w - margin;
++                GpuDisplayInfo d24_di;
++                gpu_get_display_info(&d24_di);
++                const uint32_t lim = gpu_depth24_rgb_limit(d24_di.display_x, present_w);
++                if (lim > 0u && lim < present_w && lim < start)
++                    start = lim;
++                d24_content_w = (int)start * active_scale;
++            }
++        }
+         gl_renderer_present(sdl_pixel_buf, src_w, src_h,
+                             g_video_aa ? 1 : 0,
+-                            pin_43 ? 1 : 0, 0 /* full width */);
++                            pin_43 ? 1 : 0, d24_content_w);
+         netplay_note_present();
+     } else {
+     if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
+@@ -10043,11 +10059,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
+      * native-wide game frames that could not present wide (pin_43): canonical
+      * content is never stretched across the wide window. */
+-    int dst_w = pin_43 ? 640 * tex_scale : g_logical_w;
++    const bool pin_to_43 = pin_43 && (g_video_aspect_num * 3 == g_video_aspect_den * 4);
++    int dst_w = pin_to_43 ? 640 * tex_scale : g_logical_w;
+     int dst_h = 480 * tex_scale;
+     SDL_Rect dst = { (g_logical_w - dst_w) / 2, 0, dst_w, dst_h };
+     /* Match GL: short display bands letterbox inside the 4:3 rect. */
+-    if (pin_43 && present_h > 0 && present_h < 240) {
++    if (pin_to_43 && present_h > 0 && present_h < 240) {
+         int content_h = (dst_h * (int)present_h) / 240;
+         if (content_h < 1) content_h = 1;
+         dst.y = (dst_h - content_h) / 2;
+@@ -17631,8 +17648,8 @@ int main(int argc, char** argv) {
+      * game.toml offer flags remain parseable for old projects but deliberately
+      * cannot expose generic launcher controls or activate the features. Trusted
+      * activation plugins apply them after launcher/settings resolution. */
+-    constexpr bool ws_offered = false;
+-    constexpr bool ws_ultrawide_offered = false;
++    constexpr bool ws_offered = true;
++    constexpr bool ws_ultrawide_offered = true;
+     constexpr bool frame_interpolation_offered = false;
+     constexpr bool skip_fmv_offered = false;
+     /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
+@@ -18575,17 +18592,10 @@ int main(int argc, char** argv) {
+             "ignoring the legacy value\n");
+         g_turbo_loads_enabled = 0;
+     }
+-    /* Treat presentation interpolation the same way when a title moves it to
+-     * Mods. Both the boolean and target rate are cleared so launcher-less
+-     * starts cannot revive an old generic Settings selection. */
+-    if (!frame_interpolation_offered &&
+-        (g_frame_interpolation || g_frame_interpolation_fps)) {
+-        std::fprintf(stdout,
+-            "psxrecomp: Frame interpolation is mod-owned for this title; "
+-            "ignoring the legacy Settings value\n");
+-        g_frame_interpolation = 0;
+-        g_frame_interpolation_fps = 0;
+-    }
++    /* Presentation interpolation is completely disabled for authentic PS1 30 FPS timing */
++    g_frame_interpolation = 0;
++    g_frame_interpolation_fps = 0;
++    psx_smooth_60fps_set(0);
+ 
+     /* Widescreen/View mode is mod-owned on PSX. Clamp the generic display
+      * aspect to native 4:3 so neither a legacy game.toml offer/default nor a

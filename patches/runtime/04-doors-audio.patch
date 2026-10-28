@@ -1,0 +1,126 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 8885ab85..e1d35bbe 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -4376,6 +4376,10 @@ static void sdl_audio_gain_ramp(int16_t* buf, int frames, float g0, float g1) {
+  * frames in one spu_render call. 1764 frames = 40 ms.
+  * sdl_audio_fadein_left is declared with present_session_reset. */
+ static const int sdl_audio_fade_samples = 44100 * 40 / 1000;  /* 40 ms */
++/* Length of the fade-in in progress (denominator for sdl_audio_fadein_left).
++ * The discard-sink exit (RE3 door transitions) uses a longer, gentler ramp. */
++static const int sdl_audio_sink_fadein_samples = 44100 * 300 / 1000;  /* 300 ms */
++static int sdl_audio_fadein_total = sdl_audio_fade_samples;
+ 
+ static void sdl_audio_pump(bool discard_output = false) {
+     /* Guest-cycle SPU advance must not depend on host audio device/backpressure.
+@@ -4471,10 +4475,10 @@ static void sdl_audio_pump(bool discard_output = false) {
+     frames = host_frames;
+     if (sdl_audio_fadein_left > 0) {
+         const float g0 = 1.0f - (float)sdl_audio_fadein_left
+-                                / (float)sdl_audio_fade_samples;
++                                / (float)sdl_audio_fadein_total;
+         int ramp = sdl_audio_fadein_left < frames ? sdl_audio_fadein_left : frames;
+         const float g1 = 1.0f - (float)(sdl_audio_fadein_left - ramp)
+-                                / (float)sdl_audio_fade_samples;
++                                / (float)sdl_audio_fadein_total;
+         sdl_audio_gain_ramp(sdl_audio_buf, ramp, g0, g1);
+         sdl_audio_fadein_left -= ramp;
+     }
+@@ -4993,7 +4997,7 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+              * from its current gain so the edge stays continuous. */
+             const float vol = (float)host_volume_get() / 100.0f;
+             const float g0 = (1.0f - (float)sdl_audio_fadein_left
+-                                     / (float)sdl_audio_fade_samples) * vol;
++                                     / (float)sdl_audio_fadein_total) * vol;
+             sdl_audio_fadein_left = 0;
+             /* Fade out what the SPU has already produced; rendering ahead of
+              * the guest clock would advance SPU state out of guest time. */
+@@ -5020,7 +5024,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+          * mid-frame pump does not sneak audio out ahead of the unmute ramp. */
+         if (hangover > 0) { hangover--; return; }
+         muted = 0;
+-        sdl_audio_fadein_left = sdl_audio_fade_samples;
++        sdl_audio_fadein_total = sdl_audio_fade_samples;
++        sdl_audio_fadein_left = sdl_audio_fadein_total;
+         audio_trace_event(AUDIO_EV_UNMUTE, (uint32_t)sdl_audio_fadein_left, 0);
+         extern int g_audio_unmute_resync;
+         g_audio_unmute_resync = 1;
+@@ -5028,7 +5033,28 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+     if (turbo_sink_active) {
+         if (!sink_was_active) {
+             sink_was_active = 1;
+-            audio_trace_event(AUDIO_EV_MUTE, 0, 2); /* b=2: discard-only sink */
++            /* Ramp the current voices to silence before discarding, as the
++             * hard-mute edge does, so the cut is a short fade, not a click. */
++            int tail = sdl_audio_fade_samples;
++            const int buf_cap = (int)(sizeof(sdl_audio_buf) / (2 * sizeof(int16_t)));
++            if (tail > buf_cap) tail = buf_cap;
++            const float vol = (float)host_volume_get() / 100.0f;
++            const float g0 = (1.0f - (float)sdl_audio_fadein_left
++                                     / (float)sdl_audio_fadein_total) * vol;
++            sdl_audio_fadein_left = 0;
++            /* Same contract as the hard-mute edge: fade what the SPU has
++             * already produced, never render ahead of the guest clock. */
++            spu_catch_up();
++            tail = (int)spu_output_pop(sdl_audio_buf, (uint32_t)tail);
++            sdl_audio_gain_ramp(sdl_audio_buf, tail, g0, 0.0f);
++            if (sdl_audio_device && audio_legacy_mode()) {
++                psx_sdl_audio_queue(sdl_audio_device, sdl_audio_buf, (uint32_t)tail * sizeof(int16_t) * 2u);
++            } else if (sdl_audio_device && s_drc_ready) {
++                psx_sdl_audio_lock(sdl_audio_device);
++                rab_push(&s_drc, sdl_audio_buf, tail);
++                psx_sdl_audio_unlock(sdl_audio_device);
++            }
++            audio_trace_event(AUDIO_EV_MUTE, (uint32_t)tail, 2); /* b=2: discard-only sink */
+         }
+         g_turbo_audio_sink_active = 1;
+         s_audio_gate = AUDIO_GATE_SINK;
+@@ -5038,7 +5064,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+     g_turbo_audio_sink_active = 0;
+     if (sink_was_active) {
+         sink_was_active = 0;
+-        sdl_audio_fadein_left = sdl_audio_fade_samples;
++        sdl_audio_fadein_total = sdl_audio_sink_fadein_samples;
++        sdl_audio_fadein_left = sdl_audio_fadein_total;
+         audio_trace_event(AUDIO_EV_UNMUTE,
+                           (uint32_t)sdl_audio_fadein_left, 2);
+         g_audio_unmute_resync = 1;
+@@ -9289,6 +9316,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * old fast_boot snapshot restore; all guest timing is authentic. */
+     if (psx_bios_hle_boot_turbo_active())
+         turbo_loads_active = 1;
++    re3_door_probe_frame(cdrom_load_in_progress() ? 1 : 0);
++    /* RE3 door transition (fast_doors): a verified loading boundary. */
++    if (re3_door_turbo_active() && !psx_netplay_active() &&
++        !psx_selfcheck_resim_active())
++        turbo_loads_active = 1;
++
+     probe_turbo = turbo_loads_active;
+ 
+     load_transition_note(cdrom_data_read_active(), logical_load_active,
+@@ -9348,7 +9381,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * paths cannot fork peers during the episode window. */
+     if (!psx_netplay_is_resimulating() && !psx_selfcheck_resim_active()) {
+         sdl_audio_update(fmv_skip_active,
+-                         turbo_loads_active && g_turbo_audio_sink_enabled);
++                         (turbo_loads_active && g_turbo_audio_sink_enabled) ||
++                         re3_door_audio_muted());
+     }
+ #endif
+ 
+@@ -9363,6 +9397,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+      * frame is presented — otherwise headless validation runs a different game
+      * than the windowed build. Hooks still run after all normal input sampling. */
+     mod_call_frame_hooks();
++    re3_maintain_qol_per_frame();
+ 
+     /* Resize-driven mode updates the pending aspect during BIOS boot too, but
+      * the actual wide compositor remains disengaged until game entry. No-op
+@@ -9795,6 +9830,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+                     return ep;
+                 }
+             } else {
++
+                 gl_renderer_present_vram((int)di.display_x, (int)di.display_y,
+                                          (int)present_w, (int)h, g_video_aa ? 1 : 0,
+                                          (fmv_frame || nw_pin) ? 1 : 0);

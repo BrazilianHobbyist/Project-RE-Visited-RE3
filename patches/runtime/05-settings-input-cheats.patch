@@ -1,0 +1,1065 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index e1d35bbe..c9499ddf 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -5677,6 +5677,8 @@ static void open_player(PlayerInput& p, int self_slot) {
+     }
+ }
+ 
++static float g_rumble_intensity = 2.0f; /* 1.0 = baseline, 2.0 = strong (default) */
++
+ /* Forward the emulated DualShock's two motors to the SDL controller assigned
+  * to the same PSX port. The large motor is variable-strength/low-frequency;
+  * the small motor is fixed-strength/high-frequency. Active effects are renewed
+@@ -5742,17 +5744,42 @@ static void update_controller_rumble(void) {
+         const bool changed = !p.rumble_known || p.rumble_small != small ||
+                              p.rumble_large != large;
+         if (small || large || (changed && p.rumble_known)) {
+-            const Uint16 low_frequency = (Uint16)((unsigned)large * 257u);
+-            const Uint16 high_frequency = small ? 0xFFFFu : 0u;
+-#if defined(PSX_SDL3)
+-            const int rc = SDL_GameControllerRumble(
+-                p.handle, low_frequency, high_frequency,
+-                (small || large) ? 100u : 0u) ? 0 : -1;
+-#else
++            Uint16 low_frequency = 0;
++            Uint16 high_frequency = 0;
++
++            if (small || large) {
++                float intensity = g_rumble_intensity;
++                if (intensity < 0.0f) intensity = 0.0f;
++
++                // Heavy motor (low-frequency):
++                // Modern controller weights need a solid floor and boosted curve
++                float low_val = 0.0f;
++                if (large > 0) {
++                    float norm = (float)large / 255.0f;
++                    low_val = (22000.0f + norm * 43535.0f) * (intensity / 1.5f);
++                }
++                // When small motor fires (e.g. handgun, quick hits), add punch to the heavy motor too
++                if (small > 0) {
++                    float small_kick = 32000.0f * (intensity / 1.5f);
++                    if (small_kick > low_val) low_val = small_kick;
++                }
++                if (low_val > 65535.0f) low_val = 65535.0f;
++                low_frequency = (Uint16)low_val;
++
++                // Light motor (high-frequency)
++                float high_val = 0.0f;
++                if (small > 0) {
++                    high_val = 65535.0f * (intensity >= 1.0f ? 1.0f : intensity);
++                } else if (large > 0) {
++                    high_val = ((float)large / 255.0f) * 55000.0f * (intensity / 1.5f);
++                }
++                if (high_val > 65535.0f) high_val = 65535.0f;
++                high_frequency = (Uint16)high_val;
++            }
++
+             const int rc = SDL_GameControllerRumble(
+                 p.handle, low_frequency, high_frequency,
+-                (small || large) ? 100u : 0u);
+-#endif
++                (small || large) ? 120u : 0u);
+             if (rc != 0 && !p.rumble_warned) {
+                 std::fprintf(stderr,
+                     "psxrecomp runtime: controller for slot %d rejected rumble: %s\n",
+@@ -5814,16 +5841,10 @@ static int assert_sio_pad_profile(int s, bool dev_here) {
+     const ModControllerPresentationPolicy& policy = g_mod_controller_policy[s];
+     const int boot_mode = policy.callback ? policy.initial_mode : mode;
+     sio_set_pad_connected(s, (p.kind != 0 || dev_here) ? 1 : 0);
+-    /* DIGITAL mode == a plain digital controller that ignores the DualShock
+-     * config-mode commands (real SCPH-1080 behaviour); ANALOG or an
+-     * explicitly config-capable mod policy == a config-capable DualShock.
+-     * A digital pad that wrongly answered 0x43 sent Tomba 2's pad driver
+-     * down the config path -> phantom 0x00 reads.
+-     * Multitap taps are always digital (see sio_pad_on_multitap). */
++    /* In RE3, ensure pads are always DualShock config-capable so vibration (rumble)
++     * is always negotiated and available to the game. */
+     sio_set_pad_config_capable(
+-        s, policy.callback ? policy.config_capable
+-                           : (p.steering_wheel ||
+-                              mode != PSXRecompV4::PAD_MODE_DIGITAL));
++        s, policy.callback ? policy.config_capable : 1);
+     return boot_mode;
+ }
+ 
+@@ -5935,11 +5956,639 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+            s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
+ }
+ 
++extern "C" uint8_t *g_psx_ram;
++
++static bool g_modern_controls = false;
++static int  g_modern_turn_speed = 90;   /* 1/4096 turn per frame */
++extern "C" int g_fast_doors = 1;
++static bool g_infinite_ink_ribbons = false;
++static bool g_unlock_boutique = false;
++static bool g_infinite_health = false;
++static bool g_infinite_ammo = false;
++static bool g_all_weapons_box = false;
++static bool g_unlock_mercenaries = false;
++static bool g_unlock_epilogues = false;
++static bool g_skip_cutscenes = true;
++static int s_re3_fmv_skip_frames = 0;
++static int s_re3_cutscene_skip_frames = 0;
++
++static uint16_t pad_buttons_for(const PlayerInput& p, int player, bool suppress_stick_axes);
++
++struct RE3ItemSlot {
++    uint8_t id;
++    uint8_t count;
++    uint8_t attr;
++    uint8_t pad;
++};
++
++static inline bool re3_is_weapon(uint8_t id) {
++    return (id >= 0x01 && id <= 0x0F);
++}
++
++static inline bool re3_is_ammo(uint8_t id) {
++    return (id >= 0x15 && id <= 0x1B) || id == 0x1F || id == 0x22 || id == 0x23 || id == 0x24 || id == 0x25;
++}
++
++static void re3_max_out_ammo(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++    RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++    int max_slots = ram[0x000D225E];
++    if (max_slots < 8 || max_slots > 10) max_slots = 8;
++
++    int touched = 0;
++    for (int i = 0; i < max_slots; ++i) {
++        if (re3_is_ammo(slots[i].id)) {
++            slots[i].count = 255;
++            touched++;
++        } else if (re3_is_weapon(slots[i].id) && slots[i].id != 0x01) {
++            uint8_t wid = slots[i].id;
++            /* Same capacities as the infinite-ammo cheat. */
++            if (wid == 0x02 || wid == 0x03 || wid == 0x0D) slots[i].count = 15;
++            else if (wid == 0x04) slots[i].count = 7;
++            else if (wid == 0x05 || (wid >= 0x06 && wid <= 0x09) || wid == 0x0C) slots[i].count = 6;
++            else if (wid == 0x0E || wid == 0x0F) slots[i].count = 100;
++            touched++;
++        }
++    }
++    if (touched > 0) {
++        host_osd_push("Armas carregadas, municao no maximo", 1500);
++    }
++}
++
++/* Door audio mute (fast_doors only). Skipping the 3D door animation leaves the
++ * door SFX playing while the next room's sound bank is uploaded to SPU RAM,
++ * which comes out as distorted noise. Discard SPU output from door start
++ * (stage 0, 0x80015498) until shortly after the stage-2 fade-in (0x80016190).
++ * The SPU keeps running; only host output is dropped, then faded back in. */
++static int s_re3_door_mute_frames = 0;
++/* Fast loading at the same verified boundary: while the skipped door loads
++ * the next room, the whole machine runs unpaced (host turbo). Guest timing
++ * is untouched -- CD deadlines, VBlanks and IRQs all advance in guest cycles
++ * -- only wall-clock pacing is dropped (docs/LOAD_TIME_ZERO.md, Lever A),
++ * and the door mute above already sinks the accelerated audio. Stops at the
++ * stage-2 fade-in, so the new room fades in at normal speed. */
++static int s_re3_door_turbo_frames = 0;
++/* Measured per door (re3_door_timeline, 2026-10-20): after the skipped
++ * stage 2 the game still reads the door model (DOOR*.DO1, one CD burst),
++ * idles 0.1-1.7 s with the screen black, then reads the new room
++ * (R*.ARD/.BIN/.BSS, one burst); control returns when that burst ends.
++ * So the load boundary is: door start -> end of the second data burst. */
++static int s_re3_door_bursts = 0;
++/* Door transition wall time (stage-0 entry to stage-2 fade-in), reported in
++ * psx_last_run_report.json as "re3_doors". */
++static uint64_t s_re3_door_t0 = 0;
++extern "C" uint32_t g_re3_door_count = 0;
++extern "C" double   g_re3_door_ms_total = 0.0, g_re3_door_ms_max = 0.0;
++static void re3_door_probe_begin(void);
++static void re3_door_probe_end(void);
++extern "C" void re3_door_audio_begin(void) {
++    re3_door_probe_begin();
++    s_re3_door_t0 = SDL_GetPerformanceCounter();
++    if (g_fast_doors) {
++        s_re3_door_mute_frames = 600;   /* safety cap ~10 s */
++        s_re3_door_turbo_frames = 600;
++        /* s_re3_door_bursts is reset in re3_door_probe_begin (above). */
++    }
++}
++extern "C" void re3_door_audio_end(void) {
++    re3_door_probe_end();
++    if (s_re3_door_t0) {
++        const double ms = (double)(SDL_GetPerformanceCounter() - s_re3_door_t0) * 1000.0 /
++                          (double)SDL_GetPerformanceFrequency();
++        s_re3_door_t0 = 0;
++        g_re3_door_count++;
++        g_re3_door_ms_total += ms;
++        if (ms > g_re3_door_ms_max) g_re3_door_ms_max = ms;
++    }
++}
++static int re3_door_turbo_active(void) {
++    if (s_re3_door_turbo_frames <= 0) return 0;
++    s_re3_door_turbo_frames--;
++    return 1;
++}
++
++/* Door load probe: where does the CD load of a room change fall relative to
++ * the door hooks? Per door: CD-load wall time before stage 0 (the burst still
++ * running or just ended within 2 s), and after the stage-2 fade-in until the
++ * drive has been idle for 20 frames. Reported as "re3_door_loads". */
++static double   s_rdp_burst_start = 0.0, s_rdp_last_load = 0.0;
++static int      s_rdp_post = 0, s_rdp_idle = 0, s_rdp_was_load = 0;
++static double   s_rdp_end_t = 0.0;
++extern "C" uint32_t g_re3_dl_count = 0;
++extern "C" double   g_re3_dl_pre_ms = 0.0, g_re3_dl_post_ms = 0.0, g_re3_dl_post_max = 0.0;
++static double rdp_now_ms(void) {
++    return (double)SDL_GetPerformanceCounter() * 1000.0 / (double)SDL_GetPerformanceFrequency();
++}
++/* Door timeline: ring of the last events (CD data bursts with their SetLoc
++ * LBA, door hooks), absolute wall ms plus player mode/routine bytes, dumped
++ * as "re3_door_timeline" so the room-load position can be read per file. */
++struct Re3TlEvent { double t; char kind; int lba; uint8_t mode, routine; };
++static Re3TlEvent s_tl[256];
++static uint32_t   s_tl_n = 0;
++static int        s_tl_lba = -1;
++static void re3_tl_push(char kind, int lba) {
++    Re3TlEvent& e = s_tl[s_tl_n++ % 256];
++    e.t = rdp_now_ms(); e.kind = kind; e.lba = lba;
++    e.mode = g_psx_ram ? g_psx_ram[0x000CCBC8] : 0;
++    e.routine = g_psx_ram ? g_psx_ram[0x000CCBC9] : 0;
++}
++extern "C" void re3_door_timeline_json(char* out, int cap) {
++    int pos = 0;
++    const uint32_t n = s_tl_n < 256 ? s_tl_n : 256;
++    const uint32_t first = s_tl_n - n;
++    pos += snprintf(out + pos, cap - pos, "[");
++    for (uint32_t i = 0; i < n && pos < cap - 64; ++i) {
++        const Re3TlEvent& e = s_tl[(first + i) % 256];
++        pos += snprintf(out + pos, cap - pos, "%s[%.0f,\"%c\",%d,%u,%u]",
++                        i ? "," : "", e.t, e.kind, e.lba, e.mode, e.routine);
++    }
++    snprintf(out + pos, cap - pos, "]");
++}
++static void re3_door_probe_begin(void) {
++    re3_tl_push('D', -1);
++    /* A load still running at the door merges with the door-model read:
++     * it is the first burst already. */
++    s_re3_door_bursts = s_rdp_was_load ? 1 : 0;
++    const double now = rdp_now_ms();
++    if (s_rdp_last_load > 0.0 && now - s_rdp_last_load < 2000.0)
++        g_re3_dl_pre_ms += now - s_rdp_burst_start;
++}
++static void re3_door_probe_end(void) {
++    re3_tl_push('F', -1);
++    s_rdp_end_t = rdp_now_ms();
++    s_rdp_post = 1;
++    s_rdp_idle = 0;
++}
++static void re3_door_probe_frame(int cd_load) {
++    const double now = rdp_now_ms();
++    if (cd_load) {
++        const int lba = cdrom_get_setloc_lba();
++        if (!s_rdp_was_load) { re3_tl_push('S', lba); s_tl_lba = lba; }
++        else if (lba != s_tl_lba) { re3_tl_push('L', lba); s_tl_lba = lba; }
++    } else if (s_rdp_was_load) {
++        re3_tl_push('E', s_tl_lba);
++    }
++    /* Door turbo end. Bursts are counted on the bridged load signal: the
++     * door-model read pauses for more than 6 frames inside one file, so a
++     * physical-gap count split it and ended turbo ~0.1 s in (playtest
++     * 2026-10-20, 9 of 9 doors). Once the room burst (the second) has begun,
++     * the end is the physical read stopping for 8 frames, not the bridge's
++     * 30 frames, which would leave the first ~0.5 s of the room unpaced. */
++    static int s_phys_idle = 0, s_phys_in_burst = 0;
++    if (s_re3_door_turbo_frames > 0 && cd_load && !s_rdp_was_load &&
++        ++s_re3_door_bursts == 2) {
++        s_phys_in_burst = 0;
++    }
++    if (cdrom_data_read_active()) { s_phys_in_burst = 1; s_phys_idle = 0; }
++    else if (s_phys_in_burst && ++s_phys_idle >= 8) {
++        s_phys_in_burst = 0;
++        if (s_re3_door_turbo_frames > 0 && s_re3_door_bursts >= 2) {
++            s_re3_door_turbo_frames = 0;
++            if (s_re3_door_mute_frames > 0) s_re3_door_mute_frames = 12;
++            re3_tl_push('T', -1);
++        }
++    }
++    if (cd_load) {
++        if (!s_rdp_was_load) s_rdp_burst_start = now;
++        s_rdp_last_load = now;
++        s_rdp_idle = 0;
++    } else {
++        s_rdp_idle++;
++    }
++    s_rdp_was_load = cd_load;
++    if (s_rdp_post && s_rdp_idle >= 20) {
++        const double post = s_rdp_last_load > s_rdp_end_t ? s_rdp_last_load - s_rdp_end_t : 0.0;
++        g_re3_dl_post_ms += post;
++        if (post > g_re3_dl_post_max) g_re3_dl_post_max = post;
++        g_re3_dl_count++;
++        s_rdp_post = 0;
++    }
++}
++static int re3_door_audio_muted(void) {
++    if (s_re3_door_mute_frames <= 0) return 0;
++    s_re3_door_mute_frames--;
++    return 1;
++}
++
++static void re3_maintain_qol_per_frame(void) {
++    if (!g_psx_ram || !fntrace_is_game_started()) return;
++    uint8_t* ram = g_psx_ram;
++
++    // Door Skipping: bypass 3D door animation & camera sequence (Stage 1: 0x80015754)
++    // and jump directly to Stage 2 (0x80016150: finalize room transition and restore gameplay).
++    // Also null out Stage 2 (table[2]) so the transition loop terminates without running Stage 2 twice.
++    uint32_t* p_door_stage1 = (uint32_t*)(ram + 0x000979F4);
++    uint32_t* p_door_stage2 = (uint32_t*)(ram + 0x000979F8);
++    if (g_fast_doors) {
++        *p_door_stage1 = 0x80016150u;
++        *p_door_stage2 = 0x00000000u;
++    } else {
++        if (*p_door_stage1 == 0x80016150u) {
++            *p_door_stage1 = 0x80015754u;
++        }
++        if (*p_door_stage2 == 0x00000000u) {
++            *p_door_stage2 = 0x80016150u;
++        }
++    }
++
++    // Capcom native Secret Mode / Clear Mode flag (0x800D1F32):
++    // Bitmask 0xFFE0 populates item box with special weapons (Rocket Launcher, Gatling, M4A1, etc.),
++    // infinite ink ribbons, and unlocks the Boutique & all costumes.
++    if (g_all_weapons_box || g_unlock_boutique || g_unlock_mercenaries) {
++        *(uint16_t*)(ram + 0x000D1F32) |= 0xFFE0;
++    }
++
++    if (g_unlock_epilogues) {
++        ram[0x000D1F3E] = 8; // All 8 epilogues unlocked in gallery
++    }
++
++    // Active gameplay cheats (when player entity is active: inventory size 8 or 10)
++    uint8_t max_slots = ram[0x000D225E];
++    if (max_slots == 8 || max_slots == 10) {
++        // Infinite Health (God Mode)
++        if (g_infinite_health) {
++            uint16_t* p_hp = (uint16_t*)(ram + 0x000CCC90);
++            if (*p_hp > 0 && *p_hp < 200) {
++                *p_hp = 200;
++            }
++            ram[0x000CCC97] = 0x04; // Status condition Fine & poison cleared
++        }
++
++        // Infinite Ammo
++        if (g_infinite_ammo) {
++            RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++            for (int i = 0; i < max_slots; ++i) {
++                uint8_t wid = slots[i].id;
++                if (re3_is_weapon(wid) && wid != 0x01) { // firearm weapons
++                    uint8_t cap = 0;
++                    if (wid == 0x02 || wid == 0x03 || wid == 0x0D) cap = 15; // Handguns
++                    else if (wid == 0x04) cap = 7;                            // Shotgun M3S
++                    else if (wid == 0x05) cap = 6;                            // Magnum
++                    else if (wid >= 0x06 && wid <= 0x09) cap = 6;            // Grenade Launchers
++                    else if (wid == 0x0A || wid == 0x0B) cap = 255;          // Heavy weapons
++                    else if (wid == 0x0C) cap = 6;                            // Mine Thrower
++                    else if (wid == 0x0E || wid == 0x0F) cap = 100;          // Assault Rifle
++                    if (cap > 0 && slots[i].count < cap) {
++                        slots[i].count = cap;
++                    }
++                } else if (re3_is_ammo(wid)) {
++                    if (slots[i].count < 250) {
++                        slots[i].count = 250;
++                    }
++                }
++            }
++        }
++
++        // Infinite Ink Ribbons
++        if (g_infinite_ink_ribbons) {
++            RE3ItemSlot* slots = (RE3ItemSlot*)(ram + 0x000D2134);
++            for (int i = 0; i < max_slots; ++i) {
++                if (slots[i].id == 0x81 && slots[i].count < 99) { // 0x81 = Ink Ribbon
++                    slots[i].count = 99;
++                }
++            }
++        }
++    }
++
++    // ------------------------------------------------------------------------
++    // Cutscene/FMV skip: maps Esc/Tab to the game's own Select skip
++    // ------------------------------------------------------------------------
++    if (g_skip_cutscenes) {
++        uint16_t pad_btn = pad_buttons_for(g_players[0], 1, true);
++        const Uint8* keys = SDL_GetKeyboardState(NULL);
++
++        bool esc_down    = keys && (keys[SDL_SCANCODE_ESCAPE] != 0);
++        bool tab_down    = keys && (keys[SDL_SCANCODE_TAB] != 0);
++
++        bool pad_select_down = ((pad_btn & PAD_SELECT) == 0);
++        bool pad_start_down  = ((pad_btn & PAD_START) == 0);
++
++        // An authentic PS1 FMV uses 24-bit color depth (GP1(08h) display_depth=1) and active MDEC.
++        // 2D backgrounds and 3D scenes during gameplay run in 15-bit mode (display_depth=0),
++        // preventing false FMV positives during room transitions or camera angle switches.
++        bool is_fmv = (gpu_display_is_depth24() != 0) && (mdec_recently_active(8) != 0);
++
++        if (is_fmv) {
++            // Only Start, Select, Esc or Tab skip movie playback.
++            // Never include action buttons (A/Cross, B/Circle) to prevent gameplay disruption.
++            bool fmv_skip_requested = pad_start_down || pad_select_down || esc_down || tab_down;
++            if (fmv_skip_requested) {
++                s_re3_fmv_skip_frames = 20;
++            }
++        } else {
++            s_re3_fmv_skip_frames = 0; // Immediate disarm outside FMVs
++            // In-Game Real-Time Cutscenes:
++            // RE3 native engine skips cutscenes and radio sequences when PAD_SELECT is pressed.
++            // Escape and Tab on keyboard are mapped to trigger cutscene skip as well.
++            // Never trigger on PAD_START: Start is standard pause/inventory during gameplay.
++            bool cutscene_skip_requested = pad_select_down || esc_down || tab_down;
++
++            // Only the game's own Select skip is used. Forcing the XA voice
++            // stream to end from the CD side left the game waiting forever on
++            // the drive after its skip fade (black screen).
++            if (cutscene_skip_requested) {
++                s_re3_cutscene_skip_frames = 15;
++            }
++        }
++
++        if (s_re3_fmv_skip_frames > 0) {
++            s_re3_fmv_skip_frames--;
++            uint16_t cur = sio_get_pad_buttons_slot(0);
++            sio_set_pad_state_slot(0, cur & ~(PAD_START | PAD_SELECT));
++        }
++        if (s_re3_cutscene_skip_frames > 0) {
++            s_re3_cutscene_skip_frames--;
++            uint16_t cur = sio_get_pad_buttons_slot(0);
++            sio_set_pad_state_slot(0, cur & ~PAD_SELECT);
++        }
++    }
++}
++
++/* DirectInput joystick detection. Off by default: on some PCs a HID device
++ * makes SDL's DirectInput enumeration (SDL_DINPUT_JoystickDetect -> hid.dll)
++ * block SDL_Init for ~9 s. XInput, RawInput and HIDAPI still cover Xbox,
++ * PlayStation, Switch and most generic pads. settings.toml:
++ * directinput_joysticks = true re-enables it for old DirectInput-only pads.
++ * The SDL_JOYSTICK_DIRECTINPUT environment variable still overrides. */
++static bool g_directinput_joysticks = false;
++static void re3_apply_directinput_hint(void) {
++#ifdef SDL_HINT_JOYSTICK_DIRECTINPUT
++    SDL_SetHint(SDL_HINT_JOYSTICK_DIRECTINPUT, g_directinput_joysticks ? "1" : "0");
++#endif
++}
++
++static void load_re3_qol_settings(const std::filesystem::path& path) {
++    std::ifstream f(path);
++    if (!f.is_open()) return;
++    std::string line;
++    while (std::getline(f, line)) {
++        size_t first = line.find_first_not_of(" \t\r\n");
++        if (first == std::string::npos || line[first] == '#') continue;
++        size_t eq = line.find('=');
++        if (eq == std::string::npos) continue;
++        std::string key = line.substr(0, eq);
++        std::string val = line.substr(eq + 1);
++        auto trim = [](std::string& s) {
++            size_t p1 = s.find_first_not_of(" \t\r\n\"");
++            size_t p2 = s.find_last_not_of(" \t\r\n\"");
++            if (p1 == std::string::npos) s.clear();
++            else s = s.substr(p1, p2 - p1 + 1);
++        };
++        trim(key);
++        trim(val);
++        if (key == "fast_doors" || key == "door_skip") g_fast_doors = (val == "true" || val == "1" || val == "instant") ? 1 : 0;
++        else if (key == "modern_controls") g_modern_controls = (val == "true" || val == "1");
++        else if (key == "directinput_joysticks") g_directinput_joysticks = (val == "true" || val == "1");
++        else if (key == "modern_turn_speed") {
++            int v = std::atoi(val.c_str());
++            if (v >= 16 && v <= 2048) g_modern_turn_speed = v;
++        }
++        else if (key == "rumble_intensity" || key == "vibration_intensity" || key == "vibration_strength") {
++            float r = (float)std::atof(val.c_str());
++            if (r >= 0.0f && r <= 5.0f) g_rumble_intensity = r;
++        }
++        else if (key == "infinite_health") g_infinite_health = (val == "true" || val == "1");
++        else if (key == "infinite_ammo") g_infinite_ammo = (val == "true" || val == "1");
++        else if (key == "infinite_ink_ribbons") g_infinite_ink_ribbons = (val == "true" || val == "1");
++        else if (key == "all_weapons_box") g_all_weapons_box = (val == "true" || val == "1");
++        else if (key == "unlock_mercenaries") g_unlock_mercenaries = (val == "true" || val == "1");
++        else if (key == "unlock_boutique") g_unlock_boutique = (val == "true" || val == "1");
++        else if (key == "unlock_epilogues") g_unlock_epilogues = (val == "true" || val == "1");
++        else if (key == "spu_hq") g_audio_spu_hq = (val == "true" || val == "1");
++        else if (key == "auto_skip_fmv") g_auto_skip_fmv = (val == "true" || val == "1") ? 1 : 0;
++        else if (key == "skip_cutscenes" || key == "cutscene_skip") g_skip_cutscenes = (val == "true" || val == "1");
++        else if (key == "frequency") {
++            int freq = std::atoi(val.c_str());
++            if (freq >= 22050 && freq <= 96000) g_audio_freq = freq;
++        }
++        else if (key == "aspect_stretch") {
++            int stretch = (val == "true" || val == "1") ? 1 : 0;
++            gl_renderer_set_aspect_stretch(stretch);
++        }
++    }
++
++    if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
++        g_all_weapons_box || g_unlock_mercenaries || g_unlock_boutique || g_unlock_epilogues) {
++        std::fprintf(stdout, "psxrecomp: [Cheats] Modifiers active from settings.toml (Health:%d, Ammo:%d, Ribbons:%d, Weapons:%d, Mercs:%d, Boutique:%d, Epilogues:%d)\n",
++                     g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
++                     g_all_weapons_box ? 1 : 0, g_unlock_mercenaries ? 1 : 0, g_unlock_boutique ? 1 : 0, g_unlock_epilogues ? 1 : 0);
++    }
++}
++
+ /* Build the active-low PSX button word from a controller's input.ini map. When
+  * suppress_stick_axes is set (the pad is presenting as analog this frame), the
+  * left/right analog-stick axes do NOT contribute button bits — see
+  * source_is_stick_axis above. Digital mode passes false, so ls_* stick
+  * directions still fold onto the D-pad via fold_bit. */
++/* RE3 screen-relative movement (modern_controls).
++ *
++ * Addresses found by diffing RAM dumps of SLUS-00923 (no public RAM map):
++ *   player work 0x800CCBC4: +0x04 mode (1 = normal), +0x05 routine
++ *     (0 idle .. 4 = free movement states, as on the PC build), +0x34/+0x3C
++ *     world X/Z (int32), +0x6E facing (int16, 4096 = 360 deg).
++ *     Facing convention: deg = -atan2(dz, dx).
++ *   camera view matrix 0x80098990: 3x3 int16 (4096 = 1.0), row 0 = screen
++ *     right on the ground plane; translation int32 x3 at +0x14.
++ *   0x800D4314: bits 0x00080808 set while inventory / map / message is open.
++ *
++ * Stick up = away from the camera (from the camera to Jill, which matches
++ * what the fixed perspective shows), stick right = screen right. The facing
++ * is turned toward the target at a capped rate and the game is fed "forward"
++ * (+ Square to run on a full tilt), so walking/running animations stay
++ * native. Holding the stick through a camera cut keeps the previous world
++ * heading until the stick direction changes. Design follows the alternate
++ * controls idea in Fusion-Fix (PC build); no code from it is used. */
++static int re3_wrap_angle(int a) { return ((a + 2048) & 4095) - 2048; }
++
++/* Per-frame decision trace of the modern controls, stored in the debug
++ * server's frame history (game_data, 32 bytes) and read back with
++ * frame_history_dump. Debug-tools builds only; no effect on behaviour. */
++enum Re3CtrlPath : uint8_t {
++    RE3_CTRL_NONE = 0,
++    RE3_CTRL_FREE = 1,          /* screen-relative turn + walk/run */
++    RE3_CTRL_FORWARD_ONLY = 2,  /* stairs / pushing: forward only */
++    RE3_CTRL_EXIT_INACTIVE = 3, /* no RAM / game not started / aiming */
++    RE3_CTRL_EXIT_STATE = 4,    /* UI open, mode != 1 or routine > 4 */
++    RE3_CTRL_EXIT_NO_AXIS = 5,  /* degenerate camera axis */
++    RE3_CTRL_DEADZONE = 6,      /* stick below 0.26 */
++    RE3_CTRL_DPAD = 7,          /* physical D-pad held: tank path */
++};
++#pragma pack(push, 1)
++struct Re3CtrlTrace {
++    uint8_t  magic;             /* 'C' */
++    uint8_t  path;              /* Re3CtrlPath; tank fallback ran if path is 3..5 */
++    uint8_t  mode, routine;
++    int16_t  lx, ly;            /* raw SDL stick */
++    int16_t  yaw_before, yaw_after;
++    int16_t  target_raw, target;   /* before / after the camera-cut hold */
++    uint8_t  hold, cut;
++    uint16_t clear;             /* buttons injected (active-high) */
++    int16_t  fx, fz;            /* forward axis * 1000 */
++    int32_t  flen;              /* camera-to-Jill ground distance (pre-normalise) */
++    uint32_t cam_sig;
++};
++#pragma pack(pop)
++static_assert(sizeof(Re3CtrlTrace) == 32, "fits PSXFrameRecord::game_data");
++
++static void re3_ctrl_trace_emit(const Re3CtrlTrace& t) {
++#ifndef PSX_NO_DEBUG_TOOLS
++    debug_server_set_game_data(&t, (int)sizeof t);
++#else
++    (void)t;
++#endif
++}
++
++static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
++                                     bool aiming, uint16_t* buttons) {
++    extern uint64_t s_frame_count;
++    static uint64_t s_last_frame = ~0ull;
++    static bool s_last_handled = false;
++    static uint16_t s_last_clear = 0;
++    static bool s_running = false;
++    static uint32_t s_cam_sig = 0;
++    static bool s_hold = false;
++    static int s_hold_yaw = 0;
++    static double s_hold_stick = 0.0;
++    Re3CtrlTrace tr = {};
++    tr.magic = 'C';
++    tr.lx = lx; tr.ly = ly;
++
++    if (!g_psx_ram || !fntrace_is_game_started() || aiming) {
++        s_hold = false;
++        tr.path = RE3_CTRL_EXIT_INACTIVE;
++        re3_ctrl_trace_emit(tr);
++        return false;
++    }
++    /* controller_pad_buttons can run several times per frame; turn once. */
++    if (s_last_frame == s_frame_count) {
++        if (s_last_handled) *buttons &= (uint16_t)~s_last_clear;
++        return s_last_handled;
++    }
++    s_last_frame = s_frame_count;
++    s_last_handled = false;
++    s_last_clear = 0;
++
++    uint8_t* ram = g_psx_ram;
++    const uint32_t ui_flags = *(uint32_t*)(ram + 0x000D4314);
++    uint8_t* pl = ram + 0x000CCBC4;
++    const uint8_t mode = pl[0x04], routine = pl[0x05];
++    /* Native animation states driven by forward input only: pushing (9) and
++     * stairs (10, 14, 15). Never rotate or inject turns there — that breaks
++     * the stair animation. */
++    const bool forward_only = routine == 9 || routine == 10 ||
++                              routine == 14 || routine == 15;
++    tr.mode = mode; tr.routine = routine;
++    tr.yaw_before = tr.yaw_after = (int16_t)(*(int16_t*)(pl + 0x6E) & 4095);
++    if ((ui_flags & 0x00080808u) != 0 || mode != 1 ||
++        (routine > 4 && !forward_only)) {
++        s_hold = false;
++        tr.path = RE3_CTRL_EXIT_STATE;
++        re3_ctrl_trace_emit(tr);
++        return false;
++    }
++
++    const int16_t* R = (const int16_t*)(ram + 0x00098990);
++    const int32_t* T = (const int32_t*)(ram + 0x00098990 + 0x14);
++    double m[3][3];
++    for (int r = 0; r < 3; r++)
++        for (int c = 0; c < 3; c++) m[r][c] = R[r * 3 + c] / 4096.0;
++    const double cam_x = -(m[0][0] * T[0] + m[1][0] * T[1] + m[2][0] * T[2]);
++    const double cam_z = -(m[0][2] * T[0] + m[1][2] * T[1] + m[2][2] * T[2]);
++    const double px = (double)*(int32_t*)(pl + 0x34);
++    const double pz = (double)*(int32_t*)(pl + 0x3C);
++
++    double fx = px - cam_x, fz = pz - cam_z;
++    double flen = std::sqrt(fx * fx + fz * fz);
++    if (flen < 1500.0) {  /* camera nearly overhead: use its view axis */
++        fx = m[2][0]; fz = m[2][2];
++        flen = std::sqrt(fx * fx + fz * fz);
++    }
++    tr.flen = (int32_t)std::lround(std::sqrt((px - cam_x) * (px - cam_x) +
++                                             (pz - cam_z) * (pz - cam_z)));
++    if (flen < 1e-6) {
++        tr.path = RE3_CTRL_EXIT_NO_AXIS;
++        re3_ctrl_trace_emit(tr);
++        return false;
++    }
++    fx /= flen; fz /= flen;
++    tr.fx = (int16_t)std::lround(fx * 1000.0);
++    tr.fz = (int16_t)std::lround(fz * 1000.0);
++    double rx = fz, rz = -fx;                       /* perpendicular */
++    if (rx * m[0][0] + rz * m[0][2] < 0.0) { rx = -rx; rz = -rz; }
++
++    const double sx = (double)lx / 32767.0, sy = -(double)ly / 32767.0;
++    const double dx = sx * rx + sy * fx, dz = sx * rz + sy * fz;
++    int target = (int)std::lround(-std::atan2(dz, dx) * 4096.0 / (2.0 * 3.141592653589793)) & 4095;
++
++    /* Camera-cut heading hold. */
++    uint32_t sig = 2166136261u;
++    for (int i = 0; i < 9; i++) sig = (sig ^ (uint16_t)R[i]) * 16777619u;
++    const double stick_deg = std::atan2(sy, sx) * 180.0 / 3.141592653589793;
++    int16_t* p_yaw = (int16_t*)(pl + 0x6E);
++    const int yaw = *p_yaw & 4095;
++    tr.target_raw = (int16_t)target;
++    tr.cam_sig = sig;
++    if (sig != s_cam_sig) {
++        if (s_cam_sig != 0) {
++            s_hold = true;
++            s_hold_yaw = yaw;
++            s_hold_stick = stick_deg;
++            tr.cut = 1;
++        }
++        s_cam_sig = sig;
++    }
++    if (s_hold) {
++        double dd = std::fabs(stick_deg - s_hold_stick);
++        if (dd > 180.0) dd = 360.0 - dd;
++        if (dd > 35.0) s_hold = false;
++        else target = s_hold_yaw;
++    }
++    tr.hold = s_hold ? 1 : 0;
++    tr.target = (int16_t)target;
++
++    if (forward_only) {
++        uint16_t clear = 0;
++        if (std::abs(re3_wrap_angle(target - yaw)) < 1024) {
++            clear |= 0x0010u;                               /* UP */
++            if (routine != 9 && mag >= 0.70) clear |= 0x8000u; /* run on stairs */
++        }
++        *buttons &= (uint16_t)~clear;
++        s_last_clear = clear;
++        s_last_handled = true;
++        tr.path = RE3_CTRL_FORWARD_ONLY;
++        tr.clear = clear;
++        re3_ctrl_trace_emit(tr);
++        return true;
++    }
++
++    /* Turn toward the target, capped so direction changes read as turns.
++     * settings.toml [controller] modern_turn_speed, in 1/4096-turn units
++     * per frame (default 90, ~8 deg: a half turn in ~0.4 s). */
++    const int kMaxTurn = g_modern_turn_speed;
++    int diff = re3_wrap_angle(target - yaw);
++    if (diff > kMaxTurn) diff = kMaxTurn;
++    if (diff < -kMaxTurn) diff = -kMaxTurn;
++    *p_yaw = (int16_t)((yaw + diff) & 4095);
++
++    /* Walk only once roughly facing the target; run on a firm tilt
++     * (hysteresis avoids walk/run flicker at the boundary). */
++    s_running = mag >= (s_running ? 0.65 : 0.70);
++    uint16_t clear = 0;
++    if (std::abs(re3_wrap_angle(target - (*p_yaw & 4095))) < 1024) {
++        clear |= 0x0010u;                 /* UP: forward */
++        if (s_running) clear |= 0x8000u;  /* Square: run */
++    }
++    *buttons &= (uint16_t)~clear;
++    s_last_clear = clear;
++    s_last_handled = true;
++    tr.path = RE3_CTRL_FREE;
++    tr.yaw_after = (int16_t)(*p_yaw & 4095);
++    tr.clear = clear;
++    re3_ctrl_trace_emit(tr);
++    return true;
++}
++
+ static uint16_t controller_pad_buttons(const ControllerMap& map,
+                                        SDL_GameController* h,
+                                        bool suppress_stick_axes,
+@@ -5957,6 +6606,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+                 source.id >= 0 && source.id < 32 &&
+                 (claimed_buttons & (1u << source.id)))
+                 continue;
++            if (g_modern_controls && source_is_stick_axis(source)) {
++                // Stick axes are processed via modern 3D camera-relative controls algorithm below
++                continue;
++            }
+             if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
+             if (entry.bit)
+                 buttons &= (uint16_t)~entry.bit;
+@@ -5965,6 +6618,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+             break;
+         }
+     }
++
++    /* Analog Stick Movement & Agile Response:
++     * Supports calibrated 8-way symmetric sectors, solid 0.26 deadzone (zero resting drift),
++     * smooth walk vs full push auto-run, and clean in-place turning without accidental forward movement.
++     * The physical D-pad remains classic tank controls 100% untouched. */
++    if (g_modern_controls && h) {
++        int16_t lx = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTX);
++        int16_t ly = SDL_GameControllerGetAxis(h, SDL_CONTROLLER_AXIS_LEFTY);
++        double mag = std::sqrt((double)lx * lx + (double)ly * ly) / 32767.0;
++        if (mag > 1.0) mag = 1.0;
++
++        /* Physical D-pad wins and keeps the original tank path. */
++        const bool dpad_held = (buttons & 0x00F0u) != 0x00F0u;
++        const bool aiming_now = (buttons & 0x0800u) == 0; /* R1 */
++        if (mag < 0.26 || dpad_held) {
++            Re3CtrlTrace tr = {};
++            tr.magic = 'C';
++            tr.path = dpad_held ? RE3_CTRL_DPAD : RE3_CTRL_DEADZONE;
++            tr.lx = lx; tr.ly = ly;
++            re3_ctrl_trace_emit(tr);
++        }
++        if (mag >= 0.26 && !dpad_held &&
++            re3_screen_relative_move(lx, ly, mag, aiming_now, &buttons)) {
++            /* Screen-relative movement handled (player in free control). */
++        } else if (mag >= 0.26) {
++            /* Fallback (aiming, menus, scripted states): stick as an 8-way
++             * tank D-pad, so menus and aim rotation keep working. */
++            double angle = std::atan2(-(double)ly, (double)lx) * (180.0 / 3.141592653589793);
++            bool is_aiming = (buttons & 0x0800u) == 0; // R1 held
++
++            bool moving_forward = false;
++
++            if (angle >= 67.5 && angle < 112.5) {
++                // North: pure Forward (UP)
++                buttons &= (uint16_t)~0x0010u; // UP
++                moving_forward = true;
++            } else if (angle >= 22.5 && angle < 67.5) {
++                // North-East: Forward + Right
++                buttons &= (uint16_t)~(0x0010u | 0x0020u); // UP + RIGHT
++                moving_forward = true;
++            } else if (angle >= -22.5 && angle < 22.5) {
++                // East: Rotate Right in place (NO forward walk)
++                buttons &= (uint16_t)~0x0020u; // RIGHT
++            } else if (angle >= -67.5 && angle < -22.5) {
++                // South-East: Backward + Right
++                buttons &= (uint16_t)~(0x0040u | 0x0020u); // DOWN + RIGHT
++            } else if (angle >= -112.5 && angle < -67.5) {
++                // South: pure Backward (DOWN) - steady reverse step
++                buttons &= (uint16_t)~0x0040u; // DOWN
++            } else if (angle >= -157.5 && angle < -112.5) {
++                // South-West: Backward + Left
++                buttons &= (uint16_t)~(0x0040u | 0x0080u); // DOWN + LEFT
++            } else if (angle >= 112.5 && angle < 157.5) {
++                // North-West: Forward + Left
++                buttons &= (uint16_t)~(0x0010u | 0x0080u); // UP + LEFT
++                moving_forward = true;
++            } else {
++                // West: Rotate Left in place (NO forward walk)
++                buttons &= (uint16_t)~0x0080u; // LEFT
++            }
++
++            // Smooth speed scaling: walk by default, auto-run when stick is pushed firmly (> 0.82)
++            if (moving_forward && !is_aiming && mag > 0.82) {
++                buttons &= (uint16_t)~0x8000u; // Square (Run button in RE3)
++            }
++        }
++    }
++
+     return buttons;
+ }
+ 
+@@ -6087,6 +6808,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+             apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
+                                  &out[2], &out[3]);
+         }
++        if (g_modern_controls) {
++            out[0] = 0x80;
++            out[1] = 0x80;
++        }
+     }
+ }
+ 
+@@ -6437,14 +7162,13 @@ static void apply_input_override_to_sio(int override_word) {
+         s_debug_profile_injected[0] = true;
+ #endif
+     PlayerInput& p = g_players[0];
+-    const uint16_t w = (uint16_t)override_word;
+-    sio_set_pad_state_slot(0, w);
+-
++    uint16_t w = (uint16_t)override_word;
+     uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
+     int axes = 0;
+ #ifndef PSX_NO_DEBUG_TOOLS
+     axes = debug_server_get_axis_override(st);
+ #endif
++    sio_set_pad_state_slot(0, w);
+     const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
+                                           st[2] != 0x80 || st[3] != 0x80);
+     const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
+@@ -6722,6 +7446,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
+     if (!eff_analog && !p.steering_wheel && !host_view) {
+         st[0] = st[1] = st[2] = st[3] = 0x80;
+     }
++    if (g_modern_controls) {
++        st[0] = 0x80;
++        st[1] = 0x80;
++    }
++
++    if (s == 0) {
++        if (s_re3_fmv_skip_frames > 0 && gpu_display_is_depth24()) {
++            btn &= (uint16_t)~(PAD_START | PAD_SELECT);
++        }
++        if (s_re3_cutscene_skip_frames > 0) {
++            btn &= (uint16_t)~PAD_SELECT;
++        }
++    }
+ 
+     out->buttons = btn;
+     out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
+@@ -6790,6 +7527,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+     if (!eff_analog && !p.steering_wheel) {
+         st[0] = st[1] = st[2] = st[3] = 0x80;
+     }
++    if (g_modern_controls) {
++        st[0] = 0x80;
++        st[1] = 0x80;
++    }
++
++    if (s == 0) {
++        if (s_re3_fmv_skip_frames > 0 && gpu_display_is_depth24()) {
++            btn &= (uint16_t)~(PAD_START | PAD_SELECT);
++        }
++        if (s_re3_cutscene_skip_frames > 0) {
++            btn &= (uint16_t)~PAD_SELECT;
++        }
++    }
+ 
+     out->buttons = btn;
+     out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
+@@ -6799,9 +7549,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+ }
+ 
+ static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
+-    psx_pad_apply_to_sio(s, &pad);
++    PsxNetPad applied = pad;
++    if (s == 0) {
++        if (s_re3_fmv_skip_frames > 0 && gpu_display_is_depth24())
++            applied.buttons &= (uint16_t)~(PAD_START | PAD_SELECT);
++        if (s_re3_cutscene_skip_frames > 0)
++            applied.buttons &= (uint16_t)~PAD_SELECT;
++    }
++    psx_pad_apply_to_sio(s, &applied);
++    const uint16_t buttons = applied.buttons;
+     /* Solo resim self-check records exactly what was applied this boundary. */
+-    psx_selfcheck_note_pad(s, pad.buttons, pad.lx, pad.ly, pad.rx, pad.ry,
++    psx_selfcheck_note_pad(s, buttons, pad.lx, pad.ly, pad.rx, pad.ry,
+                            pad.analog);
+ }
+ 
+@@ -6894,7 +7652,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
+ /* Build a netplay pad blob from a debug-server override without writing SIO. */
+ static void capture_override_pad(int override_word, PsxNetPad* out) {
+     PlayerInput& p = g_players[0];
+-    const uint16_t w = (uint16_t)override_word;
++    uint16_t w = (uint16_t)override_word;
+     uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
+     int axes = 0;
+ #ifndef PSX_NO_DEBUG_TOOLS
+@@ -17669,11 +18427,7 @@ int main(int argc, char** argv) {
+     int  player_deadzone[PSX_MAX_PLAYERS];
+     int  ctrl_locked_mode[PSX_MAX_PLAYERS];
+     for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
+-#if defined(PSX_DEBUG_TOOLS)
+         player_device[i] = (i == 0) ? "auto" : "none";
+-#else
+-        player_device[i] = (i == 0) ? "keyboard" : "none";
+-#endif
+         player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
+         player_deadzone[i] = kDefaultDeadzoneRaw;
+         ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
+@@ -18473,6 +19227,7 @@ int main(int argc, char** argv) {
+                 "DEPRECATED and ignored; enable the \"Fast Loading (host "
+                 "pacing)\" mod instead. The stale key is dropped on the next "
+                 "settings save.\n");
++        load_re3_qol_settings(settings_path);
+         if (us.has_fast_boot)      fast_boot = us.fast_boot;
+         if (us.has_bios_hle)       bios_hle  = us.bios_hle;
+         if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
+@@ -18577,6 +19332,38 @@ int main(int argc, char** argv) {
+             g_frame_interpolation = us.frame_interpolation ? 1 : 0;
+         if (us.has_frame_interpolation_fps)
+             g_frame_interpolation_fps = us.frame_interpolation_fps;
++
++        // Modern 3D controls option
++        {
++            std::ifstream sf(settings_path);
++            if (sf.is_open()) {
++                std::string sline;
++                while (std::getline(sf, sline)) {
++                    if (game_id == "SLUS-00923" && sline.find("modern_controls") != std::string::npos) {
++                        if (sline.find("false") != std::string::npos || sline.find("0") != std::string::npos)
++                            g_modern_controls = false;
++                        else
++                            g_modern_controls = true;
++                    }
++                    if (sline.find("draw_distance_clamp") != std::string::npos) {
++                        if (sline.find("false") != std::string::npos || sline.find("0") != std::string::npos) {
++                            g_psx_draw_distance_clamp = 0u;
++                            (void)psx_mod_set_draw_distance_clamp(0);
++                        } else if (psx_draw_distance_clamp_site_count() > 0) {
++                            g_psx_draw_distance_clamp = 1u;
++                            (void)psx_mod_set_draw_distance_clamp(1);
++                        }
++                    }
++                    if (sline.find("rumble_intensity") != std::string::npos || sline.find("vibration_intensity") != std::string::npos) {
++                        size_t eq = sline.find('=');
++                        if (eq != std::string::npos) {
++                            float r = (float)std::atof(sline.substr(eq + 1).c_str());
++                            if (r >= 0.0f && r <= 5.0f) g_rumble_intensity = r;
++                        }
++                    }
++                }
++            }
++        }
+     }
+ 
+     /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
+@@ -18607,14 +19394,9 @@ int main(int argc, char** argv) {
+ #endif
+         }
+     }
+-    /* Skip FMVs is mod-owned on PSX. Clamp stale generic settings before
+-     * seeding recomp-ui; an enabled activation plugin applies the feature
+-     * after the final mod-plan commit. */
+-    if (!skip_fmv_offered && g_auto_skip_fmv) {
++    if (g_auto_skip_fmv) {
+         std::fprintf(stdout,
+-            "psxrecomp: Skip FMVs is mod-owned on PSX; "
+-            "ignoring the legacy Settings value\n");
+-        g_auto_skip_fmv = 0;
++            "psxrecomp: Auto-skip FMVs enabled (Cinematic fast-forward active)\n");
+     }
+     /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
+      * of this point is allowed to have enabled it (the game.toml and
+@@ -18650,20 +19432,9 @@ int main(int argc, char** argv) {
+         g_video_aspect_den = ws_offered ? 9 : 3;
+     }
+ 
+-    /* Latency knobs: env overrides win over config (for A/B measurement).
+-     * PSX_LOW_LATENCY_INPUT=0/1 ; PSX_VSYNC=1(vsync)/0(immediate)/-1(adaptive)
+-     * (vsync XOR wall-clock pacer — vsync clocks only ~60 Hz panels);
+-     * PSX_FRAME_INTERPOLATION=0/1; PSX_FRAME_INTERPOLATION_FPS=0|90+. */
++    /* Latency knobs */
+     if (const char *e = std::getenv("PSX_LOW_LATENCY_INPUT")) g_low_latency_input = atoi(e) ? 1 : 0;
+     if (const char *e = std::getenv("PSX_VSYNC"))             g_video_vsync       = atoi(e);
+-    if (const char *e = std::getenv("PSX_SMOOTH_60FPS"))
+-        psx_smooth_60fps_set(atoi(e) ? 1 : 0);
+-    if (const char *e = std::getenv("PSX_FRAME_INTERPOLATION"))
+-        g_frame_interpolation = atoi(e) ? 1 : 0;
+-    if (const char *e = std::getenv("PSX_FRAME_INTERPOLATION_FPS")) {
+-        int fps = atoi(e);
+-        if (fps == 0 || fps >= 90) g_frame_interpolation_fps = fps;
+-    }
+ 
+     /* Apply writable-state isolation before game-options and launcher setup,
+      * not with the later renderer/port overrides. Explicit slot paths from a
+@@ -19023,6 +19794,7 @@ int main(int argc, char** argv) {
+ #ifdef SDL_HINT_WINDOWS_DPI_SCALING
+     SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
+ #endif
++        re3_apply_directinput_hint();
+         if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
+             launcher_boot_timing_mark("host:after_sdl_init");
+             recomp_launcher_set_preserve_sdl(1);
+@@ -20149,6 +20921,9 @@ int main(int argc, char** argv) {
+             (void)psx_mod_set_fixed_display_aspect(index == 2 ? 21u : index == 1 ? 16u : 4u,
+                                                  index ? 9u : 3u);
+         }
++        if (!netplay) {
++            load_re3_qol_settings(exe_dir_from_argv(argv[0]) / "settings.toml");
++        }
+         apply_netplay_local_viewport_aspect(netplay);
+         for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
+             if (g_mod_controller_mode_override[i] >= 0)
+@@ -20180,6 +20955,7 @@ int main(int argc, char** argv) {
+     };
+     if (!start_mod_session(net_cfg.enabled)) return 1;
+ 
++
+     /* Re-apply the resolved language to the translation layer. text_xlate_init
+      * (at config load) only saw the game.toml default; this folds in the
+      * settings.toml override and the launcher's choice. No-op when unchanged. */
+@@ -20855,21 +21631,20 @@ session_reboot:
+      * window is resized; nearest preserves crisp pixels otherwise. */
+     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
+     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+-    /* Prefer SDL's own HIDAPI driver over platform-native so Steam's virtual
+-     * Xbox controller (injected by Steam Input / Remote Play) is enumerated
+-     * as a game controller rather than a raw HID device. */
++    /* Controller drivers: RawInput, XInput, WGI and HIDAPI. DirectInput is off
++     * unless settings.toml sets directinput_joysticks = true (see
++     * re3_apply_directinput_hint). */
++    re3_apply_directinput_hint();
+     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI, "1");
+-    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
+-    /* SDL3 aliases the SDL2-era PS5 rumble hint to enhanced reports. Enabling
+-     * it also preserves DualSense rumble on the explicit SDL2 fallback. */
++    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT_CORRELATE_XINPUT, "1");
++    SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX_360, "1");
++    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX_ONE, "1");
+     SDL_SetHintWithPriority(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1",
+                             SDL_HINT_OVERRIDE);
+-    /* ...but HIDAPI's Xbox sub-driver is OFF by default on Windows (Xbox pads are
+-     * normally RAWINPUT/XInput there). With RAWINPUT disabled above, a PHYSICAL
+-     * Xbox One/Series controller would be claimed by nobody -> not a GameController
+-     * -> zero input (PS5 DualSense works regardless: its HIDAPI driver is on by
+-     * default). Enable the HIDAPI Xbox driver so HIDAPI handles Xbox pads too. */
+-    SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_XBOX, "1");
+     if (!SDL_WasInit(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER)) {
+     /* Per-monitor DPI awareness, BEFORE any SDL_Init.
+      *

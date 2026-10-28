@@ -33,6 +33,10 @@ psxrecomp_add_game_runtime(RE3Recomp
     PGXP
 )
 
+# Remember the disc SHA-256 between launches (patches/runtime/07-misc). Only
+# this exe opts in; the runtime's own tests keep upstream hashing.
+target_compile_definitions(RE3Recomp PRIVATE PSX_RE3_DISC_MEMO=1)
+
 # Reproducible build: no link-time timestamp in the PE header (and so none in
 # the CodeView build id derived from it). __DATE__/__TIME__ come from
 # SOURCE_DATE_EPOCH, which build.ps1 sets to the commit time. Two clean builds

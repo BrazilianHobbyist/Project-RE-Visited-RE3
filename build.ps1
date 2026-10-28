@@ -67,17 +67,11 @@ function Apply-Patch($Dir, $PatchFile, [switch]$IgnoreWhitespace) {
     if ($LASTEXITCODE -ne 0) { Write-Host "[X] Falha ao aplicar $name" -ForegroundColor Red; exit 1 }
 }
 
-# Patches do runtime (alterações RE3 sobre o PSXRecomp)
-$RuntimePatch = "$ProjectRoot\patches\psxrecomp_runtime.patch"
-$subDirty = & git -C "$ProjectRoot\psxrecomp" status --porcelain --untracked-files=no
-& git -C "$ProjectRoot\psxrecomp" apply --check -R "$RuntimePatch" 2>$null
-if ($LASTEXITCODE -ne 0 -and $subDirty) {
-    # Desenvolvimento: o submodule tem edições além do patch commitado.
-    Write-Host "[!] psxrecomp tem mudanças locais além de psxrecomp_runtime.patch." -ForegroundColor Yellow
-    Write-Host "    Antes de commitar: git -C psxrecomp diff > patches\psxrecomp_runtime.patch (via cmd, não PowerShell)" -ForegroundColor Yellow
-} else {
-    Apply-Patch "$ProjectRoot\psxrecomp" $RuntimePatch
-}
+# Patches do runtime (alterações RE3 sobre o PSXRecomp): patches/runtime/NN-*.patch,
+# em ordem. tools/runtime_patches.py aplica num submodule limpo e avisa quando
+# há edições de desenvolvimento além da sequência.
+& python "$ProjectRoot\tools\runtime_patches.py" ensure
+if ($LASTEXITCODE -ne 0) { Write-Host "[X] Patches do runtime não aplicam." -ForegroundColor Red; exit 1 }
 
 # ---- Limpar build se solicitado ----
 if ($Clean -and (Test-Path $BuildDir)) {

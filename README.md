@@ -95,7 +95,7 @@ cd Project-RE-Visited-RE3
 
 What the build does:
 
-- Applies `patches/psxrecomp_runtime.patch` (the RE3 changes) on top of the pinned PSXRecomp commit.
+- Applies `patches/runtime/*.patch` (the RE3 changes, in order) on top of the pinned PSXRecomp commit.
 - `-Regen` recompiles the game's C from your disc into `generated/`. Game code is never in this repository.
 - Applies the two `patches/re3_door_*.patch` to the generated C.
 - Builds with CMake and Ninja.

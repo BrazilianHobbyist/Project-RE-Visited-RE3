@@ -1,0 +1,106 @@
+diff --git a/runtime/src/draw_distance.c b/runtime/src/draw_distance.c
+index 72ce5e7a..65c0e3f0 100644
+--- a/runtime/src/draw_distance.c
++++ b/runtime/src/draw_distance.c
+@@ -39,6 +39,7 @@ int psx_draw_distance_set_clamp_sites(const PSXDrawDistanceClampSite *sites,
+     }
+     if (count > 1) qsort(s_sites, (size_t)count, sizeof s_sites[0], site_cmp);
+     s_site_count = count;
++    g_psx_draw_distance_clamp = (count > 0) ? 1u : 0u;
+     update_live();
+     return count;
+ }
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index fbb41be2..4df161fb 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -2001,7 +2001,7 @@ static void reset_mod_owned_presentation(void) {
+     psx_mod_set_native_wide_projection_correction(0);
+     psx_mod_set_retained_scene_predicate(nullptr);
+     psx_mod_set_adaptive_backdrop_preload(0);
+-    (void)psx_mod_set_draw_distance_clamp(0);
++    (void)psx_mod_set_draw_distance_clamp(psx_draw_distance_clamp_site_count() > 0 ? 1 : 0);
+     psx_mod_immediate_reset();  /* [[mod_immediate.sites]] selectors */
+     /* [timing] guest_cycle_scale mod gate: shut until this session's
+      * activation opens it (an online match clears the plan, so a mod-gated
+diff --git a/runtime/src/mod_runtime.cpp b/runtime/src/mod_runtime.cpp
+index 5bfe6257..6dbe6806 100644
+--- a/runtime/src/mod_runtime.cpp
++++ b/runtime/src/mod_runtime.cpp
+@@ -2170,6 +2170,58 @@ static bool install_plan(RuntimeMods& s, ModResolution plan,
+     return true;
+ }
+ 
++#if defined(PSX_RE3_DISC_MEMO)
++/* RE3: offline disc digest memo. offline_disc_digest() never caches on
++ * Windows because host_file_identity() refuses NTFS timestamps (immediate
++ * same-size rewrites with a restored mtime can collide). For a player's own
++ * disc image that risk is accepted: the memo is keyed by path, size and
++ * mtime, and a miss or any change simply rehashes. Netplay never uses it. */
++static bool re3_offline_disc_digest(const std::filesystem::path& disc_path,
++                                    std::string& out, std::string* error) {
++    out.clear();
++    if (disc_path.empty()) return true;
++    std::filesystem::path memo = media_cache_root().parent_path() / "disc_sha256_memo.txt";
++    std::string key;
++    {
++        const DiscPathResolution resolved = resolve_disc_path(disc_path);
++        std::error_code ec;
++        const std::filesystem::path abs = std::filesystem::absolute(resolved.data, ec);
++        uintmax_t size = 0;
++        std::filesystem::file_time_type mtime{};
++        if (!ec) size = std::filesystem::file_size(abs, ec);
++        if (!ec) mtime = std::filesystem::last_write_time(abs, ec);
++        if (!ec) {
++            std::ostringstream k;
++            k << size << ' ' << (long long)mtime.time_since_epoch().count() << ' ' << abs.string();
++            key = k.str();
++        }
++    }
++    std::vector<std::string> kept;
++    if (!key.empty()) {
++        std::ifstream in(memo);
++        std::string line;
++        while (std::getline(in, line)) {
++            const size_t tab = line.rfind('\t');
++            if (tab == std::string::npos) continue;
++            if (line.compare(0, tab, key) == 0 && line.size() - tab - 1 == 64) {
++                out = line.substr(tab + 1);
++                return true;
++            }
++            kept.push_back(line);
++        }
++    }
++    if (!measured_disc_digest(disc_path, out, error)) return false;
++    if (!key.empty() && out.size() == 64) {
++        std::error_code ec;
++        std::filesystem::create_directories(memo.parent_path(), ec);
++        std::ofstream o(memo, std::ios::trunc);
++        for (const std::string& l : kept) o << l << '\n';
++        o << key << '\t' << out << '\n';
++    }
++    return true;
++}
++#endif
++
+ bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* error, bool save_selection) {
+     HostLaunchTimingScope timing(HOST_LAUNCH_COMMIT);
+     RuntimeMods& s = state();
+@@ -2214,8 +2266,17 @@ bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* err
+         const bool hashed = save_selection
+             ? offline_disc_digest(disc_path, digest, &hash_error, s.cached_prepare)
+             : measured_disc_digest(disc_path, digest, &hash_error);
++#else
++        /* Offline commits reuse a remembered digest (a ~700 MB image otherwise
++         * costs ~3 s at every boot); netplay remeasures. Only the RE3 exe
++         * defines PSX_RE3_DISC_MEMO: the runtime tests keep upstream hashing. */
++#if defined(PSX_RE3_DISC_MEMO)
++        const bool hashed = save_selection
++            ? re3_offline_disc_digest(disc_path, digest, &hash_error)
++            : measured_disc_digest(disc_path, digest, &hash_error);
+ #else
+         const bool hashed = measured_disc_digest(disc_path, digest, &hash_error);
++#endif
+ #endif
+         if (!hashed && s.cached_prepare) return false;
+         if (!hashed) digest.clear();
