@@ -46,10 +46,14 @@
 - **Correção geométrica (PGXP):** segue desligada por padrão; no launcher é uma opção "experimental". Medição de 27/10 (Fase 2 do `docs/PLANO_V2.md`, save "Hall", `tools/pgxp_seams.py`):
   - **Solda:** com ela, 0 arestas separadas entre triângulos que compartilham vértices no pacote. Sem ela, são 17 a 22 por quadro, com vão de até 0,87 px. Triângulos: ~81% precisos, ~16% mistos, ~4% nativos.
   - **Falhas que sobram:** emendas entre partes do modelo que não compartilham vértices, como o cabelo e a nuca da Jill. No PS1, o arredondamento para o pixel faz as partes se sobreporem; com posições precisas, abre um vão de ~1 px por onde o fundo aparece. É a "falha nos rostos" vista pelo mantenedor.
-  - **Tentativas, todas REFUTADAS:** dilatar triângulos opacos de 0,25 px não fecha o vão; de 0,5 px só o estreita e engorda o contorno do modelo inteiro. Limitar o deslocamento não resolve, porque o vão nasce do próprio arredondamento.
+  - **Tentativas, todas REFUTADAS:** dilatar triângulos opacos de 0,25 px estreita o vão; de 0,5 px estreita mais, sem fechar, e engorda o contorno do modelo inteiro. A primeira rodada deste teste usou por engano um exe de debug antigo, sem a dilatação; foi refeita com o exe certo e confirmou o resultado. Limitar o deslocamento não resolve, porque o vão nasce do próprio arredondamento.
   - **Para a v2.0.0:** continua opcional. Fechar essas emendas exigiria conhecer a topologia dos modelos do RE3, ou seja, quais vértices de partes diferentes formam a emenda.
 - **Texto de introdução:** avança rápido demais.
-- **Controles modernos:** imprecisos em salas pequenas. Desligados por padrão.
+- **Controles modernos:** desligados por padrão. Correção de 27/10 (Fase 4 do `docs/PLANO_V2.md`), medida no saguão da delegacia (save 3), com o analógico injetado pelo debug server passando pela mesma lógica do controle físico:
+  - **Causa 1:** "para a frente" era o vetor câmera→Jill. Com o analógico parado, o alvo derivava cerca de 32° sem nenhuma troca de câmera; a Jill fazia arcos e invertia perto da câmera. Agora os eixos são os da câmera projetados no chão, fixos enquanto a câmera não muda.
+  - **Causa 2:** a retenção de direção na troca de câmera continuava depois que o analógico era solto. Agora termina ao soltar.
+  - **Resultado:** nas 8 direções, de 6 s cada, as reversões caíram de 3 para 0; o alvo fica constante dentro de cada câmera.
+  - **Não verificado:** o corredor exato do relato (save 2 começa numa sala do save; a sonda não achou a saída), com um controle físico, e se agora o modo pode virar padrão.
 - **Overlay de título:** um `switch` do TITLE.BIN usa uma quarta forma ainda não reconhecida, o que dá ~1,9 mil instruções interpretadas por sessão.
 - **A reportar ao upstream (decisão do mantenedor):**
   - o resolvedor de tabelas em C++ recusa produtores com fim não alinhado a 4 bytes, e o Python aceita;

@@ -67,7 +67,7 @@ SNAPSHOTS = {
 }
 CONTROL_SECONDS = 60
 PATHS = {0: "none", 1: "free", 2: "forward_only", 3: "exit_inactive+tank",
-         4: "exit_state+tank", 5: "exit_no_axis+tank", 6: "deadzone", 7: "dpad"}
+         4: "exit_state+tank", 5: "exit_no_axis+tank", 6: "deadzone", 7: "dpad", 8: "inject_skip"}
 CONTROL_FIELDS = [
     "frame", "pad_buttons", "path", "stick_x", "stick_y", "mode", "routine",
     "yaw_before", "yaw_after", "target_raw", "target", "hold", "cut", "injected",

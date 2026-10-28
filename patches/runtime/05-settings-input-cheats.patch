@@ -1,5 +1,5 @@
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index e1d35bbe..c9499ddf 100644
+index e1d35bbe..3fdf3d89 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -5677,6 +5677,8 @@ static void open_player(PlayerInput& p, int self_slot) {
@@ -83,7 +83,7 @@ index e1d35bbe..c9499ddf 100644
      return boot_mode;
  }
  
-@@ -5935,11 +5956,639 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -5935,11 +5956,671 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -523,12 +523,12 @@ index e1d35bbe..c9499ddf 100644
 + *     right on the ground plane; translation int32 x3 at +0x14.
 + *   0x800D4314: bits 0x00080808 set while inventory / map / message is open.
 + *
-+ * Stick up = away from the camera (from the camera to Jill, which matches
-+ * what the fixed perspective shows), stick right = screen right. The facing
++ * Stick up = into the screen along the camera's view on the ground, stick
++ * right = the camera's right axis: both fixed for the whole camera. The facing
 + * is turned toward the target at a capped rate and the game is fed "forward"
 + * (+ Square to run on a full tilt), so walking/running animations stay
 + * native. Holding the stick through a camera cut keeps the previous world
-+ * heading until the stick direction changes. Design follows the alternate
++ * heading until the stick direction changes or the stick is released. Design follows the alternate
 + * controls idea in Fusion-Fix (PC build); no code from it is used. */
 +static int re3_wrap_angle(int a) { return ((a + 2048) & 4095) - 2048; }
 +
@@ -544,6 +544,7 @@ index e1d35bbe..c9499ddf 100644
 +    RE3_CTRL_EXIT_NO_AXIS = 5,  /* degenerate camera axis */
 +    RE3_CTRL_DEADZONE = 6,      /* stick below 0.26 */
 +    RE3_CTRL_DPAD = 7,          /* physical D-pad held: tank path */
++    RE3_CTRL_INJECT_SKIP = 8,   /* debug injection seen, not routed (mode = modern on) */
 +};
 +#pragma pack(push, 1)
 +struct Re3CtrlTrace {
@@ -596,6 +597,9 @@ index e1d35bbe..c9499ddf 100644
 +        if (s_last_handled) *buttons &= (uint16_t)~s_last_clear;
 +        return s_last_handled;
 +    }
++    /* A frame without a call means the stick was released (dead zone, D-pad,
++     * UI): the camera-cut heading hold ends there. */
++    if (s_last_frame + 1 != s_frame_count) s_hold = false;
 +    s_last_frame = s_frame_count;
 +    s_last_handled = false;
 +    s_last_clear = 0;
@@ -624,29 +628,33 @@ index e1d35bbe..c9499ddf 100644
 +    double m[3][3];
 +    for (int r = 0; r < 3; r++)
 +        for (int c = 0; c < 3; c++) m[r][c] = R[r * 3 + c] / 4096.0;
-+    const double cam_x = -(m[0][0] * T[0] + m[1][0] * T[1] + m[2][0] * T[2]);
++    const double cam_x = -(m[0][0] * T[0] + m[1][0] * T[1] + m[2][0] * T[2]);  /* trace only */
 +    const double cam_z = -(m[0][2] * T[0] + m[1][2] * T[1] + m[2][2] * T[2]);
 +    const double px = (double)*(int32_t*)(pl + 0x34);
 +    const double pz = (double)*(int32_t*)(pl + 0x3C);
 +
-+    double fx = px - cam_x, fz = pz - cam_z;
-+    double flen = std::sqrt(fx * fx + fz * fz);
-+    if (flen < 1500.0) {  /* camera nearly overhead: use its view axis */
-+        fx = m[2][0]; fz = m[2][2];
-+        flen = std::sqrt(fx * fx + fz * fz);
-+    }
++    /* Screen axes on the ground, fixed for the whole camera: right is the
++     * camera's X axis; forward is perpendicular to it, pointing along the view
++     * direction (or, for a camera looking nearly straight down, toward the
++     * top of the screen). The camera-to-Jill vector used before turned with
++     * every step, so a held stick drew an arc and flipped near the camera
++     * (measured 2026-10-27 in the RPD hall: ~32 deg of drift without a cut). */
 +    tr.flen = (int32_t)std::lround(std::sqrt((px - cam_x) * (px - cam_x) +
 +                                             (pz - cam_z) * (pz - cam_z)));
-+    if (flen < 1e-6) {
++    double rx = m[0][0], rz = m[0][2];
++    const double rlen = std::sqrt(rx * rx + rz * rz);
++    if (rlen < 1e-3) {
 +        tr.path = RE3_CTRL_EXIT_NO_AXIS;
 +        re3_ctrl_trace_emit(tr);
 +        return false;
 +    }
-+    fx /= flen; fz /= flen;
++    rx /= rlen; rz /= rlen;
++    double fx = -rz, fz = rx;
++    double vx = m[2][0], vz = m[2][2];
++    if (vx * vx + vz * vz < 0.04) { vx = -m[1][0]; vz = -m[1][2]; }  /* overhead */
++    if (fx * vx + fz * vz < 0.0) { fx = -fx; fz = -fz; }
 +    tr.fx = (int16_t)std::lround(fx * 1000.0);
 +    tr.fz = (int16_t)std::lround(fz * 1000.0);
-+    double rx = fz, rz = -fx;                       /* perpendicular */
-+    if (rx * m[0][0] + rz * m[0][2] < 0.0) { rx = -rx; rz = -rz; }
 +
 +    const double sx = (double)lx / 32767.0, sy = -(double)ly / 32767.0;
 +    const double dx = sx * rx + sy * fx, dz = sx * rz + sy * fz;
@@ -720,10 +728,34 @@ index e1d35bbe..c9499ddf 100644
 +    return true;
 +}
 +
++#ifndef PSX_NO_DEBUG_TOOLS
++/* Modern controls read the physical left stick; an injected one takes the
++ * same path (and is then centred, as the physical path suppresses the stick
++ * axes), so scripted runs exercise the real decision code. */
++static void re3_modern_inject(uint16_t* w, uint8_t st[4]) {
++    if (!g_modern_controls || (st[0] == 0x80 && st[1] == 0x80) ||
++        ((uint16_t)~*w & 0x00F0u) != 0) {
++        Re3CtrlTrace tr = {};
++        tr.magic = 'C'; tr.path = RE3_CTRL_INJECT_SKIP;
++        tr.mode = (uint8_t)(g_modern_controls ? 1 : 0);
++        tr.lx = st[0]; tr.ly = st[1]; tr.clear = (uint16_t)~*w;
++        re3_ctrl_trace_emit(tr);
++        return;
++    }
++    const int16_t lx = (int16_t)((st[0] - 128) * 256 + (st[0] > 128 ? 255 : 0));
++    const int16_t ly = (int16_t)((st[1] - 128) * 256 + (st[1] > 128 ? 255 : 0));
++    double mag = std::sqrt((double)lx * lx + (double)ly * ly) / 32767.0;
++    if (mag > 1.0) mag = 1.0;
++    if (mag < 0.26) return;
++    re3_screen_relative_move(lx, ly, mag, (*w & 0x0800u) == 0, w);
++    st[0] = st[1] = 0x80;
++}
++#endif
++
  static uint16_t controller_pad_buttons(const ControllerMap& map,
                                         SDL_GameController* h,
                                         bool suppress_stick_axes,
-@@ -5957,6 +6606,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5957,6 +6638,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
                  source.id >= 0 && source.id < 32 &&
                  (claimed_buttons & (1u << source.id)))
                  continue;
@@ -734,7 +766,7 @@ index e1d35bbe..c9499ddf 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -5965,6 +6618,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -5965,6 +6650,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -809,7 +841,7 @@ index e1d35bbe..c9499ddf 100644
      return buttons;
  }
  
-@@ -6087,6 +6808,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -6087,6 +6840,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -820,7 +852,7 @@ index e1d35bbe..c9499ddf 100644
      }
  }
  
-@@ -6437,14 +7162,13 @@ static void apply_input_override_to_sio(int override_word) {
+@@ -6437,14 +7194,14 @@ static void apply_input_override_to_sio(int override_word) {
          s_debug_profile_injected[0] = true;
  #endif
      PlayerInput& p = g_players[0];
@@ -832,12 +864,13 @@ index e1d35bbe..c9499ddf 100644
      int axes = 0;
  #ifndef PSX_NO_DEBUG_TOOLS
      axes = debug_server_get_axis_override(st);
++    if (axes) re3_modern_inject(&w, st);
  #endif
 +    sio_set_pad_state_slot(0, w);
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
-@@ -6722,6 +7446,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
+@@ -6722,6 +7479,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
      if (!eff_analog && !p.steering_wheel && !host_view) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -857,7 +890,7 @@ index e1d35bbe..c9499ddf 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6790,6 +7527,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6790,6 +7560,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog && !p.steering_wheel) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -877,7 +910,7 @@ index e1d35bbe..c9499ddf 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -6799,9 +7549,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -6799,9 +7582,17 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
  }
  
  static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
@@ -897,7 +930,7 @@ index e1d35bbe..c9499ddf 100644
                             pad.analog);
  }
  
-@@ -6894,7 +7652,7 @@ static void capture_local_human_pad(PsxNetPad* out) {
+@@ -6894,11 +7685,12 @@ static void capture_local_human_pad(PsxNetPad* out) {
  /* Build a netplay pad blob from a debug-server override without writing SIO. */
  static void capture_override_pad(int override_word, PsxNetPad* out) {
      PlayerInput& p = g_players[0];
@@ -906,7 +939,12 @@ index e1d35bbe..c9499ddf 100644
      uint8_t st[4] = { 0x80, 0x80, 0x80, 0x80 };
      int axes = 0;
  #ifndef PSX_NO_DEBUG_TOOLS
-@@ -17669,11 +18427,7 @@ int main(int argc, char** argv) {
+     axes = debug_server_get_axis_override(st);
++    if (axes) re3_modern_inject(&w, st);
+ #endif
+     const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
+                                           st[2] != 0x80 || st[3] != 0x80);
+@@ -17669,11 +18461,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -918,7 +956,7 @@ index e1d35bbe..c9499ddf 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -18473,6 +19227,7 @@ int main(int argc, char** argv) {
+@@ -18473,6 +19261,7 @@ int main(int argc, char** argv) {
                  "DEPRECATED and ignored; enable the \"Fast Loading (host "
                  "pacing)\" mod instead. The stale key is dropped on the next "
                  "settings save.\n");
@@ -926,7 +964,7 @@ index e1d35bbe..c9499ddf 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -18577,6 +19332,38 @@ int main(int argc, char** argv) {
+@@ -18577,6 +19366,38 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -965,7 +1003,7 @@ index e1d35bbe..c9499ddf 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -18607,14 +19394,9 @@ int main(int argc, char** argv) {
+@@ -18607,14 +19428,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -982,7 +1020,7 @@ index e1d35bbe..c9499ddf 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -18650,20 +19432,9 @@ int main(int argc, char** argv) {
+@@ -18650,20 +19466,9 @@ int main(int argc, char** argv) {
          g_video_aspect_den = ws_offered ? 9 : 3;
      }
  
@@ -1004,7 +1042,7 @@ index e1d35bbe..c9499ddf 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -19023,6 +19794,7 @@ int main(int argc, char** argv) {
+@@ -19023,6 +19828,7 @@ int main(int argc, char** argv) {
  #ifdef SDL_HINT_WINDOWS_DPI_SCALING
      SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
  #endif
@@ -1012,7 +1050,7 @@ index e1d35bbe..c9499ddf 100644
          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
              launcher_boot_timing_mark("host:after_sdl_init");
              recomp_launcher_set_preserve_sdl(1);
-@@ -20149,6 +20921,9 @@ int main(int argc, char** argv) {
+@@ -20149,6 +20955,9 @@ int main(int argc, char** argv) {
              (void)psx_mod_set_fixed_display_aspect(index == 2 ? 21u : index == 1 ? 16u : 4u,
                                                   index ? 9u : 3u);
          }
@@ -1022,7 +1060,7 @@ index e1d35bbe..c9499ddf 100644
          apply_netplay_local_viewport_aspect(netplay);
          for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
              if (g_mod_controller_mode_override[i] >= 0)
-@@ -20180,6 +20955,7 @@ int main(int argc, char** argv) {
+@@ -20180,6 +20989,7 @@ int main(int argc, char** argv) {
      };
      if (!start_mod_session(net_cfg.enabled)) return 1;
  
@@ -1030,7 +1068,7 @@ index e1d35bbe..c9499ddf 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -20855,21 +21631,20 @@ session_reboot:
+@@ -20855,21 +21665,20 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
