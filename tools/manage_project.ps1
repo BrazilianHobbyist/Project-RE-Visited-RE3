@@ -123,6 +123,13 @@ function Invoke-Consolidate {
         Write-Host "[2/5] Sincronizando Resident_Evil_3__Nemesis_Recompiled.exe..." -ForegroundColor Cyan
         Copy-Item $builtExe "$PCPortDir\Resident_Evil_3__Nemesis_Recompiled.exe" -Force
     }
+    # Carregador de texturas HD (opcao "Fonte nitida" do launcher). So este pacote:
+    # os outros de mods/bundled ainda nao foram testados no RE3.
+    $hdPkg = "$RepoDir\build\mods\bundled\psx.enhancement.hd-textures"
+    if (Test-Path $hdPkg) {
+        New-Item -ItemType Directory -Force -Path "$PCPortDir\mods\bundled" | Out-Null
+        Copy-Item $hdPkg "$PCPortDir\mods\bundled\" -Recurse -Force
+    }
 
     # 3. Compilar e sincronizar o Launcher
     Write-Host "[3/5] Compilando e sincronizando o Launcher..." -ForegroundColor Cyan
@@ -173,9 +180,13 @@ function Invoke-Package {
     Copy-Item "$RepoDir\assets\banner.jpg" "$stagingDir\assets\banner.jpg" -Force
     Copy-Item "$PCPortDir\bios\openbios.bin" "$stagingDir\bios\openbios.bin" -Force
     Copy-Item "$PCPortDir\bios\OpenBIOS.LICENSE" "$stagingDir\bios\OpenBIOS.LICENSE" -Force
-    if (Test-Path "$PCPortDir\mods\state.toml") {
-        Copy-Item "$PCPortDir\mods\state.toml" "$stagingDir\mods\state.toml" -Force
-    }
+    # state.toml limpo: o da pasta de testes guarda escolhas e caminhos absolutos
+    # do mantenedor (ex.: o pacote da fonte nítida).
+    [System.IO.File]::WriteAllText("$stagingDir\mods\state.toml", "format_version = 2`n")
+    # Só o manifesto do carregador de texturas HD; nenhuma textura vai no pacote
+    # (a fonte nítida é gerada na máquina do jogador, a partir do jogo dele).
+    New-Item -ItemType Directory -Force -Path "$stagingDir\mods\bundled" | Out-Null
+    Copy-Item "$RepoDir\build\mods\bundled\psx.enhancement.hd-textures" "$stagingDir\mods\bundled\" -Recurse -Force
 
     # Overlays: cache nativo pre-compilado + kit de compilacao (Python embutido,
     # TinyCC, recompilador). Sem eles o codigo das salas roda interpretado na

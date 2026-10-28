@@ -69,7 +69,8 @@ enum ControlID {
     ID_CHK_CHEAT_BOUTIQUE = 1035,
     ID_CHK_CHEAT_EPILOGUES = 1036,
     ID_CHK_FAST_DOORS = 1037,
-    ID_CHK_DINPUT = 1038
+    ID_CHK_DINPUT = 1038,
+    ID_CHK_SHARP_FONT = 1039
 };
 
 // Global handles
@@ -134,6 +135,7 @@ HWND g_hComboControls = NULL;
 HWND g_hChkPgxpGeom = NULL;
 HWND g_hChkPgxpTex = NULL;
 HWND g_hChkAntialiasing = NULL;
+HWND g_hChkSharpFont = NULL;
 HWND g_hChkSkipFmv = NULL;
 HWND g_hChkFastDoors = NULL;
 HWND g_hChkSpuHq = NULL;
@@ -630,6 +632,260 @@ bool ExtractSlusFromDisc(const std::wstring& imagePath, const std::wstring& outS
     return true;
 }
 
+// ---- Fonte nitida (pacote de texturas HD gerado na maquina do jogador) -------
+//
+// O runtime tem um carregador de texturas HD (pacote psx.enhancement.hd-textures,
+// em mods/bundled) que le mods/state.toml. Com a opcao ligada, o launcher aponta
+// esse carregador para mods/hd-pack/sharp-font. Na primeira partida o pacote nao
+// tem substituicoes e o dump fica ligado: o carregador extrai os atlas da fonte
+// do proprio jogo do jogador. Ao abrir de novo, o launcher amplia cada atlas 4x
+// com EPX/Scale2x (diagonais limpas, sem borrao) e desliga o dump. Nada derivado
+// do jogo sai da maquina do jogador.
+
+static const char* kHdPackage = "psx.enhancement.hd-textures";
+// Atlas da fonte (texupload P4, hash da textura): mensagens, itens e arquivos;
+// menu GAME CONFIG / KEY CONFIG. Cada paleta e uma substituicao separada.
+static const wchar_t* kFontSources[] = { L"564BA4ED51F23272", L"A054F93CA3CFD0A5" };
+// A fonte so fica pronta com o atlas das mensagens inteiro (dump real: 252x70).
+static const int kFontReadyW = 240, kFontReadyH = 70;
+
+static std::wstring ModsDir() { return GetBuildDir() + L"\\mods"; }
+static std::wstring SharpFontDir() { return ModsDir() + L"\\hd-pack\\sharp-font"; }
+static std::wstring ModStatePath() { return ModsDir() + L"\\state.toml"; }
+
+static bool HdPackageInstalled() {
+    std::wstring m = ModsDir() + L"\\bundled\\psx.enhancement.hd-textures\\1.0.0\\manifest.toml";
+    return GetFileAttributesW(m.c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
+static std::vector<std::wstring> ListPngs(const std::wstring& dir) {
+    std::vector<std::wstring> out;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW((dir + L"\\*.png").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do { out.push_back(fd.cFileName); } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return out;
+}
+
+// texupload-P4-<textura>-<paleta>-<WxH palavras>-<x>-<y>-<w>x<h>-P<a>-<b>.png
+struct FontDump { std::wstring name, source, palette; int w = 0, h = 0; };
+
+static bool ParseFontDump(const std::wstring& name, FontDump& d) {
+    if (name.size() < 5) return false;
+    std::vector<std::wstring> parts;
+    std::wstring cur;
+    for (wchar_t c : name.substr(0, name.size() - 4)) {
+        if (c == L'-') { parts.push_back(cur); cur.clear(); }
+        else cur += c;
+    }
+    parts.push_back(cur);
+    if (parts.size() != 10 || parts[0] != L"texupload" || parts[1] != L"P4") return false;
+    bool font = false;
+    for (const wchar_t* src : kFontSources) font = font || parts[2] == src;
+    size_t x = parts[7].find(L'x');
+    if (!font || x == std::wstring::npos) return false;
+    d.name = name; d.source = parts[2]; d.palette = parts[3];
+    d.w = _wtoi(parts[7].substr(0, x).c_str());
+    d.h = _wtoi(parts[7].substr(x + 1).c_str());
+    return d.w > 0 && d.h > 0;
+}
+
+// O maior retangulo extraido de cada par textura + paleta.
+static std::vector<FontDump> FontDumps() {
+    std::vector<FontDump> best;
+    for (const auto& name : ListPngs(SharpFontDir() + L"\\dumps")) {
+        FontDump d;
+        if (!ParseFontDump(name, d)) continue;
+        auto it = std::find_if(best.begin(), best.end(), [&](const FontDump& b) {
+            return b.source == d.source && b.palette == d.palette; });
+        if (it == best.end()) best.push_back(d);
+        else if (d.w * d.h > it->w * it->h) *it = d;
+    }
+    return best;
+}
+
+static bool FontDumpReady() {
+    for (const auto& d : FontDumps())
+        if (d.source == kFontSources[0] && d.w >= kFontReadyW && d.h >= kFontReadyH) return true;
+    return false;
+}
+
+struct Argb { int w = 0, h = 0; std::vector<uint32_t> px; };
+
+static bool LoadArgb(const std::wstring& path, Argb& img) {
+    Gdiplus::Bitmap bmp(path.c_str());
+    if (bmp.GetLastStatus() != Gdiplus::Ok) return false;
+    img.w = (int)bmp.GetWidth();
+    img.h = (int)bmp.GetHeight();
+    img.px.assign((size_t)img.w * img.h, 0);
+    Gdiplus::Rect r(0, 0, img.w, img.h);
+    Gdiplus::BitmapData d;
+    if (bmp.LockBits(&r, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &d) != Gdiplus::Ok) return false;
+    for (int y = 0; y < img.h; ++y)
+        memcpy(&img.px[(size_t)y * img.w], (uint8_t*)d.Scan0 + (size_t)y * d.Stride, (size_t)img.w * 4);
+    bmp.UnlockBits(&d);
+    return true;
+}
+
+static bool SavePng(const std::wstring& path, Argb& img) {
+    UINT num = 0, size = 0;
+    Gdiplus::GetImageEncodersSize(&num, &size);
+    if (size == 0) return false;
+    std::vector<uint8_t> buf(size);
+    auto* enc = (Gdiplus::ImageCodecInfo*)buf.data();
+    Gdiplus::GetImageEncoders(num, size, enc);
+    for (UINT i = 0; i < num; ++i) {
+        if (wcscmp(enc[i].MimeType, L"image/png") != 0) continue;
+        Gdiplus::Bitmap bmp(img.w, img.h, img.w * 4, PixelFormat32bppARGB, (BYTE*)img.px.data());
+        return bmp.Save(path.c_str(), &enc[i].Clsid, NULL) == Gdiplus::Ok;
+    }
+    return false;
+}
+
+// EPX/Scale2x: cada texel vira 2x2 e so copia um vizinho onde dois vizinhos
+// concordam, entao diagonais ficam limpas e areas lisas continuam lisas.
+static Argb Epx2(const Argb& s) {
+    Argb o;
+    o.w = s.w * 2;
+    o.h = s.h * 2;
+    o.px.assign((size_t)o.w * o.h, 0);
+    auto at = [&](int x, int y) { return s.px[(size_t)y * s.w + x]; };
+    for (int y = 0; y < s.h; ++y)
+        for (int x = 0; x < s.w; ++x) {
+            uint32_t p = at(x, y);
+            uint32_t a = y > 0 ? at(x, y - 1) : p, b = x < s.w - 1 ? at(x + 1, y) : p;
+            uint32_t c = x > 0 ? at(x - 1, y) : p, d = y < s.h - 1 ? at(x, y + 1) : p;
+            uint32_t* row0 = &o.px[(size_t)(2 * y) * o.w + 2 * x];
+            uint32_t* row1 = row0 + o.w;
+            row0[0] = (c == a && c != d && a != b) ? a : p;
+            row0[1] = (a == b && a != c && b != d) ? b : p;
+            row1[0] = (d == c && d != b && c != a) ? c : p;
+            row1[1] = (b == d && b != a && d != c) ? d : p;
+        }
+    return o;
+}
+
+// Monta mods/hd-pack/sharp-font. Devolve true quando a fonte ficou pronta (o
+// state.toml entao desliga o dump). Sem a fonte, a pasta de substituicoes fica
+// vazia: o carregador nao extrai uma textura que ja tem substituicao.
+static bool RebuildSharpFont() {
+    std::wstring dir = SharpFontDir(), repl = dir + L"\\replacements", dumps = dir + L"\\dumps";
+    CreateDirectoryW(ModsDir().c_str(), NULL);
+    CreateDirectoryW((ModsDir() + L"\\hd-pack").c_str(), NULL);
+    CreateDirectoryW(dir.c_str(), NULL);
+    CreateDirectoryW(repl.c_str(), NULL);
+    CreateDirectoryW(dumps.c_str(), NULL);
+    for (const auto& name : ListPngs(repl)) DeleteFileW((repl + L"\\" + name).c_str());
+    if (!FontDumpReady()) return false;
+
+    bool ok = false;
+    for (const auto& d : FontDumps()) {
+        Argb img;
+        if (!LoadArgb(dumps + L"\\" + d.name, img)) continue;
+        Argb big = Epx2(Epx2(img));
+        ok = SavePng(repl + L"\\" + d.name, big) || ok;
+    }
+    // O dump leva todas as texturas usadas na partida; so a fonte interessa.
+    for (const auto& name : ListPngs(dumps)) {
+        FontDump d;
+        if (!ParseFontDump(name, d)) DeleteFileW((dumps + L"\\" + name).c_str());
+    }
+    return ok;
+}
+
+// mods/state.toml em blocos de topo ([[package]] / [[feature]] com as suas
+// subtabelas). O primeiro bloco e o preambulo (format_version).
+static std::vector<std::vector<std::string>> ReadStateBlocks() {
+    std::vector<std::vector<std::string>> blocks(1);
+    std::ifstream in(ModStatePath().c_str(), std::ios::binary);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.rfind("[[", 0) == 0) blocks.emplace_back();
+        blocks.back().push_back(line);
+    }
+    return blocks;
+}
+
+static bool BlockIsHd(const std::vector<std::string>& b) {
+    for (const auto& l : b)
+        if (l.find(kHdPackage) != std::string::npos) return true;
+    return false;
+}
+
+static bool BlockIsOurs(const std::vector<std::string>& b) {
+    for (const auto& l : b)
+        if (l.rfind("pack", 0) == 0 && l.find("/hd-pack/sharp-font") != std::string::npos) return true;
+    return false;
+}
+
+// Fonte nitida ligada = o recurso hd-textures esta ligado e aponta para o nosso pacote.
+static bool LoadSharpFont() {
+    for (const auto& b : ReadStateBlocks()) {
+        if (!BlockIsHd(b) || !BlockIsOurs(b)) continue;
+        for (const auto& l : b)
+            if (l.rfind("enabled", 0) == 0) return l.find("true") != std::string::npos;
+    }
+    return false;
+}
+
+// Reescreve so os blocos do carregador de texturas HD. Um pacote do jogador
+// (outra pasta) fica intocado enquanto a fonte nitida estiver desligada.
+static bool SaveSharpFont(bool on) {
+    auto blocks = ReadStateBlocks();
+    bool foreign = false;
+    for (size_t i = 1; i < blocks.size(); ++i)
+        if (BlockIsHd(blocks[i]) && blocks[i][0].rfind("[[feature]]", 0) == 0 && !BlockIsOurs(blocks[i])) foreign = true;
+    if (!on && (foreign || blocks.size() == 1)) return true;
+
+    std::vector<std::string> out;
+    bool hasVersion = false;
+    for (const auto& l : blocks[0]) {
+        if (l.rfind("format_version", 0) == 0) hasVersion = true;
+        out.push_back(l);
+    }
+    if (!hasVersion) out.insert(out.begin(), "format_version = 2");
+    for (size_t i = 1; i < blocks.size(); ++i) {
+        if (BlockIsHd(blocks[i])) continue;
+        for (const auto& l : blocks[i]) out.push_back(l);
+    }
+    while (!out.empty() && out.back().find_first_not_of(" \t") == std::string::npos) out.pop_back();
+    if (on) {
+        bool ready = RebuildSharpFont();
+        std::wstring dir = SharpFontDir();
+        int n = WideCharToMultiByte(CP_UTF8, 0, dir.c_str(), -1, NULL, 0, NULL, NULL);
+        std::string pack(n > 0 ? n - 1 : 0, '\0');
+        if (n > 1) WideCharToMultiByte(CP_UTF8, 0, dir.c_str(), -1, &pack[0], n, NULL, NULL);
+        for (char& c : pack) if (c == '\\') c = '/';
+        out.push_back("");
+        out.push_back("[[package]]");
+        out.push_back(std::string("id = \"") + kHdPackage + "\"");
+        out.push_back("");
+        out.push_back("[[feature]]");
+        out.push_back(std::string("package_id = \"") + kHdPackage + "\"");
+        out.push_back("id = \"hd-textures\"");
+        out.push_back("enabled = true");
+        out.push_back("[feature.values]");
+        // Sem a fonte ainda, a proxima partida extrai os atlas (dump) do jogo.
+        out.push_back(std::string("dump = \"") + (ready ? "false" : "true") + "\"");
+        out.push_back("replacements = \"true\"");
+        out.push_back("[feature.resources]");
+        out.push_back("pack = \"" + pack + "\"");
+    }
+
+    CreateDirectoryW(ModsDir().c_str(), NULL);
+    // Arquivo temporario + troca: um launcher fechado no meio nao trunca o state.toml.
+    std::wstring tmp = ModStatePath() + L".tmp";
+    {
+        std::ofstream f(tmp.c_str(), std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        for (const auto& l : out) f << l << "\n";
+        if (!f) return false;
+    }
+    return MoveFileExW(tmp.c_str(), ModStatePath().c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+}
+
 struct GameConfig {
     std::wstring language = L"en"; // Default: English
     std::wstring aspect_ratio = L"16:9";
@@ -652,6 +908,7 @@ struct GameConfig {
     bool unlock_mercenaries = false;
     bool unlock_boutique = false;
     bool unlock_epilogues = false;
+    bool sharp_font = false;  // em mods/state.toml, nao no settings.toml
 };
 
 GameConfig g_cachedConfig;
@@ -664,6 +921,7 @@ GameConfig LoadConfig() {
                           ? settingsPath : GetTomlPath();
 
     std::wifstream file(loadPath.c_str());
+    cfg.sharp_font = LoadSharpFont();
     if (!file.is_open()) return cfg;
 
     std::wstring line;
@@ -828,7 +1086,7 @@ bool SaveConfig(const GameConfig& cfg) {
         outFile.close();
     }
 
-    return true;
+    return SaveSharpFont(cfg.sharp_font && HdPackageInstalled());
 }
 
 GameConfig GetGuiConfig() {
@@ -861,12 +1119,33 @@ GameConfig GetGuiConfig() {
     cfg.geometry_correction = (SendMessageW(g_hChkPgxpGeom, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.perspective_texturing = (SendMessageW(g_hChkPgxpTex, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.antialiasing = (SendMessageW(g_hChkAntialiasing, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    cfg.sharp_font = (SendMessageW(g_hChkSharpFont, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.auto_skip_fmv = (SendMessageW(g_hChkSkipFmv, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.fast_doors = (SendMessageW(g_hChkFastDoors, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.spu_hq = (SendMessageW(g_hChkSpuHq, BM_GETCHECK, 0, 0) == BST_CHECKED);
     cfg.directinput_joysticks = (SendMessageW(g_hChkDinput, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
     return cfg;
+}
+
+// O rotulo diz quando a fonte ainda vai ser extraida na proxima partida.
+void UpdateSharpFontText() {
+    if (!g_hChkSharpFont) return;
+    if (!HdPackageInstalled()) {
+        EnableWindow(g_hChkSharpFont, FALSE);
+        SetWindowTextW(g_hChkSharpFont, L3(L"Sharp font (unavailable: mods\\bundled is missing)",
+                                           L"Fuente nítida (no disponible: falta mods\\bundled)",
+                                           L"Fonte nítida (indisponível: falta mods\\bundled)").c_str());
+        return;
+    }
+    bool pending = SendMessageW(g_hChkSharpFont, BM_GETCHECK, 0, 0) == BST_CHECKED && !FontDumpReady();
+    std::wstring text = L3(L"Sharp font (upscaled from your own game)",
+                           L"Fuente nítida (ampliada a partir de tu juego)",
+                           L"Fonte nítida (ampliada a partir do seu jogo)");
+    if (pending) text += L3(L" — prepared during your next play session",
+                            L" — se prepara en la próxima partida",
+                            L" — preparada na próxima partida");
+    SetWindowTextW(g_hChkSharpFont, text.c_str());
 }
 
 void ApplyLanguage(const std::wstring& lang) {
@@ -1067,6 +1346,8 @@ void ApplyLanguage(const std::wstring& lang) {
         else if (lang == L"pt-br") SetWindowTextW(g_hChkSkipFmv, L"Pular vídeos/FMVs automaticamente (padrão: desligado)");
         else SetWindowTextW(g_hChkSkipFmv, L"Auto-skip FMVs / cutscenes (Default: Off)");
     }
+
+    UpdateSharpFontText();
 
     if (g_hChkFastDoors) {
         if (lang == L"es") SetWindowTextW(g_hChkFastDoors, L"Saltar la animación de las puertas");
@@ -2286,7 +2567,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hBtnOpenSetup, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         // Grupo 1: Graficos HD & Desempenho Visual
-        g_hGrpVideo = CreateWindowW(L"BUTTON", L"  HD Graphics && Visual Performance  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 256, 508, 208, hWnd, NULL, g_hInst, NULL);
+        g_hGrpVideo = CreateWindowW(L"BUTTON", L"  HD Graphics && Visual Performance  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 256, 508, 230, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpVideo, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hLblAspect = CreateWindowW(L"STATIC", L"Aspect Ratio:", WS_VISIBLE | WS_CHILD, 32, 280, 150, 20, hWnd, NULL, g_hInst, NULL);
@@ -2317,6 +2598,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 434, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
         SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+
+        g_hChkSharpFont = CreateWindowW(L"BUTTON", L"Sharp font", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 458, 480, 20, hWnd, (HMENU)ID_CHK_SHARP_FONT, g_hInst, NULL);
+        SendMessageW(g_hChkSharpFont, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Grupo 2: Jogabilidade e Controles
         g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 14, 508, 120, hWnd, NULL, g_hInst, NULL);
@@ -2395,6 +2679,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, cfg.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkPgxpTex, BM_SETCHECK, cfg.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkAntialiasing, BM_SETCHECK, cfg.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
+        // Se a ultima partida extraiu a fonte, gera a versao nitida agora e
+        // desliga o dump no state.toml.
+        if (cfg.sharp_font && HdPackageInstalled()) SaveSharpFont(true);
+        SendMessageW(g_hChkSharpFont, BM_SETCHECK, cfg.sharp_font ? BST_CHECKED : BST_UNCHECKED, 0);
+        UpdateSharpFontText();
         SendMessageW(g_hChkSkipFmv, BM_SETCHECK, cfg.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkFastDoors, BM_SETCHECK, cfg.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkSpuHq, BM_SETCHECK, cfg.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -2460,6 +2749,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // Salvar automaticamente a preferencia de idioma
             GameConfig cfg = GetGuiConfig();
             SaveConfig(cfg);
+        } else if (id == ID_CHK_SHARP_FONT && HIWORD(wParam) == BN_CLICKED) {
+            UpdateSharpFontText();
         } else if (id == ID_BTN_LAUNCH) {
             LaunchGame();
         } else if (id == ID_BTN_SAVE) {
@@ -2607,7 +2898,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT rcMain = { 0, 0, 1070, 474 };
+    RECT rcMain = { 0, 0, 1070, 498 };
     AdjustWindowRectEx(&rcMain, dwStyle, FALSE, 0);
     int width = rcMain.right - rcMain.left;
     int height = rcMain.bottom - rcMain.top;

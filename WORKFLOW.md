@@ -41,10 +41,15 @@ Copie `<tmp>\stage\cache\...\<etiqueta>` para `ResidentEvil3-PCPort\cache\SLUS-0
 
 `tools\manage_project.ps1 -Action consolidate` copia o build para `ResidentEvil3-PCPort`. Teste pelo launcher daquela pasta. Uma funcionalidade só é "funciona" no README depois de testada no jogo.
 
+Teste automático (sem jogador): `py -3 tools\smoke_test.py`. Ele abre o build de debug, vai do boot ao título, carrega o primeiro save do Memory card 1, anda com o direcional e com o analógico, abre e fecha o inventário e confere tudo pela RAM. O resultado sai em `captures\smoke_<data>` (capturas numeradas, `stdout.log` e `report.json`, com FPS, underruns de áudio e `no_depth` da correção de textura); o código de saída é 0 só se todas as checagens passarem. Os cartões do jogador nunca são escritos: o jogo roda com `--memcard-dir` numa cópia dentro da sessão. O script recusa rodar se já houver um RE3 aberto ou se a porta 4370 estiver ocupada. Abra as capturas: elas são a evidência, e as checagens não veem defeitos visuais. As capturas saem a 1920×1080 (`--window`); numa janela pequena, diferenças de textura somem. `--hd-pack <pasta>` roda com um pacote de texturas HD (`--hd-dump` também extrai texturas); o `mods\state.toml` da pasta de execução é trocado e restaurado no fim. O jogo usa o `settings.toml` da pasta de execução.
+
+Fonte nítida: `py -3 tools\test_launcher_sharp_font.py --dumps <pasta de dumps>` dirige o launcher real num sandbox em `captures\` (marcar, extrair, gerar, desmarcar). `tools\make_font_upscale.py` é o protótipo em Python do mesmo EPX.
+
 Para investigar com o servidor de debug (TCP 4370), use `.\tools\run_debug.ps1` (`-Build` recompila o `build_dbg`). O build de release não tem servidor. Veja `docs\WIDESCREEN_PLAYTEST.md`.
 
 ## Release
 
-1. `tools\manage_project.ps1 -Action audit`: confira git limpo e build igual ao da pasta de execução.
-2. `tools\manage_project.ps1 -Action package -Version vX.Y.Z`: o zip usa `game.toml` e `settings.default.toml` do repositório, nunca as configurações da pasta de testes.
-3. Publique com o GitHub CLI (`gh release create`), com notas que digam o que mudou, o que não foi testado e os problemas conhecidos.
+1. `py -3 tools\smoke_test.py` com o `build_dbg` do mesmo commit (`tools\run_debug.ps1 -Build -NoCapture`, depois feche o jogo): precisa terminar com `"result": "ok"`.
+2. `tools\manage_project.ps1 -Action audit`: confira git limpo e build igual ao da pasta de execução.
+3. `tools\manage_project.ps1 -Action package -Version vX.Y.Z`: o zip usa `game.toml` e `settings.default.toml` do repositório, nunca as configurações da pasta de testes.
+4. Publique com o GitHub CLI (`gh release create`), com notas que digam o que mudou, o que não foi testado e os problemas conhecidos.
