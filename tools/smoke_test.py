@@ -325,6 +325,9 @@ def main():
     ap.add_argument("--hd-pack", metavar="DIR",
                     help="run with this HD texture pack (replacements on); the run "
                          "folder's mods/state.toml is swapped and restored afterwards")
+    ap.add_argument("--cmd", action="append", default=[], metavar="JSON",
+                    help='debug command sent right after connecting, e.g. '
+                         '{"cmd":"ws_layers","on":1} (repeatable)')
     ap.add_argument("--hd-dump", action="store_true",
                     help="with --hd-pack: also dump the textures used into DIR/dumps")
     args = ap.parse_args()
@@ -375,6 +378,7 @@ def main():
             return 1
         ww, _, wh = args.window.partition("x")
         report["window"] = send({"cmd": "window_size", "w": int(ww), "h": int(wh)})
+        report["startup_cmds"] = [send(json.loads(c)) for c in args.cmd]
 
         if args.boot_only:
             t0 = time.time()

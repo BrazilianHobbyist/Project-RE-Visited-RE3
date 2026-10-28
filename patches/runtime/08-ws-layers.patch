@@ -1,0 +1,446 @@
+diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
+index ee263d78..1b641f81 100644
+--- a/runtime/include/gpu_gl_renderer.h
++++ b/runtime/include/gpu_gl_renderer.h
+@@ -289,6 +289,10 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
+ void gl_renderer_set_display_aspect(int num, int den);
+ /* 1 = stretch 4:3 content to the window (16:9 "stretched"); 0 = pillarbox. */
+ void gl_renderer_set_aspect_stretch(int enabled);
++/* Layered pan & scan (RE3): scene zoomed to 16:9 with the UI kept 1:1; 2D
++ * screens and FMV pillarbox. Off by default ([video] ws_layers). */
++void gl_renderer_set_ws_layers(int on);
++int  gl_renderer_ws_layers_enabled(void);
+ 
+ /* Scanline post-process (host display setting). on toggles the effect; strength
+  * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
+diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
+index 46de97fa..a421c231 100644
+--- a/runtime/src/debug_server.c
++++ b/runtime/src/debug_server.c
+@@ -5817,6 +5817,17 @@ static void handle_pgxp_store_ring(int id, const char *json)
+  * "position_fallback":0|1,"preserve_projection":0|1,"culling":0|1}. Fields
+  * are optional; the reply echoes the resulting state (same shape as
+  * geom_correction's "pgxp" object, flattened). */
++/* ws_layers [on=0|1]: layered pan & scan state (RE3, gpu_gl_renderer.c). */
++extern int  gl_renderer_ws_layers_stats(char *buf, int cap);
++extern void gl_renderer_set_ws_layers(int on);
++static void handle_ws_layers(int id, const char *json) {
++    int on = json_get_int(json, "on", -1);
++    if (on >= 0) gl_renderer_set_ws_layers(on);
++    char b[768];
++    gl_renderer_ws_layers_stats(b, (int)sizeof b);
++    send_fmt("{\"id\":%d,\"ok\":true,%s}", id, b);
++}
++
+ static void handle_pgxp(int id, const char *json)
+ {
+     /* Live toggles for the one-toggle-at-a-time A/B protocol (docs/ENHANCEMENTS.md
+@@ -16218,6 +16229,7 @@ static const CmdEntry s_commands[] = {
+     { "gpu_state",         handle_gpu_state },
+     { "geom_correction",   handle_geom_correction },
+     { "pgxp",              handle_pgxp },
++    { "ws_layers",         handle_ws_layers },
+     { "pgxp_tri_ring",     handle_pgxp_tri_ring },
+     { "pgxp_store_ring",   handle_pgxp_store_ring },
+     { "pgxp_shadow",       handle_pgxp_shadow },
+diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
+index 0b2f56a9..06e83669 100644
+--- a/runtime/src/gpu.c
++++ b/runtime/src/gpu.c
+@@ -3769,7 +3769,9 @@ void gpu_set_gp0_linked_list_node(uint32_t addr, uint32_t word_count) {
+     }
+ }
+ 
++static void ly_list_end(void);
+ void gpu_ws_end_linked_list(void) {
++    ly_list_end();
+     gp0_ot_rank = 0xFFFFu;
+ }
+ 
+@@ -7355,6 +7357,82 @@ int gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path) {
+ void gpu_ws_census_set(int on) { ws_census_on = on ? 1 : 0; }
+ uint64_t gpu_ws_census_seq(void) { return ws_census_seq; }
+ 
++/* ---- Layered pan & scan (RE3, [video] ws_layers) -------------------------
++ * The game sorts each frame into a scene ordering table (ranks >= 16:
++ * pre-rendered background sprites, models, shadows) and then a separate UI
++ * list (ranks 0-15: text, prompts, darkening). Full 2D screens (inventory,
++ * map, files, menus) only have UI lists. When the scene list ends, the draw
++ * area holds the scene alone: the renderer copies it, and the present zooms
++ * that copy to fill 16:9 and lays the UI over it at 1:1 (the pixels where the
++ * final image differs from the copy). A frame without a scene list leaves no
++ * copy for its buffer and presents 4:3 pillarboxed. */
++extern void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
++                                          int focus_y0, int focus_y1, uint32_t bg_hash);
++extern void gl_renderer_ws_layer_invalidate(int x, int y);
++extern int  gl_renderer_ws_layers_enabled(void);
++static int      ly_list_prims = 0, ly_list_scene = 0, ly_after_scene = 0, ly_resnap = 0;
++static uint32_t ly_scene_frame = 0xFFFFFFFFu, ly_bg_hash = 0;
++static int      ly_y0 = 0x7FFF, ly_y1 = -0x7FFF;
++static void ly_snapshot(void) {
++    const int w = (int)draw_area_right - (int)draw_area_left + 1;
++    const int h = (int)draw_area_bottom - (int)draw_area_top + 1;
++    if (w <= 0 || h <= 0) return;
++    gl_renderer_ws_layer_snapshot((int)draw_area_left, (int)draw_area_top, w, h,
++                                  ly_y0 <= ly_y1 ? ly_y0 : -1, ly_y1, ly_bg_hash);
++}
++static void ly_list_end(void) {
++    if (gr_backend() != GR_BACKEND_OPENGL || !gl_renderer_ws_layers_enabled()) return;
++    if (ly_resnap) { ly_resnap = 0; ly_snapshot(); }
++    if (ly_list_scene) {            /* the scene list just ended: copy it */
++        ly_snapshot();
++        ly_after_scene = 1;
++        ly_scene_frame = (uint32_t)s_frame_count;
++    } else if (ly_list_prims && (uint32_t)s_frame_count != ly_scene_frame) {
++        /* A UI-only list in a frame without a scene: a 2D screen. */
++        gl_renderer_ws_layer_invalidate((int)draw_area_left, (int)draw_area_top);
++        ly_after_scene = 0;
++    }
++    ly_list_prims = ly_list_scene = 0;
++}
++static void ly_note_command(uint8_t op) {
++    if (gr_backend() != GR_BACKEND_OPENGL || !gl_renderer_ws_layers_enabled()) return;
++    if (op < 0x20 || op > 0x7F || gp0_ot_rank == 0xFFFFu) return;
++    if (ly_resnap) { ly_resnap = 0; ly_snapshot(); }   /* after a full-screen darkening */
++    ly_list_prims++;
++    const int semi = (op & 0x02u) != 0;
++    if (gp0_ot_rank >= 16u) {
++        if (!ly_list_scene) {
++            ly_list_scene = 1;
++            ly_y0 = 0x7FFF; ly_y1 = -0x7FFF; ly_bg_hash = 2166136261u;
++        }
++        if (op >= 0x60) {           /* background sprites: the camera's signature */
++            ly_bg_hash = (ly_bg_hash ^ (gp0_cmd_buf[2] & 0xFFFFFFu)) * 16777619u;
++        } else if (op < 0x40 && !semi) {   /* opaque polygons: models (shadows are semi) */
++            const int n = (op & 0x08u) ? 4 : 3, tex = (op & 0x04u) != 0, gour = (op & 0x10u) != 0;
++            int i = 1;
++            for (int k = 0; k < n; k++) {
++                if (k && gour) i++;
++                const int y = sign_extend((gp0_cmd_buf[i] >> 16) & 0x7FFu, 11) + draw_offset_y
++                              - (int)draw_area_top;
++                if (y < ly_y0) ly_y0 = y;
++                if (y > ly_y1) ly_y1 = y;
++                i += tex ? 2 : 1;
++            }
++        }
++        return;
++    }
++    /* UI after the scene: a semi-transparent rectangle over (nearly) the whole
++     * draw area darkens the scene (pause, messages). Re-copy after it so the
++     * darkened scene zooms too and only the text stays 1:1. */
++    if (ly_after_scene && semi && op >= 0x60 && op <= 0x63) {
++        const uint32_t wh = gp0_cmd_buf[2];
++        const int w = (int)(wh & 0x3FFu), h = (int)((wh >> 16) & 0x1FFu);
++        const int aw = (int)draw_area_right - (int)draw_area_left + 1;
++        const int ah = (int)draw_area_bottom - (int)draw_area_top + 1;
++        if (w * 10 >= aw * 9 && h * 10 >= ah * 9) ly_resnap = 1;
++    }
++}
++
+ /* Execute a fully-collected GP0 command */
+ static void gp0_dispatch_command(uint8_t opcode);
+ 
+@@ -7362,6 +7440,7 @@ static void gp0_execute_command(void) {
+     uint8_t opcode = (gp0_cmd_buf[0] >> 24) & 0xFF;
+     gp0_opcode_count[opcode]++;
+     gp0_ring_record(gp0_cmd_buf, gp0_words_needed);
++    ly_note_command(opcode);
+     extern void ws_bg_phase_note(uint32_t op);
+     ws_bg_phase_note(opcode);   /* native-wide 2D-backdrop stretch: background-phase latch */
+     if (ws_view_camera_addr || g_bg2d_host_size) {
+diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
+index f938529d..092ed2a1 100644
+--- a/runtime/src/gpu_gl_renderer.c
++++ b/runtime/src/gpu_gl_renderer.c
+@@ -10298,6 +10298,220 @@ static float present_alloc_extent(int units, int scale) {
+     return (float)units * (float)as / (float)scale;
+ }
+ 
++/* ---- Layered pan & scan (RE3, [video] ws_layers) ---------------------------
++ * gpu.c copies the draw area when the scene ordering table ends
++ * (gl_renderer_ws_layer_snapshot), so each back buffer can carry a copy of its
++ * scene without the UI. The present then composes a 16:9 image at the internal
++ * scale: the copy zoomed to fill the width and panned vertically to keep the
++ * models in view, and over it, inside the centred 4:3 rect, every pixel where
++ * the final image differs from the copy (the UI) at 1:1. A buffer last drawn
++ * as a full 2D screen has no copy and presents 4:3 pillarboxed. Only the plain
++ * VRAM present path composes (no render thread, high-resolution window or
++ * temporal blending); the others pillarbox. */
++typedef struct {
++    int    used, valid, x, y, w, h, scale;
++    int    fy0, fy1;
++    uint32_t hash;
++    GLuint tex, fbo;
++    int    tw, th;
++} LySlot;
++static LySlot   s_ly[2];
++static int      s_ly_on = -1;
++static GLuint   s_ly_comp_tex = 0, s_ly_comp_fbo = 0;
++static int      s_ly_comp_w = 0, s_ly_comp_h = 0;
++static GLuint   s_ly_prog = 0;
++static GLint    s_ly_uMode = -1, s_ly_uSnap = -1, s_ly_uFinal = -1, s_ly_uSrcRect = -1,
++                s_ly_uFinalOrg = -1, s_ly_uUiOrg = -1;
++static float    s_ly_pan = -1.0f;
++static uint32_t s_ly_pan_hash = 0;
++static uint64_t s_ly_snaps = 0, s_ly_invalidations = 0, s_ly_composed = 0, s_ly_pillar = 0;
++
++void gl_renderer_set_ws_layers(int on) { s_ly_on = on ? 1 : 0; }
++int gl_renderer_ws_layers_enabled(void) {
++    if (s_ly_on < 0) {
++        const char *e = getenv("PSX_WS_LAYERS");
++        s_ly_on = (e && e[0] == '1') ? 1 : 0;
++    }
++    return s_ly_on && !s_rth_on && !s_hiw && s_ctx && s_raster_ok;
++}
++
++static LySlot *ly_find(int x, int y) {
++    for (int i = 0; i < 2; i++)
++        if (s_ly[i].used && s_ly[i].x == x && s_ly[i].y == y) return &s_ly[i];
++    return NULL;
++}
++
++void gl_renderer_ws_layer_invalidate(int x, int y) {
++    LySlot *s = ly_find(x, y);
++    if (s && s->valid) { s->valid = 0; s_ly_invalidations++; }
++}
++
++void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
++                                   int focus_y0, int focus_y1, uint32_t bg_hash) {
++    if (!gl_renderer_ws_layers_enabled()) return;
++    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > VRAM_W || y + h > VRAM_H) return;
++    LySlot *s = ly_find(x, y);
++    if (!s) {   /* a new buffer band: take the slot not written last */
++        static int next = 0;
++        s = &s_ly[next];
++        next ^= 1;
++        s->used = 1; s->x = x; s->y = y; s->valid = 0;
++    }
++    flush_flat_batch();
++    flush_tex_batch();
++    flush_cpu_upload();
++    const int R = s_hr_scale;
++    if (!s->tex || s->tw != w * R || s->th != h * R) {
++        if (!s->tex) { glGenTextures(1, &s->tex); p_glGenFramebuffers(1, &s->fbo); }
++        p_glActiveTexture(PSXGL_TEXTURE0);
++        glBindTexture(GL_TEXTURE_2D, s->tex);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w * R, h * R, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s->fbo);
++        p_glFramebufferTexture2D(PSXGL_FRAMEBUFFER, PSXGL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s->tex, 0);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
++        s->tw = w * R; s->th = h * R;
++    }
++    p_glBindFramebuffer(PSXGL_READ_FRAMEBUFFER, s_hr_fbo);
++    p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, s->fbo);
++    glDisable(GL_SCISSOR_TEST);
++    p_glBlitFramebuffer(x * R, y * R, (x + w) * R, (y + h) * R, 0, 0, w * R, h * R,
++                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
++    p_glBindFramebuffer(PSXGL_READ_FRAMEBUFFER, 0);
++    p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, 0);
++    s->valid = 1; s->w = w; s->h = h; s->scale = R;
++    s->fy0 = focus_y0; s->fy1 = focus_y1; s->hash = bg_hash;
++    s_ly_snaps++;
++}
++
++static const char *LY_FS =
++    "#version 330\n"
++    "out vec4 o;\n"
++    "uniform int u_mode;\n"              /* 0 = zoomed scene, 1 = UI at 1:1 */
++    "uniform sampler2D u_snap;\n"
++    "uniform sampler2D u_final;\n"
++    "uniform vec4 u_src;\n"              /* scene: x0, y0, x scale, y scale (snap px per comp px) */
++    "uniform ivec2 u_final_org;\n"       /* display origin in the hr surface */
++    "uniform ivec2 u_ui_org;\n"          /* UI rect origin in the composite */
++    "void main(){\n"
++    "  if (u_mode == 0) {\n"
++    "    vec2 p = u_src.xy + gl_FragCoord.xy * u_src.zw;\n"
++    "    o = vec4(texture(u_snap, p / vec2(textureSize(u_snap, 0))).rgb, 1.0);\n"
++    "  } else {\n"
++    "    ivec2 l = ivec2(gl_FragCoord.xy) - u_ui_org;\n"
++    "    vec4 f = texelFetch(u_final, u_final_org + l, 0);\n"
++    "    vec4 s = texelFetch(u_snap, l, 0);\n"
++    "    if (all(lessThan(abs(f.rgb - s.rgb), vec3(0.5 / 255.0)))) discard;\n"
++    "    o = vec4(f.rgb, 1.0);\n"
++    "  }\n"
++    "}\n";
++
++static const char *LY_VS =
++    "#version 330\n"
++    "void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2);\n"
++    "  gl_Position = vec4(p*2.0-1.0,0.0,1.0); }\n";
++
++/* Compose the layered frame for display (disp_x, disp_y, w, h) and present it
++ * into the letterbox rect. Returns 0 (nothing drawn) when there is no copy of
++ * this buffer: the caller then pillarboxes. */
++static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
++                      int lx, int ly_, int lw, int lh) {
++    LySlot *s = ly_find(disp_x, disp_y);
++    if (!s || !s->valid || s->w != w || s->h != h || s->scale != s_hr_scale ||
++        lw <= 0 || lh <= 0 || lw * 3 <= lh * 4) return 0;
++    if (!s_ly_prog) {
++        s_ly_prog = build_program(LY_VS, LY_FS);
++        if (!s_ly_prog) return 0;
++        s_ly_uMode = p_glGetUniformLocation(s_ly_prog, "u_mode");
++        s_ly_uSnap = p_glGetUniformLocation(s_ly_prog, "u_snap");
++        s_ly_uFinal = p_glGetUniformLocation(s_ly_prog, "u_final");
++        s_ly_uSrcRect = p_glGetUniformLocation(s_ly_prog, "u_src");
++        s_ly_uFinalOrg = p_glGetUniformLocation(s_ly_prog, "u_final_org");
++        s_ly_uUiOrg = p_glGetUniformLocation(s_ly_prog, "u_ui_org");
++    }
++    const int R = s->scale;
++    /* Composite: the display height at the internal scale, the window's aspect. */
++    const int nw = (int)((double)h * lw / lh + 0.5);
++    const int cw = nw * R, ch = h * R;
++    if (!s_ly_comp_tex || s_ly_comp_w != cw || s_ly_comp_h != ch) {
++        if (!s_ly_comp_tex) { glGenTextures(1, &s_ly_comp_tex); p_glGenFramebuffers(1, &s_ly_comp_fbo); }
++        p_glActiveTexture(PSXGL_TEXTURE0);
++        glBindTexture(GL_TEXTURE_2D, s_ly_comp_tex);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, cw, ch, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s_ly_comp_fbo);
++        p_glFramebufferTexture2D(PSXGL_FRAMEBUFFER, PSXGL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_ly_comp_tex, 0);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
++        s_ly_comp_w = cw; s_ly_comp_h = ch;
++    }
++    /* Vertical pan (native lines): keep the models' box centred; follow it
++     * smoothly, jump on a camera cut (new background). */
++    const float vis = (float)h * (float)w / (float)nw;
++    const float room = (float)h - vis;
++    float centre = s->fy0 >= 0 && s->fy1 >= s->fy0 ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
++    float want = centre - 0.5f * vis;
++    if (want < 0.0f) want = 0.0f;
++    if (want > room) want = room;
++    if (s_ly_pan < 0.0f || s->hash != s_ly_pan_hash) s_ly_pan = want;
++    else s_ly_pan += (want - s_ly_pan) * 0.15f;
++    s_ly_pan_hash = s->hash;
++
++    p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s_ly_comp_fbo);
++    glDisable(GL_SCISSOR_TEST);
++    glDisable(GL_BLEND);
++    glViewport(0, 0, cw, ch);
++    p_glUseProgram(s_ly_prog);
++    p_glActiveTexture(PSXGL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, s->tex);
++    p_glActiveTexture(PSXGL_TEXTURE0 + 1);
++    glBindTexture(GL_TEXTURE_2D, s_hr_tex);
++    p_glUniform1i(s_ly_uSnap, 0);
++    p_glUniform1i(s_ly_uFinal, 1);
++    p_glBindVertexArray(s_present_vao);
++    /* Scene: the whole width of the copy over the whole composite width. */
++    const float k = (float)(w * R) / (float)cw;
++    p_glUniform1i(s_ly_uMode, 0);
++    p_glUniform4f(s_ly_uSrcRect, 0.0f, s_ly_pan * (float)R, k, k);
++    glDrawArrays(GL_TRIANGLES, 0, 3);
++    /* UI: the centred 4:3 rect, 1:1 with the hr surface. */
++    const int ox = (cw - w * R) / 2;
++    glEnable(GL_SCISSOR_TEST);
++    glScissor(ox, 0, w * R, ch);
++    p_glUniform1i(s_ly_uMode, 1);
++    p_glUniform2i(s_ly_uFinalOrg, disp_x * R, disp_y * R);
++    p_glUniform2i(s_ly_uUiOrg, ox, 0);
++    glDrawArrays(GL_TRIANGLES, 0, 3);
++    glDisable(GL_SCISSOR_TEST);
++    p_glBindVertexArray(0);
++    p_glUseProgram(0);
++    p_glActiveTexture(PSXGL_TEXTURE0 + 1);
++    glBindTexture(GL_TEXTURE_2D, 0);
++    p_glActiveTexture(PSXGL_TEXTURE0);
++    p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
++
++    present_target_quad(s_ly_comp_tex, (float)nw, (float)h, 0, 0, nw, h, linear,
++                        lx, ly_, lw, lh, 1, 1, R);
++    s_ly_composed++;
++    return 1;
++}
++
++int gl_renderer_ws_layers_stats(char *buf, int cap) {
++    return snprintf(buf, (size_t)cap,
++        "\"enabled\":%d,\"active\":%d,\"snapshots\":%llu,\"invalidations\":%llu,"
++        "\"composed\":%llu,\"pillarboxed\":%llu,\"pan\":%.2f,"
++        "\"slots\":[{\"valid\":%d,\"x\":%d,\"y\":%d,\"fy0\":%d,\"fy1\":%d},"
++        "{\"valid\":%d,\"x\":%d,\"y\":%d,\"fy0\":%d,\"fy1\":%d}]",
++        s_ly_on > 0, gl_renderer_ws_layers_enabled(),
++        (unsigned long long)s_ly_snaps, (unsigned long long)s_ly_invalidations,
++        (unsigned long long)s_ly_composed, (unsigned long long)s_ly_pillar, s_ly_pan,
++        s_ly[0].valid, s_ly[0].x, s_ly[0].y, s_ly[0].fy0, s_ly[0].fy1,
++        s_ly[1].valid, s_ly[1].x, s_ly[1].y, s_ly[1].fy0, s_ly[1].fy1);
++}
++
+ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+                               int force_4_3) {
+     /* The crop a pass applies (transaction_begin), taken on the emulation
+@@ -10338,7 +10552,12 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+     gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
+-    if (force_4_3 && !s_aspect_stretch)
++    /* Layered pan & scan: a buffer with a scene copy composes to the 16:9
++     * rect; any other (2D screens, the logos) pillarboxes. */
++    const int layered = gl_renderer_ws_layers_enabled();
++    LySlot *lys = layered ? ly_find(disp_x, disp_y) : NULL;
++    const int ly_scene = lys && lys->valid && lys->w == w && lys->h == h;
++    if ((force_4_3 && !s_aspect_stretch) || (layered && !ly_scene))
+         letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
+     else
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+@@ -10395,8 +10614,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+             tw = present_alloc_extent(src_tw, s_hr_scale);
+             th = present_alloc_extent(VRAM_H, s_hr_scale);
+         }
+-        present_target_quad(src_tex, tw, th,
+-                            src_x, disp_y, w, h, linear, lx, ly, lw, lh, 1, 1, src_scale);
++        if (!(ly_scene && ly_present(disp_x, disp_y, w, h, linear, lx, ly, lw, lh))) {
++            if (layered) s_ly_pillar++;
++            present_target_quad(src_tex, tw, th,
++                                src_x, disp_y, w, h, linear, lx, ly, lw, lh, 1, 1, src_scale);
++        }
+         postfx_note_source(src_fbo, src_tex, tw, th, src_x, disp_y, w, h);
+     }
+     pres_record(GL_PRES_VRAM, disp_x, disp_y, w, h, lx, ly, lw, lh);
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 4df161fb..5ff4f0d7 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -6321,6 +6321,7 @@ static void re3_apply_directinput_hint(void) {
+ static void load_re3_qol_settings(const std::filesystem::path& path) {
+     std::ifstream f(path);
+     if (!f.is_open()) return;
++    int ws_layers = -1;
+     std::string line;
+     while (std::getline(f, line)) {
+         size_t first = line.find_first_not_of(" \t\r\n");
+@@ -6366,6 +6367,13 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+             int stretch = (val == "true" || val == "1") ? 1 : 0;
+             gl_renderer_set_aspect_stretch(stretch);
+         }
++        else if (key == "ws_layers") ws_layers = (val == "true" || val == "1") ? 1 : 0;
++    }
++    /* Layered pan & scan replaces the stretch: scenes compose to 16:9, every
++     * other image (2D screens, FMV) pillarboxes. */
++    if (ws_layers >= 0) {
++        gl_renderer_set_ws_layers(ws_layers);
++        if (ws_layers) gl_renderer_set_aspect_stretch(0);
+     }
+ 
+     if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
+diff --git a/runtime/tests/gpu_exec_stubs.inc b/runtime/tests/gpu_exec_stubs.inc
+index 21173d69..449adec0 100644
+--- a/runtime/tests/gpu_exec_stubs.inc
++++ b/runtime/tests/gpu_exec_stubs.inc
+@@ -450,6 +450,12 @@ void gl_renderer_note_wide_triangle_recovery(int enabled) {
+ int gl_renderer_frame_generation(void) { return 0; }
+ /* PGXP renderer features: off in these fixtures. */
+ int gl_renderer_pgxp_render_wanted(void) { return 0; }
++/* Layered pan & scan (RE3): off in these fixtures. */
++int gl_renderer_ws_layers_enabled(void) { return 0; }
++void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h, int fy0, int fy1, uint32_t hash) {
++    (void)x; (void)y; (void)w; (void)h; (void)fy0; (void)fy1; (void)hash;
++}
++void gl_renderer_ws_layer_invalidate(int x, int y) { (void)x; (void)y; }
+ void gl_renderer_fg_source(const uint32_t id[3], const int32_t pc[9], const int32_t h[3],
+                            const int32_t x[3], const int32_t y[3]) {
+     (void)id; (void)pc; (void)h; (void)x; (void)y;

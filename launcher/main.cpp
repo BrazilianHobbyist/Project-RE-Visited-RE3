@@ -889,6 +889,7 @@ static bool SaveSharpFont(bool on) {
 struct GameConfig {
     std::wstring language = L"en"; // Default: English
     std::wstring aspect_ratio = L"16:9";
+    bool ws_layers = false;   // 16:9 ampliado: cena com zoom, interface 1:1
     bool fullscreen = true;
     std::wstring renderer = L"opengl";
     std::wstring internal_resolution = L"1080p";
@@ -952,6 +953,7 @@ GameConfig LoadConfig() {
             else cfg.language = L"en";
         }
         else if (key == L"aspect_ratio") cfg.aspect_ratio = val;
+        else if (key == L"ws_layers") cfg.ws_layers = (val == L"true" || val == L"1");
         else if (key == L"fullscreen") {
             cfg.fullscreen = (val == L"1" || val == L"2" || val == L"true");
         }
@@ -1015,7 +1017,8 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"fast_doors          = " << (cfg.fast_doors ? L"true" : L"false") << L"\n";
         sFile << L"vsync               = \"on\"\n";
         sFile << L"low_latency_input   = true\n";
-        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3") ? L"false" : L"true") << L"\n\n";
+        sFile << L"aspect_stretch      = " << ((cfg.aspect_ratio == L"4:3" || cfg.ws_layers) ? L"false" : L"true") << L"\n";
+        sFile << L"ws_layers           = " << ((cfg.ws_layers && cfg.aspect_ratio != L"4:3") ? L"true" : L"false") << L"\n\n";
         sFile << L"[audio]\n";
         sFile << L"frequency = 48000\n";
         sFile << L"spu_hq = " << (cfg.spu_hq ? L"true" : L"false") << L"\n\n";
@@ -1096,6 +1099,7 @@ GameConfig GetGuiConfig() {
     int idxAspect = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
     if (idxAspect == 1) cfg.aspect_ratio = L"4:3";
     else cfg.aspect_ratio = L"16:9";
+    cfg.ws_layers = (idxAspect == 2);
 
     int idxDisp = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
     cfg.fullscreen = (idxDisp == 1);
@@ -1188,12 +1192,15 @@ void ApplyLanguage(const std::wstring& lang) {
         if (lang == L"es") {
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Predeterminado / Estable)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clásico Original (Barras Negras Laterales)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Ampliado (sin distorsión, menús en 4:3)");
         } else if (lang == L"pt-br") {
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Esticado (Padrão / Estável)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clássico Original (Tarjas Laterais)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Ampliado (sem distorção, menus em 4:3)");
         } else {
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Default / Stable)");
             SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Classic Original (Side Black Bars)");
+            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Zoomed (no distortion, menus in 4:3)");
         }
         SendMessageW(g_hComboAspect, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
     }
@@ -2671,7 +2678,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Aplicar idioma ativo e preencher comboboxes
         ApplyLanguage(g_currentLang);
 
-        int aspectSel = (cfg.aspect_ratio == L"4:3") ? 1 : 0;
+        int aspectSel = (cfg.aspect_ratio == L"4:3") ? 1 : (cfg.ws_layers ? 2 : 0);
         SendMessageW(g_hComboAspect, CB_SETCURSEL, aspectSel, 0);
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, cfg.fullscreen ? 1 : 0, 0);
         SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cfg.renderer == L"software") ? 1 : 0, 0);

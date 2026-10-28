@@ -26,6 +26,7 @@ Não existem outras cópias do executável ou dos documentos.
    | `05-settings-input-cheats` | `settings.toml` do RE3, controles modernos, cheats, vibração, DirectInput |
    | `06-diagnostics` | dados por quadro, histórico, histograma do interpretador, vigia de travamento |
    | `07-misc` | memória do SHA do disco, clamp de draw distance |
+   | `08-ws-layers` | widescreen em camadas (16:9 ampliado, interface 1:1) |
 
    Se a mudança for no recompilador (`recompiler/src/`), a etiqueta do cache muda. Regenere o C (`.\build.ps1 -Regen -DiscPath <cue>`) e o cache de overlays (veja abaixo).
 4. Commite os patches em `RE3Recomp`. O submodule continua apontando para o commit original do PSXRecomp.

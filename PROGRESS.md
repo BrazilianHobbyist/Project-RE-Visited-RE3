@@ -39,6 +39,8 @@
   - `pgxp-texture-zguard` (MMA): REFUTADO para o RE3. `no_depth` 15,84% → 16,05%, dentro da variação entre rodadas, e o RE3 não mostra os leques de textura que o patch corrige. Não foi aplicado.
   - O upstream já está 219 commits além de `958ae0e3` (60 FPS, recuperação de cena no widescreen, sincronia de áudio). Fica como opção avaliada à parte.
 
+- **Widescreen em camadas (27/10, Fase 3 do `docs/PLANO_V2.md`):** opção "16:9 ampliado (sem distorção, menus em 4:3)" no launcher, desligada por padrão. A cena é ampliada para 16:9 com pan vertical que segue os modelos, a interface fica 1:1 por cima, e telas 2D e FMV ficam em 4:3. Detalhes, evidência e o que não foi verificado: `docs/WIDESCREEN_FINDINGS.md`. O pan & scan antigo foi removido na auditoria de 18–20/10. Pendente: o teste do mantenedor e a decisão de virar padrão.
+
 ## Problemas abertos
 
 - **Correção geométrica (PGXP):** segue desligada por padrão; no launcher é uma opção "experimental". Medição de 27/10 (Fase 2 do `docs/PLANO_V2.md`, save "Hall", `tools/pgxp_seams.py`):
@@ -63,7 +65,7 @@
 ## Pendências
 
 - [x] v1.7.0: publicada, com o cache gerado a partir do disco.
-- [ ] Widescreen: coletar capturas do warehouse até a delegacia (`docs/WIDESCREEN_PLAYTEST.md`) para separar cena, interface e telas 2D.
+- [x] Widescreen em camadas implementado (opção do launcher); falta o teste do mantenedor (inimigos, cutscenes, mapa, arquivos).
 - [ ] Responder issues (aguardando decisão do mantenedor).
 - [ ] Refinar os controles modernos.
 - [ ] Decidir o modelo de distribuição: gerar o código recompilado na máquina do usuário (o caminho `build.ps1 -Regen` já é reproduzível) em vez de distribuir o `.exe` com o código do jogo traduzido.

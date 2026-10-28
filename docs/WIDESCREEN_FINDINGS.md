@@ -29,3 +29,34 @@ Na Dark Room, os polígonos da Jill ocupam y ≈ 68–187 de 240. Um corte para 
 - Outras salas: se a faixa OT 0–15 continua exclusiva da interface. Inimigos e efeitos (tiros, sangue) ainda não apareceram nas capturas.
 - O texto da tela de carregamento: a captura saiu depois que ele sumiu.
 - As coordenadas y alternam entre 0–239 e 240–479 por causa do buffer duplo. A janela do pan precisa ser relativa à área de desenho do quadro.
+
+## Implementação (27/10/2026, `patches/runtime/08-ws-layers.patch`)
+
+Opção "16:9 ampliado" no launcher (`ws_layers = true` no `settings.toml`; desligada por padrão).
+
+- **GPU (`gpu.c`)**: cada comando entra com o rank da OT da lista atual.
+  - Quando termina uma lista com primitivas de cena (rank ≥ 16), o renderizador copia a área de desenho, que nesse momento só tem a cena.
+  - Uma lista só de interface num quadro sem cena (tela 2D) invalida a cópia daquele buffer.
+  - Um retângulo semitransparente que cobre ≥ 90% da tela (escurecimento da pausa) gera uma nova cópia, para o escurecimento ampliar junto com a cena.
+  - A caixa vertical dos polígonos opacos da cena (modelos; sombras são semi) e uma assinatura dos sprites de fundo (câmera) vão junto com a cópia.
+- **Apresentação (`gpu_gl_renderer.c`)**: um buffer com cópia é composto num FBO 16:9 na escala interna.
+  - A cópia ocupa a largura toda, com deslocamento vertical que centra a caixa dos modelos. O pan é suavizado e pula na hora quando a assinatura do fundo muda (troca de câmera).
+  - Dentro do retângulo 4:3 central, cada pixel em que a imagem final difere da cópia (a interface) é desenhado 1:1.
+  - O resultado passa pelo `present_target_quad` de sempre (redução por área, FXAA).
+  - Buffers sem cópia (telas 2D, logos) e FMV ficam em 4:3 com barras.
+  - Só o caminho comum de apresentação compõe; com render thread, janela de alta resolução ou blend temporal, fica tudo em 4:3.
+- **Debug**: `{"cmd":"ws_layers"}` mostra o estado (cópias, composições, pan, caixas); `on=0|1` liga ao vivo.
+
+**CONFIRMADO** (capturas a 1920×1080 em `captures/ws/`, build de 27/10):
+- Dark Room, sala vizinha e troca de câmera: proporção correta, Jill inteira no quadro.
+- Mensagem de várias páginas ("An old typewriter." / "You can save your progress here.") em 1:1 sobre a cena.
+- Pausa: escurecimento na cena toda ampliada, "Paused" em 1:1.
+- Título, menu de load, textos de abertura e inventário: em 4:3 com barras.
+- Smoke test OK, a 59,9 FPS, com a opção ligada e desligada. O jogo lê a opção do `settings.toml`, e o launcher grava e relê a escolha.
+- Testes do runtime: 221 passam, sem falha nova (stubs novos em `gpu_exec_stubs.inc`).
+
+**NÃO VERIFICADO**:
+- Cenas com inimigos (a caixa dos modelos inclui todos eles, então o enquadramento centra o grupo).
+- Legendas de cutscene, LIVE SELECTION, mapa e arquivos.
+- FMV com a opção ligada.
+- Salas cuja altura útil depende do corte de cima (a placa EXIT da Dark Room fica cortada pela metade).
