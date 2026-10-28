@@ -41,7 +41,11 @@
 
 ## Problemas abertos
 
-- **Correção geométrica (PGXP):** a solda de vértices fechou as fendas grandes nos rostos, mas ainda sobram pequenas falhas (teste do mantenedor, 20/10). Segue desligada por padrão.
+- **Correção geométrica (PGXP):** segue desligada por padrão; no launcher é uma opção "experimental". Medição de 27/10 (Fase 2 do `docs/PLANO_V2.md`, save "Hall", `tools/pgxp_seams.py`):
+  - **Solda:** com ela, 0 arestas separadas entre triângulos que compartilham vértices no pacote. Sem ela, são 17 a 22 por quadro, com vão de até 0,87 px. Triângulos: ~81% precisos, ~16% mistos, ~4% nativos.
+  - **Falhas que sobram:** emendas entre partes do modelo que não compartilham vértices, como o cabelo e a nuca da Jill. No PS1, o arredondamento para o pixel faz as partes se sobreporem; com posições precisas, abre um vão de ~1 px por onde o fundo aparece. É a "falha nos rostos" vista pelo mantenedor.
+  - **Tentativas, todas REFUTADAS:** dilatar triângulos opacos de 0,25 px não fecha o vão; de 0,5 px só o estreita e engorda o contorno do modelo inteiro. Limitar o deslocamento não resolve, porque o vão nasce do próprio arredondamento.
+  - **Para a v2.0.0:** continua opcional. Fechar essas emendas exigiria conhecer a topologia dos modelos do RE3, ou seja, quais vértices de partes diferentes formam a emenda.
 - **Texto de introdução:** avança rápido demais.
 - **Controles modernos:** imprecisos em salas pequenas. Desligados por padrão.
 - **Overlay de título:** um `switch` do TITLE.BIN usa uma quarta forma ainda não reconhecida, o que dá ~1,9 mil instruções interpretadas por sessão.
