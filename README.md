@@ -46,7 +46,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 |---|---|
 | Launcher setup wizard (extracts `SLUS_009.23` from your `.cue`/`.bin`) | Works |
 | Classic (tank) controls | Works (default) |
-| Modern screen-relative stick (`modern_controls`) | Known issues: works, but feels erratic in small rooms; off by default until refined |
+| Modern screen-relative stick (`modern_controls`) | Needs testing. Since v2.0.0 the stick follows each camera's fixed screen axes, and the heading kept through a camera cut ends when you release the stick (before, direction drifted and could flip near the camera). Off by default |
 | Fast doors (`fast_doors`) | Works. Skips the door animation, and the next room loads at full host speed behind the black screen (the save-room door went from ~3.8 s to ~1 s). Gameplay speed is unchanged |
 | Skipping in-engine cutscenes with Select (Esc/Tab on keyboard) | Works (uses the game's own skip) |
 | FMV skip | Works; some FMVs can only be skipped after a certain point, as in the original game |
@@ -55,10 +55,12 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Audio | Works; the experimental mix (`spu_hq`) can sound clipped and is off by default |
 | Cheats (launcher toggles + F6/F7/F8) | Works in the maintainer's earlier tests; not re-tested since v1.6.0 |
 | Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
+| 16:9 Zoomed (`ws_layers`, launcher aspect option) | Needs testing. New in v2.0.0: the 3D scene fills 16:9 without distortion (zoomed, with a vertical pan that follows the characters), text and prompts stay at their original size, and 2D screens (inventory, map, files, menus) and FMV stay 4:3. Off by default |
 | Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
+| Sharp font (launcher option) | Works. New in v2.0.0: the first session with the option on extracts the font from your own game, and the launcher then upscales it 4x (EPX). Nothing from the game is shipped |
 | PGXP geometry correction | Known issues: stops wobble. The black cracks on faces are much smaller since v1.7.0, because seam vertices are welded, but small artifacts remain. Off by default |
-| Intro/story text speed | Known issues: text advances too fast |
+| Intro/story text speed | Reported fixed by the maintainer for v2.0.0; needs testing |
 | 60 FPS / frame interpolation | **Removed.** It never worked properly (it was placebo) |
 
 Old DirectInput-only controllers: enable "Old generic controllers (DirectInput)" in the launcher. It is off by default because on some PCs it delays startup by several seconds; Xbox, PlayStation, Switch and most other pads work without it.

@@ -46,7 +46,7 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 |---|---|
 | Assistente de instalação do launcher (extrai `SLUS_009.23` do seu `.cue`/`.bin`) | Funciona |
 | Controle clássico (tanque) | Funciona (padrão) |
-| Analógico moderno relativo à tela (`modern_controls`) | Problemas conhecidos: funciona, mas fica impreciso em salas pequenas; desligado por padrão até ser refinado |
+| Analógico moderno relativo à tela (`modern_controls`) | Precisa de teste. Desde a v2.0.0 o analógico segue os eixos fixos de cada câmera, e a direção mantida numa troca de câmera termina quando você solta o analógico (antes a direção derivava e podia inverter perto da câmera). Desligado por padrão |
 | Portas rápidas (`fast_doors`) | Funciona. Pula a animação da porta, e a sala seguinte carrega na velocidade máxima do PC atrás da tela preta (a porta da sala do save caiu de ~3,8 s para ~1 s). A velocidade do jogo não muda |
 | Pular cenas em tempo real com Select (Esc/Tab no teclado) | Funciona (usa o pulo do próprio jogo) |
 | Pular FMV | Funciona; alguns FMVs só podem ser pulados depois de certo ponto, como no jogo original |
@@ -55,10 +55,12 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 | Áudio | Funciona; a mixagem experimental (`spu_hq`) pode soar estourada e vem desligada |
 | Cheats (opções no launcher + F6/F7/F8) | Funcionaram nos testes anteriores do mantenedor; não retestados desde a v1.6.0 |
 | Resolução interna / supersampling, 16:9 esticado ou 4:3 | Precisa de teste |
+| 16:9 Ampliado (`ws_layers`, opção de proporção no launcher) | Precisa de teste. Novo na v2.0.0: a cena 3D preenche o 16:9 sem distorção (ampliada, com pan vertical que acompanha os personagens), textos e avisos ficam no tamanho original, e telas 2D (inventário, mapa, arquivos, menus) e FMV ficam em 4:3. Desligado por padrão |
 | Vibração | Precisa de teste |
 | Texturas com correção de perspectiva | Precisa de teste |
+| Fonte nítida (opção do launcher) | Funciona. Novo na v2.0.0: a primeira partida com a opção extrai a fonte do seu próprio jogo, e o launcher a amplia 4x (EPX). Nada do jogo vai no pacote |
 | Correção geométrica PGXP | Problemas conhecidos: elimina o tremor. As fendas pretas nos rostos ficaram bem menores desde a v1.7.0, porque os vértices das costuras são soldados, mas ainda há pequenas falhas. Desligada por padrão |
-| Velocidade do texto de introdução | Problemas conhecidos: texto avança rápido demais |
+| Velocidade do texto de introdução | Corrigida segundo o mantenedor para a v2.0.0; precisa de teste |
 | 60 FPS / interpolação de quadros | **Removido.** Nunca funcionou de verdade (era placebo) |
 
 Controles antigos que só funcionam via DirectInput: ative "Controles genéricos antigos (DirectInput)" no launcher. A opção vem desligada porque, em alguns PCs, atrasa a abertura em vários segundos; controles de Xbox, PlayStation, Switch e a maioria dos outros funcionam sem ela.

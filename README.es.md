@@ -46,7 +46,7 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 |---|---|
 | Asistente de instalación del launcher (extrae `SLUS_009.23` de tu `.cue`/`.bin`) | Funciona |
 | Control clásico (tanque) | Funciona (por defecto) |
-| Stick moderno relativo a la pantalla (`modern_controls`) | Problemas conocidos: funciona, pero resulta impreciso en salas pequeñas; desactivado por defecto hasta refinarlo |
+| Stick moderno relativo a la pantalla (`modern_controls`) | Requiere pruebas. Desde la v2.0.0 el stick sigue los ejes fijos de cada cámara, y la dirección mantenida en un cambio de cámara termina al soltar el stick (antes la dirección derivaba y podía invertirse cerca de la cámara). Desactivado por defecto |
 | Puertas rápidas (`fast_doors`) | Funciona. Salta la animación de la puerta, y la sala siguiente carga a la velocidad máxima del PC tras la pantalla negra (la puerta de la sala de guardado pasó de ~3,8 s a ~1 s). La velocidad del juego no cambia |
 | Saltar cinemáticas en tiempo real con Select (Esc/Tab en teclado) | Funciona (usa el salto del propio juego) |
 | Saltar FMV | Funciona; algunos FMV solo se pueden saltar a partir de cierto punto, como en el juego original |
@@ -55,10 +55,12 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Audio | Funciona; la mezcla experimental (`spu_hq`) puede sonar saturada y viene desactivada |
 | Trucos (opciones del launcher + F6/F7/F8) | Funcionaron en pruebas anteriores del mantenedor; no se han vuelto a probar desde la v1.6.0 |
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
+| 16:9 Ampliado (`ws_layers`, opción de proporción del launcher) | Requiere pruebas. Nuevo en la v2.0.0: la escena 3D llena el 16:9 sin distorsión (ampliada, con paneo vertical que sigue a los personajes), los textos y avisos mantienen su tamaño original, y las pantallas 2D (inventario, mapa, archivos, menús) y los FMV quedan en 4:3. Desactivado por defecto |
 | Vibración | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
+| Fuente nítida (opción del launcher) | Funciona. Nuevo en la v2.0.0: la primera partida con la opción extrae la fuente de tu propio juego, y el launcher la amplía 4x (EPX). Nada del juego va en el paquete |
 | Corrección geométrica PGXP | Problemas conocidos: elimina el temblor. Las grietas negras en las caras son mucho menores desde la v1.7.0, porque los vértices de las costuras se sueldan, pero quedan pequeños fallos. Desactivada por defecto |
-| Velocidad del texto de introducción | Problemas conocidos: el texto avanza demasiado rápido |
+| Velocidad del texto de introducción | Corregida según el mantenedor para la v2.0.0; requiere pruebas |
 | 60 FPS / interpolación de fotogramas | **Eliminado.** Nunca funcionó realmente (era placebo) |
 
 Mandos antiguos que solo funcionan con DirectInput: activa "Mandos genéricos antiguos (DirectInput)" en el launcher. Viene desactivado porque en algunos PC retrasa el arranque varios segundos; los mandos de Xbox, PlayStation, Switch y la mayoría de los demás funcionan sin él.
