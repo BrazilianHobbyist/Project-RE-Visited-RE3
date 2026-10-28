@@ -69,6 +69,7 @@
 ## Pendências
 
 - [x] v1.7.0: publicada, com o cache gerado a partir do disco.
+- [ ] v2.0.0: zip local gerado em 27/10 (`releases/Project_RE_Visited_Resident_Evil_3_v2.0.0_Win64.zip`, SHA-256 44638A9E…E92F, notas em `releases/notes_v2.0.0.md`). Falta o roteiro do mantenedor (`docs/TESTE_V2.md`) e a decisão de publicar.
 - [x] Widescreen em camadas implementado (opção do launcher); falta o teste do mantenedor (inimigos, cutscenes, mapa, arquivos).
 - [ ] Responder issues (aguardando decisão do mantenedor).
 - [ ] Refinar os controles modernos.
