@@ -1138,13 +1138,21 @@ void UpdateSharpFontText() {
                                            L"Fonte nítida (indisponível: falta mods\\bundled)").c_str());
         return;
     }
-    bool pending = SendMessageW(g_hChkSharpFont, BM_GETCHECK, 0, 0) == BST_CHECKED && !FontDumpReady();
-    std::wstring text = L3(L"Sharp font (upscaled from your own game)",
-                           L"Fuente nítida (ampliada a partir de tu juego)",
-                           L"Fonte nítida (ampliada a partir do seu jogo)");
-    if (pending) text += L3(L" — prepared during your next play session",
-                            L" — se prepara en la próxima partida",
-                            L" — preparada na próxima partida");
+    bool on = SendMessageW(g_hChkSharpFont, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    bool ready = FontDumpReady();
+    std::wstring text;
+    if (on && ready)
+        text = L3(L"Sharp font: ON (built from your game)",
+                  L"Fuente nítida: ACTIVA (creada a partir de tu juego)",
+                  L"Fonte nítida: ATIVA (criada a partir do seu jogo)");
+    else if (on)
+        text = L3(L"Sharp font: play until any text shows, then reopen the launcher",
+                  L"Fuente nítida: juega hasta que salga un texto y reabre el launcher",
+                  L"Fonte nítida: jogue até aparecer um texto e reabra o launcher");
+    else
+        text = L3(L"Sharp font (needs one play session to set up)",
+                  L"Fuente nítida (necesita una partida para prepararse)",
+                  L"Fonte nítida (precisa de uma partida para ficar pronta)");
     SetWindowTextW(g_hChkSharpFont, text.c_str());
 }
 
