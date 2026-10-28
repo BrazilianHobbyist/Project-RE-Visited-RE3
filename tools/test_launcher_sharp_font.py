@@ -39,7 +39,10 @@ REPO = os.path.dirname(HERE)
 WORKSPACE = os.path.dirname(REPO)
 
 CLASS = "RE3RecompLauncherClass"
-ID_BTN_SAVE = 1002
+ID_BTN_ADVANCED = 1040
+ID_ADV_OK, ID_ADV_CANCEL, ID_ADV_RESTORE = 1041, 1042, 1043
+ID_CHK_FXAA = 1015
+ID_COMBO_ASPECT = 1005
 ID_CHK_SHARP_FONT = 1039
 BM_GETCHECK, BM_CLICK, WM_CLOSE, WM_GETTEXT = 0x00F0, 0x00F5, 0x0010, 0x000D
 FONT = "564BA4ED51F23272"
@@ -100,13 +103,17 @@ class Launcher:
         time.sleep(0.3)
 
     def save(self):
-        """Save shows a message box; dismiss it."""
-        user32.PostMessageW(user32.GetDlgItem(self.hwnd, ID_BTN_SAVE), BM_CLICK, 0, 0)
-        box = wait_window(self.proc.pid, "#32770", 10.0)
-        if box:
-            user32.PostMessageW(box, WM_CLOSE, 0, 0)
+        """Every change is written at once (no Save button); give it a moment."""
         time.sleep(0.3)
-        return box is not None
+        return True
+
+    def advanced(self):
+        user32.PostMessageW(user32.GetDlgItem(self.hwnd, ID_BTN_ADVANCED), BM_CLICK, 0, 0)
+        return wait_window(self.proc.pid, "RE3AdvancedWindowClass", 5.0)
+
+    def click(self, parent, ctl_id):
+        user32.PostMessageW(user32.GetDlgItem(parent, ctl_id), BM_CLICK, 0, 0)
+        time.sleep(0.3)
 
     def close(self):
         user32.PostMessageW(self.hwnd, WM_CLOSE, 0, 0)
@@ -150,7 +157,7 @@ def main():
     check("starts unchecked", not la.checked())
     la.toggle()
     check("label says to play then reopen", "reopen the launcher" in la.label(), repr(la.label()))
-    check("save dialog", la.save())
+    la.save()
     la.close()
     st = state(box)
     check("state.toml enables hd-textures", 'id = "hd-textures"' in st and "enabled = true" in st)
@@ -185,6 +192,27 @@ def main():
     la.close()
     st = state(box)
     check("hd-textures gone from state.toml", "hd-textures" not in st, repr(st[:120]))
+
+    print("4. advanced options: OK writes, Cancel discards, Restore defaults")
+    def setting(key):
+        for l in open(os.path.join(box, "settings.toml"), encoding="utf-8"):
+            if l.split("=")[0].strip() == key:
+                return l.split("=", 1)[1].strip()
+    la = Launcher(exe, box)
+    adv = la.advanced()
+    check("advanced window opens", adv)
+    la.click(adv, ID_CHK_FXAA); la.click(adv, ID_ADV_CANCEL)
+    check("cancel keeps FXAA on", setting("antialiasing") == "true", setting("antialiasing"))
+    adv = la.advanced(); la.click(adv, ID_CHK_FXAA); la.click(adv, ID_ADV_OK)
+    check("OK turns FXAA off", setting("antialiasing") == "false", setting("antialiasing"))
+    user32.SendMessageW(user32.GetDlgItem(la.hwnd, ID_COMBO_ASPECT), 0x014E, 2, 0)
+    user32.SendMessageW(la.hwnd, 0x0111, (1 << 16) | ID_COMBO_ASPECT, user32.GetDlgItem(la.hwnd, ID_COMBO_ASPECT))
+    time.sleep(0.3)
+    check("main combo saves at once", setting("ws_layers") == "true", setting("ws_layers"))
+    adv = la.advanced(); la.click(adv, ID_ADV_RESTORE); la.click(adv, ID_ADV_OK)
+    check("restore defaults", setting("antialiasing") == "true" and setting("ws_layers") == "false",
+          f'{setting("antialiasing")} {setting("ws_layers")}')
+    la.close()
 
     with open(os.path.join(box, "result.txt"), "w", encoding="utf-8") as f:
         for name, ok in results:

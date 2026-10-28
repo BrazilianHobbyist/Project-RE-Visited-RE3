@@ -70,7 +70,11 @@ enum ControlID {
     ID_CHK_CHEAT_EPILOGUES = 1036,
     ID_CHK_FAST_DOORS = 1037,
     ID_CHK_DINPUT = 1038,
-    ID_CHK_SHARP_FONT = 1039
+    ID_CHK_SHARP_FONT = 1039,
+    ID_BTN_ADVANCED = 1040,
+    ID_BTN_ADV_OK = 1041,
+    ID_BTN_ADV_CANCEL = 1042,
+    ID_BTN_ADV_RESTORE = 1043
 };
 
 // Global handles
@@ -144,6 +148,8 @@ HWND g_hBtnInput = NULL;
 HWND g_hBtnSaves = NULL;
 HWND g_hBtnLaunch = NULL;
 HWND g_hBtnSave = NULL;
+HWND g_hBtnAdvanced = NULL;
+HWND g_hWndAdvanced = NULL;
 HWND g_hBtnCredits = NULL;
 HWND g_hLblLegalNote = NULL;
 HWND g_hWndCredits = NULL;
@@ -179,6 +185,7 @@ static const uint64_t RE3_USA_BIN_SIZE = 722165136ull;
 void UpdateInstallStatusUI();
 void ShowSetupDialog(HWND hWndParent);
 void ShowCheatsDialog(HWND hWndParent);
+void ShowAdvancedDialog(HWND hWndParent);
 void UpdateCheatsButtonText();
 
 std::wstring GetExeDir() {
@@ -420,24 +427,24 @@ void UpdateInstallStatusUI() {
     g_installedCached = st.isFullyInstalled;
     if (st.isFullyInstalled) {
         if (g_currentLang == L"es") {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Listo para jugar (archivos encontrados)");
-            SetWindowTextW(g_hBtnOpenSetup, L"Administrar Archivos...");
+            SetWindowTextW(g_hLblInstallStatus, L"● Listo para jugar");
+            SetWindowTextW(g_hBtnOpenSetup, L"Cambiar disco...");
         } else if (g_currentLang == L"pt-br") {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Pronto para jogar (arquivos encontrados)");
-            SetWindowTextW(g_hBtnOpenSetup, L"Gerenciar Arquivos...");
+            SetWindowTextW(g_hLblInstallStatus, L"● Pronto para jogar");
+            SetWindowTextW(g_hBtnOpenSetup, L"Trocar disco...");
         } else {
-            SetWindowTextW(g_hLblInstallStatus, L"● STATUS: Ready to play (files found)");
-            SetWindowTextW(g_hBtnOpenSetup, L"Manage Files...");
+            SetWindowTextW(g_hLblInstallStatus, L"● Ready to play");
+            SetWindowTextW(g_hBtnOpenSetup, L"Change disc...");
         }
     } else {
         if (g_currentLang == L"es") {
-            SetWindowTextW(g_hLblInstallStatus, L"[!] STATUS: Instalación Pendiente");
+            SetWindowTextW(g_hLblInstallStatus, L"Elige tu disco de RE3 para empezar");
             SetWindowTextW(g_hBtnOpenSetup, L"Instalar Juego...");
         } else if (g_currentLang == L"pt-br") {
-            SetWindowTextW(g_hLblInstallStatus, L"[!] STATUS: Instalação Pendente");
+            SetWindowTextW(g_hLblInstallStatus, L"Escolha o seu disco do RE3 para começar");
             SetWindowTextW(g_hBtnOpenSetup, L"Instalar Jogo...");
         } else {
-            SetWindowTextW(g_hLblInstallStatus, L"[!] STATUS: Setup Required");
+            SetWindowTextW(g_hLblInstallStatus, L"Choose your RE3 disc to begin");
             SetWindowTextW(g_hBtnOpenSetup, L"Install Game...");
         }
     }
@@ -1092,6 +1099,9 @@ bool SaveConfig(const GameConfig& cfg) {
     return SaveSharpFont(cfg.sharp_font && HdPackageInstalled());
 }
 
+// Configuracao da tela: a principal sempre existe; os controles das opcoes
+// avancadas so existem com a janela delas aberta (fechada, vale g_cachedConfig).
+static bool Checked(HWND h) { return SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED; }
 GameConfig GetGuiConfig() {
     GameConfig cfg = g_cachedConfig;
     cfg.language = g_currentLang;
@@ -1114,22 +1124,24 @@ GameConfig GetGuiConfig() {
         default: cfg.internal_resolution = L"1080p"; break;
     }
 
-    int idxRend = (int)SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0);
-    cfg.renderer = (idxRend == 1) ? L"software" : L"opengl";
+    cfg.modern_controls = (SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0) == 1);
+    cfg.sharp_font = Checked(g_hChkSharpFont);
+    cfg.fast_doors = Checked(g_hChkFastDoors);
 
-    int idxCtrl = (int)SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0);
-    cfg.modern_controls = (idxCtrl == 0);
-
-    cfg.geometry_correction = (SendMessageW(g_hChkPgxpGeom, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.perspective_texturing = (SendMessageW(g_hChkPgxpTex, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.antialiasing = (SendMessageW(g_hChkAntialiasing, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.sharp_font = (SendMessageW(g_hChkSharpFont, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.auto_skip_fmv = (SendMessageW(g_hChkSkipFmv, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.fast_doors = (SendMessageW(g_hChkFastDoors, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.spu_hq = (SendMessageW(g_hChkSpuHq, BM_GETCHECK, 0, 0) == BST_CHECKED);
-    cfg.directinput_joysticks = (SendMessageW(g_hChkDinput, BM_GETCHECK, 0, 0) == BST_CHECKED);
-
+    if (g_hComboRenderer) cfg.renderer = (SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0) == 1) ? L"software" : L"opengl";
+    if (g_hChkPgxpGeom) cfg.geometry_correction = Checked(g_hChkPgxpGeom);
+    if (g_hChkPgxpTex) cfg.perspective_texturing = Checked(g_hChkPgxpTex);
+    if (g_hChkAntialiasing) cfg.antialiasing = Checked(g_hChkAntialiasing);
+    if (g_hChkSkipFmv) cfg.auto_skip_fmv = Checked(g_hChkSkipFmv);
+    if (g_hChkSpuHq) cfg.spu_hq = Checked(g_hChkSpuHq);
+    if (g_hChkDinput) cfg.directinput_joysticks = Checked(g_hChkDinput);
     return cfg;
+}
+
+// Grava a escolha na hora (o launcher nao tem botao "Salvar").
+static void CommitConfig() {
+    g_cachedConfig = GetGuiConfig();
+    SaveConfig(g_cachedConfig);
 }
 
 // O rotulo diz quando a fonte ainda vai ser extraida na proxima partida.
@@ -1160,241 +1172,72 @@ void UpdateSharpFontText() {
     SetWindowTextW(g_hChkSharpFont, text.c_str());
 }
 
+static void SetText(HWND h, const std::wstring& t) { if (h) SetWindowTextW(h, t.c_str()); }
+static void FillCombo(HWND h, std::initializer_list<std::wstring> items) {
+    if (!h) return;
+    int cur = (int)SendMessageW(h, CB_GETCURSEL, 0, 0);
+    SendMessageW(h, CB_RESETCONTENT, 0, 0);
+    for (const auto& it : items) SendMessageW(h, CB_ADDSTRING, 0, (LPARAM)it.c_str());
+    SendMessageW(h, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
+}
+
 void ApplyLanguage(const std::wstring& lang) {
-    if (g_hLblLanguage) {
-        if (lang == L"es") SetWindowTextW(g_hLblLanguage, L"Idioma del Launcher:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblLanguage, L"Idioma do Launcher:");
-        else SetWindowTextW(g_hLblLanguage, L"Launcher Language:");
-    }
-
-    if (g_hGrpSetup) {
-        if (lang == L"es") SetWindowTextW(g_hGrpSetup, L"  Instalación y Configuración del Juego  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpSetup, L"  Instalação && Configuração do Jogo  ");
-        else SetWindowTextW(g_hGrpSetup, L"  Game Installation && Disc Setup  ");
-    }
+    (void)lang;  // L3 le g_currentLang
+    SetText(g_hLblLanguage, L3(L"Language", L"Idioma", L"Idioma"));
     UpdateInstallStatusUI();
+    SetText(g_hGrpVideo, L3(L"  Settings  ", L"  Ajustes  ", L"  Ajustes  "));
 
-    if (g_hGrpVideo) {
-        if (lang == L"es") SetWindowTextW(g_hGrpVideo, L"  Gráficos HD y Rendimiento Visual  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpVideo, L"  Gráficos HD && Desempenho Visual  ");
-        else SetWindowTextW(g_hGrpVideo, L"  HD Graphics && Visual Performance  ");
-    }
-
-    if (g_hLblAspect) {
-        if (lang == L"es") SetWindowTextW(g_hLblAspect, L"Relación de Aspecto:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblAspect, L"Proporção de Tela:");
-        else SetWindowTextW(g_hLblAspect, L"Aspect Ratio:");
-    }
-
-    if (g_hComboAspect) {
-        int cur = (int)SendMessageW(g_hComboAspect, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboAspect, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Estirado (Predeterminado / Estable)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clásico Original (Barras Negras Laterales)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Ampliado (sin distorsión, menús en 4:3)");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Esticado (Padrão / Estável)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Clássico Original (Tarjas Laterais)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Ampliado (sem distorção, menus em 4:3)");
-        } else {
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Widescreen Stretched (Default / Stable)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"4:3 Classic Original (Side Black Bars)");
-            SendMessageW(g_hComboAspect, CB_ADDSTRING, 0, (LPARAM)L"16:9 Zoomed (no distortion, menus in 4:3)");
-        }
-        SendMessageW(g_hComboAspect, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-    if (g_hLblDisplay) {
-        if (lang == L"es") SetWindowTextW(g_hLblDisplay, L"Modo de Pantalla:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblDisplay, L"Modo de Exibição:");
-        else SetWindowTextW(g_hLblDisplay, L"Display Mode:");
-    }
-
-    if (g_hComboDisplay) {
-        int cur = (int)SendMessageW(g_hComboDisplay, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboDisplay, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Ventana");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Pantalla completa (Alt+Enter alterna)");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Janela");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Tela cheia (Alt+Enter alterna)");
-        } else {
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Windowed");
-            SendMessageW(g_hComboDisplay, CB_ADDSTRING, 0, (LPARAM)L"Fullscreen (Alt+Enter toggles)");
-        }
-        SendMessageW(g_hComboDisplay, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-    if (g_hLblRes) {
-        if (lang == L"es") SetWindowTextW(g_hLblRes, L"Resolución Interna 3D:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblRes, L"Resolução Interna 3D:");
-        else SetWindowTextW(g_hLblRes, L"3D Internal Resolution:");
-    }
-
-    if (g_hComboInternalRes) {
-        int cur = (int)SendMessageW(g_hComboInternalRes, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboInternalRes, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Full HD (1080p) — Alta Nitidez (Recomendado)");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"4K Ultra HD (2160p) — Calidad Extrema");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Quad HD (1440p) — Nitidez 2K");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"HD (720p) — Equilibrado");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Nativa (240p) — PS1 Original");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Full HD (1080p) — Alta Nitidez (Recomendado)");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"4K Ultra HD (2160p) — Qualidade Extrema");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Quad HD (1440p) — Nitidez 2K");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"HD (720p) — Equilibrado");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Nativa (240p) — PS1 Original");
-        } else {
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Full HD (1080p) — High Clarity (Recommended)");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"4K Ultra HD (2160p) — Extreme Quality");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Quad HD (1440p) — 2K Crisp Detail");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"HD (720p) — Balanced Performance");
-            SendMessageW(g_hComboInternalRes, CB_ADDSTRING, 0, (LPARAM)L"Native (240p) — Original PS1");
-        }
-        SendMessageW(g_hComboInternalRes, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-    if (g_hLblRend) {
-        if (lang == L"es") SetWindowTextW(g_hLblRend, L"Renderizador GPU:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblRend, L"Renderizador GPU:");
-        else SetWindowTextW(g_hLblRend, L"GPU Renderer:");
-    }
-
-    if (g_hComboRenderer) {
-        int cur = (int)SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboRenderer, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recomendado)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (sin GPU, más lento)");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recomendado)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (sem GPU, mais lento)");
-        } else {
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"OpenGL (recommended)");
-            SendMessageW(g_hComboRenderer, CB_ADDSTRING, 0, (LPARAM)L"Software (no GPU, slower)");
-        }
-        SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-    if (g_hChkPgxpGeom) {
-        if (lang == L"es") SetWindowTextW(g_hChkPgxpGeom, L"Corrección PGXP Geométrica (experimental: sin temblor, pero con fallos en las caras)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpGeom, L"Correção PGXP Geométrica (experimental: sem tremor, mas com falhas nos rostos)");
-        else SetWindowTextW(g_hChkPgxpGeom, L"PGXP Geometry Correction (experimental: no wobble, but face artifacts)");
-    }
-
-    if (g_hChkPgxpTex) {
-        if (lang == L"es") SetWindowTextW(g_hChkPgxpTex, L"Perspectiva de Texturas Correcta (Evita deformación angular de objetos)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkPgxpTex, L"Perspectiva Texturizada Correta (Sem deformação angular nos objetos)");
-        else SetWindowTextW(g_hChkPgxpTex, L"Perspective-Correct Texturing (Prevents angular texture warping)");
-    }
-
-    if (g_hChkAntialiasing) {
-        if (lang == L"es") SetWindowTextW(g_hChkAntialiasing, L"Anti-Aliasing FXAA (Suaviza bordes irregulares en modelos 3D)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkAntialiasing, L"Anti-Aliasing FXAA (Suavização de serrilhados nos modelos 3D)");
-        else SetWindowTextW(g_hChkAntialiasing, L"FXAA Anti-Aliasing (Smooths jagged edges on 3D models)");
-    }
-
-    if (g_hGrpInput) {
-        if (lang == L"es") SetWindowTextW(g_hGrpInput, L"  Jugabilidad y Controles  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpInput, L"  Jogabilidade && Controles  ");
-        else SetWindowTextW(g_hGrpInput, L"  Gameplay && Controls  ");
-    }
-
-    if (g_hLblCtrlMode) {
-        if (lang == L"es") SetWindowTextW(g_hLblCtrlMode, L"Modo de Control:");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblCtrlMode, L"Modo de Controle:");
-        else SetWindowTextW(g_hLblCtrlMode, L"Control Mode:");
-    }
-
-    if (g_hComboControls) {
-        int cur = (int)SendMessageW(g_hComboControls, CB_GETCURSEL, 0, 0);
-        SendMessageW(g_hComboControls, CB_RESETCONTENT, 0, 0);
-        if (lang == L"es") {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno (stick relativo a la pantalla, D-Pad tanque)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clásico (tanque, como el original)");
-        } else if (lang == L"pt-br") {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Moderno (analógico relativo à tela, D-Pad tanque)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Clássico (tanque, como o original)");
-        } else {
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Modern (screen-relative stick, tank D-Pad)");
-            SendMessageW(g_hComboControls, CB_ADDSTRING, 0, (LPARAM)L"Classic (tank, as in the original)");
-        }
-        SendMessageW(g_hComboControls, CB_SETCURSEL, (cur >= 0) ? cur : 0, 0);
-    }
-
-
-    if (g_hBtnInput) {
-        if (lang == L"es") SetWindowTextW(g_hBtnInput, L"Editar Teclas (input.ini)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnInput, L"Editar Teclas (input.ini)");
-        else SetWindowTextW(g_hBtnInput, L"Edit Keybinds (input.ini)");
-    }
-
-    if (g_hBtnSaves) {
-        if (lang == L"es") SetWindowTextW(g_hBtnSaves, L"Abrir Carpeta de Saves (.mcd)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnSaves, L"Abrir Pasta de Saves (.mcd)");
-        else SetWindowTextW(g_hBtnSaves, L"Open Saves Folder (.mcd)");
-    }
-
-    if (g_hGrpAudio) {
-        if (lang == L"es") SetWindowTextW(g_hGrpAudio, L"  Audio y Reproducción  ");
-        else if (lang == L"pt-br") SetWindowTextW(g_hGrpAudio, L"  Áudio && Reprodução  ");
-        else SetWindowTextW(g_hGrpAudio, L"  Audio && Playback  ");
-    }
-
-    if (g_hChkDinput) {
-        if (lang == L"es") SetWindowTextW(g_hChkDinput, L"Mandos genéricos antiguos (DirectInput, inicio más lento)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkDinput, L"Controles genéricos antigos (DirectInput, abre mais devagar)");
-        else SetWindowTextW(g_hChkDinput, L"Old generic controllers (DirectInput, slower startup)");
-    }
-    if (g_hChkSpuHq) {
-        if (lang == L"es") SetWindowTextW(g_hChkSpuHq, L"Mezcla de audio experimental (puede sonar saturada)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkSpuHq, L"Mixagem de áudio experimental (pode soar estourada)");
-        else SetWindowTextW(g_hChkSpuHq, L"Experimental audio mixing (may sound clipped)");
-    }
-
-    if (g_hChkSkipFmv) {
-        if (lang == L"es") SetWindowTextW(g_hChkSkipFmv, L"Omitir cinemáticas/FMVs automáticamente (por defecto: desactivado)");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkSkipFmv, L"Pular vídeos/FMVs automaticamente (padrão: desligado)");
-        else SetWindowTextW(g_hChkSkipFmv, L"Auto-skip FMVs / cutscenes (Default: Off)");
-    }
-
+    SetText(g_hLblDisplay, L3(L"Screen", L"Pantalla", L"Tela"));
+    FillCombo(g_hComboDisplay, {L3(L"Window", L"Ventana", L"Janela"),
+                                L3(L"Fullscreen", L"Pantalla completa", L"Tela cheia")});
+    SetText(g_hLblAspect, L3(L"Picture", L"Imagen", L"Imagem"));
+    FillCombo(g_hComboAspect, {L3(L"16:9 stretched", L"16:9 estirada", L"16:9 esticada"),
+                               L3(L"4:3 original", L"4:3 original", L"4:3 original"),
+                               L3(L"16:9 zoomed, no distortion (menus 4:3)",
+                                  L"16:9 ampliada, sin distorsión (menús 4:3)",
+                                  L"16:9 ampliada, sem distorção (menus 4:3)")});
+    SetText(g_hLblRes, L3(L"Quality", L"Calidad", L"Qualidade"));
+    FillCombo(g_hComboInternalRes, {L3(L"High - 1080p (recommended)", L"Alta - 1080p (recomendada)", L"Alta - 1080p (recomendada)"),
+                                    L3(L"Maximum - 4K", L"Máxima - 4K", L"Máxima - 4K"),
+                                    L3(L"Very high - 1440p", L"Muy alta - 1440p", L"Muito alta - 1440p"),
+                                    L3(L"Medium - 720p", L"Media - 720p", L"Média - 720p"),
+                                    L3(L"Original PS1 - 240p", L"PS1 original - 240p", L"PS1 original - 240p")});
+    SetText(g_hLblCtrlMode, L3(L"Controls", L"Controles", L"Controles"));
+    FillCombo(g_hComboControls, {L3(L"Classic (tank, as on the PS1)", L"Clásico (tanque, como en PS1)", L"Clássico (tanque, como no PS1)"),
+                                 L3(L"Modern (stick follows the camera)", L"Moderno (el stick sigue la cámara)",
+                                    L"Moderno (o analógico segue a câmera)")});
     UpdateSharpFontText();
-
-    if (g_hChkFastDoors) {
-        if (lang == L"es") SetWindowTextW(g_hChkFastDoors, L"Saltar la animación de las puertas");
-        else if (lang == L"pt-br") SetWindowTextW(g_hChkFastDoors, L"Pular a animação das portas");
-        else SetWindowTextW(g_hChkFastDoors, L"Skip door animations");
-    }
-
-    if (g_hBtnLaunch) {
-        if (lang == L"es") SetWindowTextW(g_hBtnLaunch, L"JUGAR RESIDENT EVIL 3");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnLaunch, L"JOGAR RESIDENT EVIL 3");
-        else SetWindowTextW(g_hBtnLaunch, L"PLAY RESIDENT EVIL 3");
-    }
-
-    if (g_hBtnSave) {
-        if (lang == L"es") SetWindowTextW(g_hBtnSave, L"Guardar Ajustes");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnSave, L"Salvar Ajustes");
-        else SetWindowTextW(g_hBtnSave, L"Save Settings");
-    }
-
+    SetText(g_hChkFastDoors, L3(L"Fast doors (skip the door animation)", L"Puertas rápidas (salta la animación)",
+                                L"Portas rápidas (pula a animação das portas)"));
+    SetText(g_hBtnAdvanced, L3(L"Advanced options...", L"Opciones avanzadas...", L"Opções avançadas..."));
     UpdateCheatsButtonText();
+    SetText(g_hBtnLaunch, L3(L"PLAY", L"JUGAR", L"JOGAR"));
+    SetText(g_hBtnCredits, L3(L"Credits && legal", L"Créditos y aviso legal", L"Créditos e aviso legal"));
+    SetText(g_hLblLegalNote, L3(L"Non-commercial fan project. Requires your own copy of Resident Evil 3 (USA).",
+                                L"Proyecto fan no comercial. Requiere tu propia copia de Resident Evil 3 (USA).",
+                                L"Projeto de fã, não comercial. Requer sua própria cópia de Resident Evil 3 (USA)."));
 
-    if (g_hBtnCredits) {
-        if (lang == L"es") SetWindowTextW(g_hBtnCredits, L"Créditos y Aviso Legal");
-        else if (lang == L"pt-br") SetWindowTextW(g_hBtnCredits, L"Créditos && Disclaimer");
-        else SetWindowTextW(g_hBtnCredits, L"Credits && Disclaimer");
-    }
-
-    if (g_hLblLegalNote) {
-        if (lang == L"es") SetWindowTextW(g_hLblLegalNote, L"Proyecto fan no comercial. Requiere su propia copia de Resident Evil 3 (USA).");
-        else if (lang == L"pt-br") SetWindowTextW(g_hLblLegalNote, L"Projeto de fã, não comercial. Requer sua própria cópia de Resident Evil 3 (USA).");
-        else SetWindowTextW(g_hLblLegalNote, L"Non-commercial fan project. Requires your own copy of Resident Evil 3 (USA).");
-    }
+    /* Opcoes avancadas (so com a janela aberta) */
+    SetText(g_hGrpInput, L3(L"  Picture  ", L"  Imagen  ", L"  Imagem  "));
+    SetText(g_hLblRend, L3(L"Renderer", L"Renderizador", L"Renderizador"));
+    FillCombo(g_hComboRenderer, {L3(L"OpenGL (recommended)", L"OpenGL (recomendado)", L"OpenGL (recomendado)"),
+                                 L3(L"Software (no GPU, slower)", L"Software (sin GPU, más lento)", L"Software (sem GPU, mais lento)")});
+    SetText(g_hChkPgxpTex, L3(L"Textures without warping (perspective correction)",
+                              L"Texturas sin deformación (corrección de perspectiva)",
+                              L"Texturas sem deformação (correção de perspectiva)"));
+    SetText(g_hChkAntialiasing, L3(L"Smooth edges (FXAA)", L"Bordes suaves (FXAA)", L"Bordas suaves (FXAA)"));
+    SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP, experimental: small gaps on faces)",
+                               L"Modelos 3D estables (PGXP, experimental: pequeñas grietas en caras)",
+                               L"Modelos 3D estáveis (PGXP, experimental: pequenas falhas nos rostos)"));
+    SetText(g_hGrpAudio, L3(L"  Sound and controller  ", L"  Sonido y mando  ", L"  Som e controle  "));
+    SetText(g_hChkSpuHq, L3(L"Experimental audio mixing (may sound clipped)", L"Mezcla de audio experimental (puede saturar)",
+                            L"Mixagem de áudio experimental (pode estourar)"));
+    SetText(g_hChkSkipFmv, L3(L"Skip movies automatically", L"Saltar vídeos automáticamente", L"Pular vídeos automaticamente"));
+    SetText(g_hChkDinput, L3(L"Old generic controllers (DirectInput, slower startup)",
+                             L"Mandos genéricos antiguos (DirectInput, inicio más lento)",
+                             L"Controles genéricos antigos (DirectInput, abre mais devagar)"));
+    SetText(g_hBtnInput, L3(L"Edit keyboard keys", L"Editar teclas", L"Editar teclas do teclado"));
+    SetText(g_hBtnSaves, L3(L"Open saves folder", L"Abrir carpeta de partidas", L"Abrir pasta dos saves"));
 }
 
 void LaunchGame() {
@@ -2545,6 +2388,120 @@ void ShowSetupDialog(HWND hWndParent) {
     }
 }
 
+// ---- Opcoes avancadas -------------------------------------------------------
+// Os ajustes tecnicos saem da tela principal. Os controles existem so com a
+// janela aberta; OK grava, Cancelar descarta, Restaurar padroes volta tudo
+// (inclusive a tela principal) aos valores de fabrica, mantendo o idioma.
+static void AdvancedFill(const GameConfig& c) {
+    SendMessageW(g_hComboRenderer, CB_SETCURSEL, (c.renderer == L"software") ? 1 : 0, 0);
+    SendMessageW(g_hChkPgxpTex, BM_SETCHECK, c.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkAntialiasing, BM_SETCHECK, c.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, c.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkSpuHq, BM_SETCHECK, c.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkSkipFmv, BM_SETCHECK, c.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkDinput, BM_SETCHECK, c.directinput_joysticks ? BST_CHECKED : BST_UNCHECKED, 0);
+}
+
+LRESULT CALLBACK AdvancedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        auto mk = [&](const wchar_t* cls, DWORD style, int x, int y, int w, int h, int id, HFONT f) {
+            HWND c = CreateWindowW(cls, L"", WS_VISIBLE | WS_CHILD | style, x, y, w, h, hWnd,
+                                   (HMENU)(INT_PTR)id, g_hInst, NULL);
+            SendMessageW(c, WM_SETFONT, (WPARAM)f, TRUE);
+            return c;
+        };
+        int y = 14;
+        g_hGrpInput = mk(L"BUTTON", BS_GROUPBOX, 14, y, 512, 156, 0, g_hFontBold);
+        g_hLblRend = mk(L"STATIC", 0, 28, y + 29, 140, 20, 0, g_hFontBody);
+        g_hComboRenderer = mk(L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 176, y + 26, 336, 120, ID_COMBO_RENDERER, g_hFontBody);
+        g_hChkPgxpTex = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 62, 490, 22, ID_CHK_PGXP_TEX, g_hFontBody);
+        g_hChkAntialiasing = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 88, 490, 22, ID_CHK_ANTIALIASING, g_hFontBody);
+        g_hChkPgxpGeom = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 114, 490, 22, ID_CHK_PGXP_GEOM, g_hFontBody);
+        y += 168;
+        g_hGrpAudio = mk(L"BUTTON", BS_GROUPBOX, 14, y, 512, 152, 0, g_hFontBold);
+        g_hChkSpuHq = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 24, 490, 22, ID_CHK_SPU_HQ, g_hFontBody);
+        g_hChkSkipFmv = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 50, 490, 22, ID_CHK_SKIP_FMV, g_hFontBody);
+        g_hChkDinput = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 76, 490, 22, ID_CHK_DINPUT, g_hFontBody);
+        g_hBtnInput = mk(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, 28, y + 108, 236, 30, ID_BTN_INPUT_INI, g_hFontBody);
+        g_hBtnSaves = mk(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, 276, y + 108, 236, 30, ID_BTN_SAVES_DIR, g_hFontBody);
+        y += 166;
+        HWND restore = mk(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, 14, y, 170, 32, ID_BTN_ADV_RESTORE, g_hFontBody);
+        HWND ok = mk(L"BUTTON", BS_DEFPUSHBUTTON | WS_TABSTOP, 266, y, 126, 32, ID_BTN_ADV_OK, g_hFontBold);
+        HWND cancel = mk(L"BUTTON", BS_PUSHBUTTON | WS_TABSTOP, 400, y, 126, 32, ID_BTN_ADV_CANCEL, g_hFontBody);
+        SetWindowTextW(restore, L3(L"Restore defaults", L"Restaurar valores", L"Restaurar padrões").c_str());
+        SetWindowTextW(ok, L"OK");
+        SetWindowTextW(cancel, L3(L"Cancel", L"Cancelar", L"Cancelar").c_str());
+        ApplyLanguage(g_currentLang);
+        AdvancedFill(g_cachedConfig);
+        break;
+    }
+    case WM_COMMAND: {
+        int id = LOWORD(wParam);
+        if (id == ID_BTN_ADV_OK) {
+            CommitConfig();
+            DestroyWindow(hWnd);
+        } else if (id == ID_BTN_ADV_CANCEL) {
+            DestroyWindow(hWnd);
+        } else if (id == ID_BTN_ADV_RESTORE) {
+            GameConfig d;            // valores de fabrica
+            d.language = g_currentLang;
+            AdvancedFill(d);
+            SendMessageW(g_hComboDisplay, CB_SETCURSEL, d.fullscreen ? 1 : 0, 0);
+            SendMessageW(g_hComboAspect, CB_SETCURSEL, 0, 0);
+            SendMessageW(g_hComboInternalRes, CB_SETCURSEL, 0, 0);
+            SendMessageW(g_hComboControls, CB_SETCURSEL, d.modern_controls ? 1 : 0, 0);
+            SendMessageW(g_hChkSharpFont, BM_SETCHECK, BST_UNCHECKED, 0);
+            SendMessageW(g_hChkFastDoors, BM_SETCHECK, d.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
+            UpdateSharpFontText();
+        } else if (id == ID_BTN_SAVES_DIR) {
+            std::wstring savesDir = GetBuildDir() + L"\\saves";
+            ShellExecuteW(hWnd, L"open", savesDir.c_str(), NULL, NULL, SW_SHOWNORMAL);
+        } else if (id == ID_BTN_INPUT_INI) {
+            std::wstring inputIni = GetBuildDir() + L"\\input.ini";
+            ShellExecuteW(hWnd, L"open", L"notepad.exe", inputIni.c_str(), NULL, SW_SHOWNORMAL);
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdc = (HDC)wParam;
+        SetBkMode(hdc, TRANSPARENT);
+        SetTextColor(hdc, GetSysColor(COLOR_WINDOWTEXT));
+        return (LRESULT)GetSysColorBrush(COLOR_BTNFACE);
+    }
+    case WM_CLOSE:
+        DestroyWindow(hWnd);
+        break;
+    case WM_DESTROY:
+        g_hGrpInput = g_hLblRend = g_hComboRenderer = g_hChkPgxpTex = g_hChkAntialiasing = NULL;
+        g_hChkPgxpGeom = g_hGrpAudio = g_hChkSpuHq = g_hChkSkipFmv = g_hChkDinput = NULL;
+        g_hBtnInput = g_hBtnSaves = NULL;
+        g_hWndAdvanced = NULL;
+        if (g_hWndMain) { EnableWindow(g_hWndMain, TRUE); SetForegroundWindow(g_hWndMain); }
+        break;
+    default:
+        return DefWindowProcW(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+void ShowAdvancedDialog(HWND hWndParent) {
+    if (g_hWndAdvanced) { SetForegroundWindow(g_hWndAdvanced); return; }
+    RECT rp; GetWindowRect(hWndParent, &rp);
+    DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU, ex = WS_EX_DLGMODALFRAME;
+    RECT rc = { 0, 0, 540, 398 };
+    AdjustWindowRectEx(&rc, style, FALSE, ex);
+    int w = rc.right - rc.left, h = rc.bottom - rc.top;
+    int x = rp.left + ((rp.right - rp.left) - w) / 2, y = rp.top + ((rp.bottom - rp.top) - h) / 2;
+    g_hWndAdvanced = CreateWindowExW(ex, L"RE3AdvancedWindowClass",
+        L3(L"Advanced options", L"Opciones avanzadas", L"Opções avançadas").c_str(), style,
+        x < 0 ? 0 : x, y < 0 ? 0 : y, w, h, hWndParent, NULL, g_hInst, NULL);
+    if (g_hWndAdvanced) {
+        EnableWindow(hWndParent, FALSE);
+        ShowWindow(g_hWndAdvanced, SW_SHOWNORMAL);
+    }
+}
+
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
@@ -2561,148 +2518,83 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             g_screenHz = dmScreen.dmDisplayFrequency;
         }
 
-        // Seletor de Idioma
-        g_hLblLanguage = CreateWindowW(L"STATIC", L"Launcher Language:", WS_VISIBLE | WS_CHILD, 32, 158, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblLanguage, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        /* Uma coluna, como nos launchers de jogos atuais: estado da instalacao,
+         * as escolhas de jogador e JOGAR. O resto fica em "Opcoes avancadas".
+         * Toda mudanca grava na hora. */
+        auto label = [&](int y) {
+            HWND h = CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD, 34, y + 3, 140, 20, hWnd, NULL, g_hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+            return h;
+        };
+        auto combo = [&](int y, int id) {
+            HWND h = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL,
+                                   180, y, 330, 200, hWnd, (HMENU)(INT_PTR)id, g_hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+            return h;
+        };
+        auto check = [&](int y, int id) {
+            HWND h = CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP,
+                                   34, y, 476, 22, hWnd, (HMENU)(INT_PTR)id, g_hInst, NULL);
+            SendMessageW(h, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
+            return h;
+        };
+        auto button = [&](int x, int y, int w, int h, int id, HFONT f, DWORD style) {
+            HWND b = CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | WS_TABSTOP | style,
+                                   x, y, w, h, hWnd, (HMENU)(INT_PTR)id, g_hInst, NULL);
+            SendMessageW(b, WM_SETFONT, (WPARAM)f, TRUE);
+            return b;
+        };
 
-        g_hComboLanguage = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 156, 324, 120, hWnd, (HMENU)ID_COMBO_LANGUAGE, g_hInst, NULL);
-        SendMessageW(g_hComboLanguage, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-        SendMessageW(g_hComboLanguage, CB_ADDSTRING, 0, (LPARAM)L"English (Default)");
+        g_hLblInstallStatus = CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD, 20, 166, 320, 22, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hLblInstallStatus, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        g_hBtnOpenSetup = button(350, 160, 176, 32, ID_BTN_OPEN_SETUP, g_hFontBold, BS_PUSHBUTTON);
+
+        g_hGrpVideo = CreateWindowW(L"BUTTON", L"", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 202, 508, 292, hWnd, NULL, g_hInst, NULL);
+        SendMessageW(g_hGrpVideo, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
+        int y = 226;
+        g_hLblLanguage = label(y);
+        g_hComboLanguage = combo(y, ID_COMBO_LANGUAGE);
+        SendMessageW(g_hComboLanguage, CB_ADDSTRING, 0, (LPARAM)L"English");
         SendMessageW(g_hComboLanguage, CB_ADDSTRING, 0, (LPARAM)L"Español");
         SendMessageW(g_hComboLanguage, CB_ADDSTRING, 0, (LPARAM)L"Português (Brasil)");
+        y += 32; g_hLblDisplay = label(y);  g_hComboDisplay = combo(y, ID_COMBO_DISPLAY);
+        y += 32; g_hLblAspect = label(y);   g_hComboAspect = combo(y, ID_COMBO_ASPECT);
+        y += 32; g_hLblRes = label(y);      g_hComboInternalRes = combo(y, ID_COMBO_INTERNAL_RES);
+        y += 32; g_hLblCtrlMode = label(y); g_hComboControls = combo(y, ID_COMBO_CONTROLS);
+        y += 36; g_hChkSharpFont = check(y, ID_CHK_SHARP_FONT);
+        y += 26; g_hChkFastDoors = check(y, ID_CHK_FAST_DOORS);
+        y += 32;
+        g_hBtnAdvanced = button(34, y, 232, 30, ID_BTN_ADVANCED, g_hFontBody, BS_PUSHBUTTON);
+        g_hBtnOpenCheats = button(278, y, 232, 30, ID_BTN_OPEN_CHEATS, g_hFontBody, BS_PUSHBUTTON);
 
-        // Grupo 0: Instalacao & Montagem do Jogo
-        g_hGrpSetup = CreateWindowW(L"BUTTON", L"  Game Installation && Disc Setup  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 186, 508, 62, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hGrpSetup, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hLblInstallStatus = CreateWindowW(L"STATIC", L"Checking status...", WS_VISIBLE | WS_CHILD, 32, 208, 306, 24, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblInstallStatus, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnOpenSetup = CreateWindowW(L"BUTTON", L"Setup Files...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 342, 202, 168, 34, hWnd, (HMENU)ID_BTN_OPEN_SETUP, g_hInst, NULL);
-        SendMessageW(g_hBtnOpenSetup, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        // Grupo 1: Graficos HD & Desempenho Visual
-        g_hGrpVideo = CreateWindowW(L"BUTTON", L"  HD Graphics && Visual Performance  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 256, 508, 230, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hGrpVideo, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hLblAspect = CreateWindowW(L"STATIC", L"Aspect Ratio:", WS_VISIBLE | WS_CHILD, 32, 280, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblAspect, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboAspect = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 278, 324, 120, hWnd, (HMENU)ID_COMBO_ASPECT, g_hInst, NULL);
-        SendMessageW(g_hComboAspect, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hLblDisplay = CreateWindowW(L"STATIC", L"Display Mode:", WS_VISIBLE | WS_CHILD, 32, 306, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblDisplay, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboDisplay = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 304, 324, 120, hWnd, (HMENU)ID_COMBO_DISPLAY, g_hInst, NULL);
-        SendMessageW(g_hComboDisplay, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hLblRes = CreateWindowW(L"STATIC", L"3D Internal Resolution:", WS_VISIBLE | WS_CHILD, 32, 332, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblRes, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboInternalRes = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 330, 324, 140, hWnd, (HMENU)ID_COMBO_INTERNAL_RES, g_hInst, NULL);
-        SendMessageW(g_hComboInternalRes, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hLblRend = CreateWindowW(L"STATIC", L"GPU Renderer:", WS_VISIBLE | WS_CHILD, 32, 358, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblRend, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboRenderer = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 186, 356, 324, 120, hWnd, (HMENU)ID_COMBO_RENDERER, g_hInst, NULL);
-        SendMessageW(g_hComboRenderer, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkPgxpGeom = CreateWindowW(L"BUTTON", L"PGXP Geometry Correction (Not recommended)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 386, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_GEOM, g_hInst, NULL);
-        SendMessageW(g_hChkPgxpGeom, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkPgxpTex = CreateWindowW(L"BUTTON", L"Perspective-Correct Texturing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 410, 480, 20, hWnd, (HMENU)ID_CHK_PGXP_TEX, g_hInst, NULL);
-        SendMessageW(g_hChkPgxpTex, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkAntialiasing = CreateWindowW(L"BUTTON", L"FXAA Anti-Aliasing", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 434, 480, 20, hWnd, (HMENU)ID_CHK_ANTIALIASING, g_hInst, NULL);
-        SendMessageW(g_hChkAntialiasing, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkSharpFont = CreateWindowW(L"BUTTON", L"Sharp font", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 458, 480, 20, hWnd, (HMENU)ID_CHK_SHARP_FONT, g_hInst, NULL);
-        SendMessageW(g_hChkSharpFont, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        // Grupo 2: Jogabilidade e Controles
-        g_hGrpInput = CreateWindowW(L"BUTTON", L"  Gameplay && Controls  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 14, 508, 120, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hGrpInput, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hLblCtrlMode = CreateWindowW(L"STATIC", L"Control Mode:", WS_VISIBLE | WS_CHILD, 558, 38, 150, 20, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hLblCtrlMode, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-        g_hComboControls = CreateWindowW(L"COMBOBOX", NULL, WS_VISIBLE | WS_CHILD | CBS_DROPDOWNLIST | WS_TABSTOP, 712, 36, 324, 120, hWnd, (HMENU)ID_COMBO_CONTROLS, g_hInst, NULL);
-        SendMessageW(g_hComboControls, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnInput = CreateWindowW(L"BUTTON", L"Edit Keybinds (input.ini)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 558, 70, 220, 28, hWnd, (HMENU)ID_BTN_INPUT_INI, g_hInst, NULL);
-        SendMessageW(g_hBtnInput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hBtnSaves = CreateWindowW(L"BUTTON", L"Open Saves Folder (.mcd)", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 796, 70, 240, 28, hWnd, (HMENU)ID_BTN_SAVES_DIR, g_hInst, NULL);
-        SendMessageW(g_hBtnSaves, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkDinput = CreateWindowW(L"BUTTON", L"Old generic controllers (DirectInput)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 106, 480, 20, hWnd, (HMENU)ID_CHK_DINPUT, g_hInst, NULL);
-        SendMessageW(g_hChkDinput, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        // Grupo 3: Audio & Reproducao
-        g_hGrpAudio = CreateWindowW(L"BUTTON", L"  Audio && Playback  ", WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 544, 144, 508, 98, hWnd, NULL, g_hInst, NULL);
-        SendMessageW(g_hGrpAudio, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hChkSpuHq = CreateWindowW(L"BUTTON", L"HQ 48kHz Audio", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 166, 480, 20, hWnd, (HMENU)ID_CHK_SPU_HQ, g_hInst, NULL);
-        SendMessageW(g_hChkSpuHq, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkSkipFmv = CreateWindowW(L"BUTTON", L"Auto-skip FMVs", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 188, 480, 20, hWnd, (HMENU)ID_CHK_SKIP_FMV, g_hInst, NULL);
-        SendMessageW(g_hChkSkipFmv, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hChkFastDoors = CreateWindowW(L"BUTTON", L"Door Skipping (Fast Room Transitions)", WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 558, 210, 480, 20, hWnd, (HMENU)ID_CHK_FAST_DOORS, g_hInst, NULL);
-        SendMessageW(g_hChkFastDoors, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        // Botoes de Acao
-        g_hBtnLaunch = CreateWindowW(L"BUTTON", L"PLAY RESIDENT EVIL 3", WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 544, 260, 330, 42, hWnd, (HMENU)ID_BTN_LAUNCH, g_hInst, NULL);
-        SendMessageW(g_hBtnLaunch, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnSave = CreateWindowW(L"BUTTON", L"Save Settings", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 886, 260, 166, 42, hWnd, (HMENU)ID_BTN_SAVE, g_hInst, NULL);
-        SendMessageW(g_hBtnSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnOpenCheats = CreateWindowW(L"BUTTON", L"Cheats && Modifiers...", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 544, 310, 246, 32, hWnd, (HMENU)ID_BTN_OPEN_CHEATS, g_hInst, NULL);
-        SendMessageW(g_hBtnOpenCheats, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hBtnCredits = CreateWindowW(L"BUTTON", L"Credits & Legal Disclaimer", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 800, 310, 252, 32, hWnd, (HMENU)ID_BTN_CREDITS, g_hInst, NULL);
-        SendMessageW(g_hBtnCredits, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-
-        g_hLblLegalNote = CreateWindowW(L"STATIC", L"Non-commercial open-source preservation fan project. No proprietary assets included.", WS_VISIBLE | WS_CHILD | SS_CENTER, 544, 440, 508, 16, hWnd, NULL, g_hInst, NULL);
+        g_hBtnLaunch = button(18, 506, 508, 54, ID_BTN_LAUNCH, g_hFontTitle, BS_DEFPUSHBUTTON);
+        g_hBtnCredits = button(18, 572, 200, 28, ID_BTN_CREDITS, g_hFontBody, BS_PUSHBUTTON);
+        g_hLblLegalNote = CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD | SS_RIGHT, 226, 570, 300, 32, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
         // Carregar configuracao salva
         GameConfig cfg = LoadConfig();
         g_cachedConfig = cfg;
         g_currentLang = cfg.language;
-        if (g_currentLang == L"es") SendMessageW(g_hComboLanguage, CB_SETCURSEL, 1, 0);
-        else if (g_currentLang == L"pt-br") SendMessageW(g_hComboLanguage, CB_SETCURSEL, 2, 0);
-        else {
-            g_currentLang = L"en";
-            SendMessageW(g_hComboLanguage, CB_SETCURSEL, 0, 0);
-        }
+        if (g_currentLang != L"es" && g_currentLang != L"pt-br") g_currentLang = L"en";
+        SendMessageW(g_hComboLanguage, CB_SETCURSEL, g_currentLang == L"es" ? 1 : g_currentLang == L"pt-br" ? 2 : 0, 0);
 
-        // Aplicar idioma ativo e preencher comboboxes
         ApplyLanguage(g_currentLang);
-
-        int aspectSel = (cfg.aspect_ratio == L"4:3") ? 1 : (cfg.ws_layers ? 2 : 0);
-        SendMessageW(g_hComboAspect, CB_SETCURSEL, aspectSel, 0);
+        SendMessageW(g_hComboAspect, CB_SETCURSEL, (cfg.aspect_ratio == L"4:3") ? 1 : (cfg.ws_layers ? 2 : 0), 0);
         SendMessageW(g_hComboDisplay, CB_SETCURSEL, cfg.fullscreen ? 1 : 0, 0);
-        SendMessageW(g_hComboRenderer, CB_SETCURSEL, (cfg.renderer == L"software") ? 1 : 0, 0);
-
         int curResIdx = 0;
         if (cfg.internal_resolution == L"4k") curResIdx = 1;
         else if (cfg.internal_resolution == L"1440p") curResIdx = 2;
         else if (cfg.internal_resolution == L"720p") curResIdx = 3;
         else if (cfg.internal_resolution == L"native") curResIdx = 4;
         SendMessageW(g_hComboInternalRes, CB_SETCURSEL, curResIdx, 0);
-
-        SendMessageW(g_hComboControls, CB_SETCURSEL, cfg.modern_controls ? 0 : 1, 0);
-        SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, cfg.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkPgxpTex, BM_SETCHECK, cfg.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkAntialiasing, BM_SETCHECK, cfg.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
+        SendMessageW(g_hComboControls, CB_SETCURSEL, cfg.modern_controls ? 1 : 0, 0);
         // Se a ultima partida extraiu a fonte, gera a versao nitida agora e
         // desliga o dump no state.toml.
         if (cfg.sharp_font && HdPackageInstalled()) SaveSharpFont(true);
         SendMessageW(g_hChkSharpFont, BM_SETCHECK, cfg.sharp_font ? BST_CHECKED : BST_UNCHECKED, 0);
         UpdateSharpFontText();
-        SendMessageW(g_hChkSkipFmv, BM_SETCHECK, cfg.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkFastDoors, BM_SETCHECK, cfg.fast_doors ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkSpuHq, BM_SETCHECK, cfg.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkDinput, BM_SETCHECK, cfg.directinput_joysticks ? BST_CHECKED : BST_UNCHECKED, 0);
 
         // Tema escuro: checkboxes e group boxes com visual styles ignoram
         // WM_CTLCOLOR*, entao removemos o tema apenas desses controles.
@@ -2761,30 +2653,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             else if (sel == 2) g_currentLang = L"pt-br";
             else g_currentLang = L"en";
             ApplyLanguage(g_currentLang);
-            // Salvar automaticamente a preferencia de idioma
-            GameConfig cfg = GetGuiConfig();
-            SaveConfig(cfg);
-        } else if (id == ID_CHK_SHARP_FONT && HIWORD(wParam) == BN_CLICKED) {
+            CommitConfig();
+        } else if ((id == ID_COMBO_DISPLAY || id == ID_COMBO_ASPECT || id == ID_COMBO_INTERNAL_RES ||
+                    id == ID_COMBO_CONTROLS) && HIWORD(wParam) == CBN_SELCHANGE) {
+            CommitConfig();
+        } else if ((id == ID_CHK_SHARP_FONT || id == ID_CHK_FAST_DOORS) && HIWORD(wParam) == BN_CLICKED) {
+            CommitConfig();
             UpdateSharpFontText();
+        } else if (id == ID_BTN_ADVANCED) {
+            ShowAdvancedDialog(hWnd);
         } else if (id == ID_BTN_LAUNCH) {
             LaunchGame();
-        } else if (id == ID_BTN_SAVE) {
-            GameConfig cfg = GetGuiConfig();
-            if (SaveConfig(cfg)) {
-                std::wstring msg = (g_currentLang == L"es") ? L"¡Ajustes guardados correctamente en settings.toml!" :
-                                   (g_currentLang == L"pt-br") ? L"Configurações salvas com sucesso no settings.toml!" :
-                                   L"Settings saved successfully to settings.toml!";
-                std::wstring title = (g_currentLang == L"es") ? L"Guardado con Éxito" :
-                                     (g_currentLang == L"pt-br") ? L"Salvo com Sucesso" : L"Saved Successfully";
-                MessageBoxW(hWnd, msg.c_str(), title.c_str(), MB_ICONINFORMATION | MB_OK);
-            } else {
-                std::wstring msg = (g_currentLang == L"es") ? L"No se pudieron guardar los ajustes." :
-                                   (g_currentLang == L"pt-br") ? L"Não foi possível salvar as configurações." :
-                                   L"Unable to save settings.";
-                std::wstring title = (g_currentLang == L"es") ? L"Error" :
-                                     (g_currentLang == L"pt-br") ? L"Erro" : L"Error";
-                MessageBoxW(hWnd, msg.c_str(), title.c_str(), MB_ICONERROR | MB_OK);
-            }
         } else if (id == ID_BTN_SAVES_DIR) {
             std::wstring savesDir = GetBuildDir() + L"\\saves";
             ShellExecuteW(hWnd, L"open", savesDir.c_str(), NULL, NULL, SW_SHOWNORMAL);
@@ -2897,6 +2776,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     chwc.hIconSm = (HICON)LoadImageW(hInstance, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, 0);
     RegisterClassExW(&chwc);
 
+    WNDCLASSEXW advc = chwc;
+    advc.lpfnWndProc = AdvancedWndProc;
+    advc.lpszClassName = L"RE3AdvancedWindowClass";
+    RegisterClassExW(&advc);
+
     WNDCLASSEXW wc = { sizeof(wc) };
     wc.lpfnWndProc = WndProc;
     wc.hInstance = hInstance;
@@ -2913,7 +2797,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR, int nCmdShow) {
     }
 
     DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    RECT rcMain = { 0, 0, 1070, 498 };
+    RECT rcMain = { 0, 0, 544, 614 };
     AdjustWindowRectEx(&rcMain, dwStyle, FALSE, 0);
     int width = rcMain.right - rcMain.left;
     int height = rcMain.bottom - rcMain.top;

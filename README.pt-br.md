@@ -74,7 +74,7 @@ Relatos de bugs são bem-vindos. Inclua o `psx_last_run_report.json` da pasta do
 1. Baixe o zip mais recente em **Releases** e extraia.
 2. Execute `Resident_Evil_3_Launcher.exe`.
 3. Clique em **Instalar Jogo...** e selecione a imagem do seu disco de RE3 americano (`.cue`/`.bin`, setores brutos de 2352 bytes). Arquivos `.iso` de 2048 bytes são recusados: não contêm o áudio e o vídeo do jogo.
-4. Configure e clique em **JOGAR RESIDENT EVIL 3**.
+4. Escolha os ajustes (eles se salvam sozinhos; os técnicos ficam em **Opções avançadas...**) e clique em **JOGAR**.
 
 ## Controles
 
