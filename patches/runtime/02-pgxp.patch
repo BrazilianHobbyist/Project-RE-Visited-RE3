@@ -360,7 +360,7 @@ index 2d3ef4a7..87963879 100644
                                           vx[1], vy[1], u[1], v[1], c[1],
                                           vx[3], vy[3], u[3], v[3], c[3],
 diff --git a/runtime/src/pgxp.cpp b/runtime/src/pgxp.cpp
-index 6eb0abeb..3cbd3de9 100644
+index 6eb0abeb..b107aa13 100644
 --- a/runtime/src/pgxp.cpp
 +++ b/runtime/src/pgxp.cpp
 @@ -65,6 +65,17 @@ enum {
@@ -517,7 +517,50 @@ index 6eb0abeb..3cbd3de9 100644
      pv_reset(dst, result);
      /* Prefer the operand that is a whole vertex, so a vertex ORed with flags
       * keeps its depth even when the flag word happens to share a field. */
-@@ -1240,6 +1338,13 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+@@ -1192,6 +1290,27 @@ static int alu_scalar(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2,
+ 
+ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2);
+ 
++/* A register that now holds one sign-extended 16-bit value with a precise
++ * scalar but no half shadow (the half tier drops halves on a shift other than
++ * 16) gets the scalar as its low half again, so the repack idiom (ANDI 0xFFFF,
++ * SLL 16, OR) carries it into a vertex word. Resident Evil 3 welds the
++ * vertices at a joint between model parts that way: it projects them again
++ * and averages each half with the table entry,
++ * ((old + new) >> 1) & 0xFFFF | ((old_y + new_y) >> 1) << 16. */
++static void scalar_half(uint32_t r, double v, uint32_t result) {
++    PGXPValue *pv = &s_gpr[r];
++    if (pv->gen == s_gen && pv->value == result && (pv->flags & PGXP_F_VX)) return;
++    const int32_t half = (int32_t)(int16_t)(result & 0xFFFFu);
++    if ((int32_t)result != half) return;
++    int ok = 0, derived = 0;
++    const int32_t v16 = scalar_to_half(v, half, &ok, &derived);
++    if (!ok) return;
++    pv_reset(pv, result);
++    pv->x16 = v16;
++    pv->y16 = ((int32_t)result >> 16) << 16;   /* the exact sign fill         */
++    pv->flags = (uint16_t)(PGXP_F_VXY | (derived ? PGXP_F_DX : 0));
++}
++
+ extern "C" void psx_pgxp_alu(struct CPUState *cpu, uint32_t instr,
+                              uint32_t result, uint32_t s1, uint32_t s2) {
+     (void)cpu;
+@@ -1201,8 +1320,12 @@ extern "C" void psx_pgxp_alu(struct CPUState *cpu, uint32_t instr,
+     const int has = s_cpu_mode && alu_scalar(instr, result, s1, s2, &dst, &v);
+     alu_halves(instr, result, s1, s2);
+     if (dst > 0 && dst < 34) {
+-        if (has) sc_set(&s_gpr_s[dst], v, result);
+-        else     sc_kill(&s_gpr_s[dst]);
++        if (has) {
++            sc_set(&s_gpr_s[dst], v, result);
++            scalar_half((uint32_t)dst, v, result);
++        } else {
++            sc_kill(&s_gpr_s[dst]);
++        }
+     }
+ }
+ 
+@@ -1240,6 +1363,13 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
              uint32_t sh = (funct < 4) ? f_shamt(instr) : (s2 & 31u);
              const PGXPValue *src = gpr_shadow(rt, &ca);
              int right = (funct & 3u) != 0;
@@ -531,7 +574,7 @@ index 6eb0abeb..3cbd3de9 100644
              pv_reset(dst, result);
              if (!s_cpu_mode || sh != 16 || src->gen != s_gen)
                  return;
-@@ -1366,7 +1471,8 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+@@ -1366,7 +1496,8 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
          alu_bitwise(dst, a, s1, nullptr, imm, result);
          /* ORI into a zero low half writes an exact constant there (the
           * lui/ori and repack idioms). */
