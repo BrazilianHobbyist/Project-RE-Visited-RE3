@@ -134,7 +134,7 @@ function Invoke-Consolidate {
     Write-Host "[3/5] Compilando e sincronizando o Launcher..." -ForegroundColor Cyan
     & powershell -ExecutionPolicy Bypass -File "$RepoDir\launcher\build.ps1"
 
-    # 4. Sincronizar documentacao (READMEs, CREDITS.md, PROGRESS.md, WORKFLOW.md)
+    # 4. Sincronizar documentacao (READMEs, CREDITS.md)
     Write-Host "[4/5] Sincronizando documentacoes..." -ForegroundColor Cyan
     foreach ($doc in @("README.md", "README.pt-br.md", "README.es.md", "CREDITS.md")) {
         $srcDoc = Join-Path $RepoDir $doc

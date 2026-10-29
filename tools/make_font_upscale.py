@@ -8,7 +8,7 @@ replacements under the same names. The result is derived from the game's art:
 it only ever lives in the player's run folder and must never be committed or
 packaged.
 
-RE3 font atlases (measured 2026-10-27, docs in PROGRESS.md):
+RE3 font atlases (measured 2026-10-27):
   564BA4ED51F23272  messages, item names, file text (one image per palette:
                     white for messages, blue for the inventory, ...)
   A054F93CA3CFD0A5  GAME CONFIG / KEY CONFIG menu font

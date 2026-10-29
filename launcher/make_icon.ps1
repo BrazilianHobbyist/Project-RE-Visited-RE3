@@ -1,6 +1,7 @@
+param([Parameter(Mandatory)][string]$src)
+
 Add-Type -AssemblyName System.Drawing
 
-$src = 'C:\Users\victo\.gemini\antigravity\brain\362a2c49-b975-4d99-a018-bc07e46690e4\re3_nemesis_icon_1791342306262.jpg'
 $img = [System.Drawing.Image]::FromFile($src)
 
 $sizes = @(256, 128, 64, 48, 32, 16)
