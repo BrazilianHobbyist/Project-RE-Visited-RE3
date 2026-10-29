@@ -360,10 +360,10 @@ index 2d3ef4a7..87963879 100644
                                           vx[1], vy[1], u[1], v[1], c[1],
                                           vx[3], vy[3], u[3], v[3], c[3],
 diff --git a/runtime/src/pgxp.cpp b/runtime/src/pgxp.cpp
-index 6eb0abeb..b107aa13 100644
+index 6eb0abeb..fd119737 100644
 --- a/runtime/src/pgxp.cpp
 +++ b/runtime/src/pgxp.cpp
-@@ -65,6 +65,17 @@ enum {
+@@ -65,6 +65,25 @@ enum {
      PGXP_F_DY = 1u << 5,
      PGXP_F_UNCLAMPED = 1u << 6, /* exact GTE projection; intact word only */
      PGXP_F_VXY = PGXP_F_VX | PGXP_F_VY,
@@ -378,10 +378,18 @@ index 6eb0abeb..b107aa13 100644
 +    PGXP_SHIFT_POS = 8,                       /* k (1..7) in bits 8..10      */
 +    PGXP_SHIFT_MASK = 0x7u << PGXP_SHIFT_POS,
 +    PGXP_SAVED_POS = 11,                      /* VX VY VZ DX DY in 11..15    */
++    /* Half depth (cpu-mode, unparked words only: the bits are the shift
++     * tier's). A register holding coordinate halves rather than a whole
++     * vertex keeps, in z, the depth of the vertex they came from (HZ), or
++     * the mean depth of the two vertices an ADD summed (HZ2, valid only for
++     * the halving SRA 1 that follows). The repack carries it back to VZ
++     * when both halves agree. */
++    PGXP_F_HZ = 1u << 8,
++    PGXP_F_HZ2 = 1u << 9,
  };
  
  struct PGXPValue {
-@@ -267,6 +278,7 @@ extern "C" void pgxp_note_triangle(int precise) {
+@@ -267,6 +286,7 @@ extern "C" void pgxp_note_triangle(int precise) {
  
  static PGXPTriRecord s_tri_ring[PGXP_TRI_RING_CAP];
  static uint64_t      s_tri_seq = 0;
@@ -389,7 +397,7 @@ index 6eb0abeb..b107aa13 100644
  
  static int ck_in_pass(void);                  /* render-pass checkpoint open */
  
-@@ -275,6 +287,17 @@ extern "C" void pgxp_note_triangle_detail(const PGXPTriRecord *rec) {
+@@ -275,6 +295,17 @@ extern "C" void pgxp_note_triangle_detail(const PGXPTriRecord *rec) {
      *r = *rec;
      r->seq = s_tri_seq++;
      r->pass = ck_in_pass() ? 1u : 0u;
@@ -407,7 +415,7 @@ index 6eb0abeb..b107aa13 100644
  }
  
  extern "C" uint64_t pgxp_tri_ring(const PGXPTriRecord **ring, uint32_t *cap) {
-@@ -572,9 +595,19 @@ static inline int pv_live(const PGXPValue *pv) {
+@@ -572,9 +603,19 @@ static inline int pv_live(const PGXPValue *pv) {
  
  /* Drop whichever tracked halves no longer match the actual guest word; the
   * depth belongs to the whole vertex, so any half going stale kills it too. */
@@ -427,7 +435,18 @@ index 6eb0abeb..b107aa13 100644
      if (diff) pv->flags &= (uint16_t)~(PGXP_F_PROJECTION | PGXP_F_UNCLAMPED);
      if ((pv->flags & PGXP_F_VX) && (diff & 0x0000FFFFu))
          pv->flags &= (uint16_t)~(PGXP_F_VX | PGXP_F_DX | PGXP_F_VZ);
-@@ -785,7 +818,8 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
+@@ -729,6 +770,10 @@ extern "C" void psx_pgxp_load(struct CPUState *cpu, uint32_t instr,
+                 dst->flags |= PGXP_F_VX;
+                 if (src->flags & (hi_half ? PGXP_F_DY : PGXP_F_DX))
+                     dst->flags |= PGXP_F_DX;
++                if (s_cpu_mode && (src->flags & PGXP_F_VZ) && src->z) {
++                    dst->z = src->z;
++                    dst->flags |= PGXP_F_HZ;
++                }
+             }
+         }
+         return;
+@@ -785,7 +830,8 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
      case 0x29: {                               /* SH                          */
          int hi_half = (addr >> 1) & 1;
          uint32_t half = value & 0xFFFFu;
@@ -437,7 +456,7 @@ index 6eb0abeb..b107aa13 100644
          /* Patch the stored half into the tracked word; the other half's
           * validity (if any) survives untouched. Depth never survives a
           * half-write — the vertex it described no longer exists whole. */
-@@ -818,6 +852,7 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
+@@ -818,6 +864,7 @@ extern "C" void psx_pgxp_store(struct CPUState *cpu, uint32_t instr,
      }
      case 0x28: {                               /* SB                          */
          if (dst->gen != s_gen) return;         /* nothing tracked: stay dead  */
@@ -445,7 +464,26 @@ index 6eb0abeb..b107aa13 100644
          uint32_t shift = (addr & 3u) * 8u;
          dst->value = (dst->value & ~(0xFFu << shift)) |
                       ((value & 0xFFu) << shift);
-@@ -1073,8 +1108,71 @@ static inline void keep_depth(PGXPValue *dst, const PGXPValue *p,
+@@ -1061,6 +1108,18 @@ static inline int has_depth(const PGXPValue *pv) {
+     return pv && pv->gen == s_gen && (pv->flags & PGXP_F_VZ) && pv->z != 0;
+ }
+ 
++/* The depth one tracked coordinate half carries (PGXP_F_HZ, or a whole
++ * vertex's PGXP_F_VZ). */
++static inline int half_depth(const PGXPValue *pv, uint32_t value, int hi_half,
++                             uint16_t *z) {
++    if (!pv || pv->gen != s_gen || (pv->flags & PGXP_F_SHIFTED) ||
++        !(pv->flags & (PGXP_F_HZ | PGXP_F_VZ)) || !pv->z ||
++        !comp_tracked(pv, value, hi_half))
++        return 0;
++    *z = pv->z;
++    return 1;
++}
++
+ /* Depth belongs to a whole vertex: it survives an op only when both halves of
+  * the result came from one operand that carried it, and the other operand is
+  * not itself a vertex (a constant, a mask, an offset). */
+@@ -1073,8 +1132,71 @@ static inline void keep_depth(PGXPValue *dst, const PGXPValue *p,
      }
  }
  
@@ -517,7 +555,37 @@ index 6eb0abeb..b107aa13 100644
      pv_reset(dst, result);
      /* Prefer the operand that is a whole vertex, so a vertex ORed with flags
       * keeps its depth even when the flag word happens to share a field. */
-@@ -1192,6 +1290,27 @@ static int alu_scalar(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2,
+@@ -1094,6 +1216,29 @@ static void alu_bitwise(PGXPValue *dst, const PGXPValue *a, uint32_t s1,
+     }
+     if (from[0] && from[0] == from[1])
+         keep_depth(dst, from[0], from[0] == p ? q : p);
++    if (dst->flags & PGXP_F_VZ) return;
++    /* Halves carrying a depth (HZ): the repack ORs a vertex's X half and Y
++     * half, held in two registers, back into one word, so equal depths make
++     * it whole again. Halves that all come from one operand (a mask, a shift
++     * into an exact zero half) keep the depth as HZ. */
++    uint16_t z[2] = { 0, 0 };
++    int have[2] = { 0, 0 };
++    for (int hi = 0; hi < 2; hi++)
++        if (from[hi])
++            have[hi] = half_depth(from[hi], from[hi] == p ? pval : qval, hi, &z[hi]);
++    if (have[0] && have[1] && from[0] != from[1]) {
++        const int d = (int)z[0] - (int)z[1];
++        if ((dst->flags & PGXP_F_VXY) == PGXP_F_VXY && d >= -1 && d <= 1) {
++            dst->z = z[0];
++            dst->flags |= PGXP_F_VZ;
++        }
++    } else if (have[0] || have[1]) {
++        const int hi = have[1] && !have[0];
++        if (!from[hi ^ 1] || from[hi ^ 1] == from[hi]) {
++            dst->z = z[hi];
++            dst->flags |= PGXP_F_HZ;
++        }
++    }
+ }
+ 
+ static const PGXPValue kNoShadow = { 0, 0, 0, 0, 0, 0 };
+@@ -1192,6 +1337,31 @@ static int alu_scalar(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2,
  
  static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2);
  
@@ -528,7 +596,7 @@ index 6eb0abeb..b107aa13 100644
 + * vertices at a joint between model parts that way: it projects them again
 + * and averages each half with the table entry,
 + * ((old + new) >> 1) & 0xFFFF | ((old_y + new_y) >> 1) << 16. */
-+static void scalar_half(uint32_t r, double v, uint32_t result) {
++static void scalar_half(uint32_t r, double v, uint32_t result, uint16_t z) {
 +    PGXPValue *pv = &s_gpr[r];
 +    if (pv->gen == s_gen && pv->value == result && (pv->flags & PGXP_F_VX)) return;
 +    const int32_t half = (int32_t)(int16_t)(result & 0xFFFFu);
@@ -540,27 +608,42 @@ index 6eb0abeb..b107aa13 100644
 +    pv->x16 = v16;
 +    pv->y16 = ((int32_t)result >> 16) << 16;   /* the exact sign fill         */
 +    pv->flags = (uint16_t)(PGXP_F_VXY | (derived ? PGXP_F_DX : 0));
++    if (z) {                                   /* the midpoint's mean depth   */
++        pv->z = z;
++        pv->flags |= PGXP_F_HZ;
++    }
 +}
 +
  extern "C" void psx_pgxp_alu(struct CPUState *cpu, uint32_t instr,
                               uint32_t result, uint32_t s1, uint32_t s2) {
      (void)cpu;
-@@ -1201,8 +1320,12 @@ extern "C" void psx_pgxp_alu(struct CPUState *cpu, uint32_t instr,
+@@ -1199,10 +1369,23 @@ extern "C" void psx_pgxp_alu(struct CPUState *cpu, uint32_t instr,
+     int dst = -1;
+     double v = 0.0;
      const int has = s_cpu_mode && alu_scalar(instr, result, s1, s2, &dst, &v);
++    /* SRA / SRL 1 of a two-vertex sum (PGXP_F_HZ2) is their midpoint. */
++    uint16_t mid_z = 0;
++    if (has && f_op(instr) == 0 && (f_funct(instr) == 0x02 || f_funct(instr) == 0x03) &&
++        f_shamt(instr) == 1) {
++        const PGXPValue *src = &s_gpr[f_rt(instr)];
++        if (f_rt(instr) != 0 && src->gen == s_gen && src->value == s1 &&
++            !(src->flags & PGXP_F_SHIFTED) && (src->flags & PGXP_F_HZ2))
++            mid_z = src->z;
++    }
      alu_halves(instr, result, s1, s2);
      if (dst > 0 && dst < 34) {
 -        if (has) sc_set(&s_gpr_s[dst], v, result);
 -        else     sc_kill(&s_gpr_s[dst]);
 +        if (has) {
 +            sc_set(&s_gpr_s[dst], v, result);
-+            scalar_half((uint32_t)dst, v, result);
++            scalar_half((uint32_t)dst, v, result, mid_z);
 +        } else {
 +            sc_kill(&s_gpr_s[dst]);
 +        }
      }
  }
  
-@@ -1240,6 +1363,13 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+@@ -1240,14 +1423,26 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
              uint32_t sh = (funct < 4) ? f_shamt(instr) : (s2 & 31u);
              const PGXPValue *src = gpr_shadow(rt, &ca);
              int right = (funct & 3u) != 0;
@@ -574,7 +657,35 @@ index 6eb0abeb..b107aa13 100644
              pv_reset(dst, result);
              if (!s_cpu_mode || sh != 16 || src->gen != s_gen)
                  return;
-@@ -1366,7 +1496,8 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+             if (!right) {                      /* << 16: low comp -> Y        */
+                 if (comp_tracked(src, s1, 0)) {
++                    uint16_t hz;
+                     dst->y16 = src->x16;
+                     dst->flags |= PGXP_F_VY;
+                     if (src->flags & PGXP_F_DX) dst->flags |= PGXP_F_DY;
++                    if (half_depth(src, s1, 0, &hz)) {
++                        dst->z = hz;
++                        dst->flags |= PGXP_F_HZ;
++                    }
+                 }
+                 dst->x16 = 0;
+                 dst->flags |= PGXP_F_VX;       /* low half exactly zero       */
+@@ -1311,6 +1506,14 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
+                 keep_depth(dst, a, b);
+             else if (!is_sub && comp_tracked(b, s2, 0) && comp_tracked(b, s2, 1))
+                 keep_depth(dst, b, a);
++            /* The sum of two vertices' coordinate halves: their mean depth,
++             * for the SRA 1 that makes it the midpoint. */
++            uint16_t za, zb;
++            if (!is_sub && !(dst->flags & PGXP_F_VZ) &&
++                half_depth(a, s1, 0, &za) && half_depth(b, s2, 0, &zb)) {
++                dst->z = (uint16_t)(((uint32_t)za + zb + 1u) >> 1);
++                dst->flags |= PGXP_F_HZ2;
++            }
+             return;
+         }
+         default:                               /* SLT/SLTU/...: not a vertex  */
+@@ -1366,7 +1569,8 @@ static void alu_halves(uint32_t instr, uint32_t result, uint32_t s1, uint32_t s2
          alu_bitwise(dst, a, s1, nullptr, imm, result);
          /* ORI into a zero low half writes an exact constant there (the
           * lui/ori and repack idioms). */
@@ -625,10 +736,48 @@ index 2bacef54..66b7ffe2 100644
  int pgxp_probe_precise_vertex(uint32_t addr, uint32_t packet_word,
                                int32_t int_x, int32_t int_y)
 diff --git a/runtime/tests/test_pgxp.cpp b/runtime/tests/test_pgxp.cpp
-index b2e40931..403afad3 100644
+index b2e40931..07d3ac47 100644
 --- a/runtime/tests/test_pgxp.cpp
 +++ b/runtime/tests/test_pgxp.cpp
-@@ -1055,6 +1055,83 @@ int main(void) {
+@@ -277,6 +277,37 @@ int main(void) {
+               PGXP_SRC_DATAFLOW);
+         CHECK(x == X16 - (4 << 16));
+     }
++    /* --- cpu-mode midpoint weld (Resident Evil 3 joints): each half is
++     * (a + b) >> 1, repacked with andi / sll 16 / or. The word is the
++     * precise midpoint and carries the two vertices' mean depth. --- */
++    {
++        const uint32_t ADDR_C = 0x80100010u;
++        const uint32_t PB = (90u << 16) | 170u;
++        const int32_t XB = (170 << 16) | 0x4000;    /* 170.25 */
++        const int32_t YB = (90 << 16) | 0xC000;     /*  90.75 */
++        produce_at(ADDR_A);
++        pgxp_gte_push_sxy(XB, YB, 200, PB);
++        psx_pgxp_cop2(nullptr, SWC2(14), PB, ADDR_C);
++        psx_pgxp_load(nullptr, LH(1, 8), ADDR_A, 160u);
++        psx_pgxp_load(nullptr, LH(1, 9), ADDR_C, 170u);
++        psx_pgxp_alu(nullptr, ADDU(8, 9, 8), 330u, 160u, 170u);
++        psx_pgxp_alu(nullptr, SRA(8, 8, 1), 165u, 330u, 1u);
++        psx_pgxp_alu(nullptr, ANDI(8, 8, 0xFFFF), 165u, 165u, 0xFFFFu);
++        psx_pgxp_load(nullptr, LH(1, 10), ADDR_A + 2u, 80u);
++        psx_pgxp_load(nullptr, LH(1, 11), ADDR_C + 2u, 90u);
++        psx_pgxp_alu(nullptr, ADDU(10, 11, 10), 170u, 80u, 90u);
++        psx_pgxp_alu(nullptr, SRA(10, 10, 1), 85u, 170u, 1u);
++        psx_pgxp_alu(nullptr, SLL(10, 10, 16), 85u << 16, 85u, 16u);
++        const uint32_t MID = (85u << 16) | 165u;
++        psx_pgxp_alu(nullptr, OR(8, 10, 12), MID, 165u, 85u << 16);
++        psx_pgxp_store(nullptr, SW(1, 12), ADDR_B, MID);
++        int32_t x, y;
++        uint16_t z;
++        CHECK(lookup(ADDR_B, MID, 165, 85, &x, &y, &z) == PGXP_SRC_DATAFLOW);
++        CHECK(x == (165 << 16) + 0x6000);            /* 165.375 */
++        CHECK(y == (85 << 16) + 0x8000);             /*  85.5   */
++        CHECK(z == 150);
++    }
+     pgxp_set_cpu_mode(0);
+ 
+     /* --- cpu-mode OFF: the same repack must degrade to native, cleanly --- */
+@@ -1055,6 +1086,83 @@ int main(void) {
          pgxp_set_tolerance(-1.0f);
      }
  
