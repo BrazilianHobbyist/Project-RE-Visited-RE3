@@ -81,10 +81,10 @@ index 96d52cd8..df5e0475 100644
       * when the native stack guard tripped, plus the recent recompiled-function-
       * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 461d2143..46de97fa 100644
+index 32ee500c..ea59e101 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -353,6 +353,16 @@ static uint64_t        s_history_count = 0;
+@@ -355,6 +355,16 @@ static uint64_t        s_history_count = 0;
  static uint32_t s_snapshot_addrs[RAM_SNAPSHOT_REGIONS];
  static int      s_snapshot_active[RAM_SNAPSHOT_REGIONS];
  
@@ -101,7 +101,7 @@ index 461d2143..46de97fa 100644
  /* ---- Watchpoints ---- */
  #define MAX_WATCHPOINTS 8
  typedef struct {
-@@ -10136,6 +10146,53 @@ static void handle_set_snapshot(int id, const char *json)
+@@ -10272,6 +10282,53 @@ static void handle_set_snapshot(int id, const char *json)
      send_fmt("{\"id\":%d,\"ok\":true,\"slot\":%d,\"addr\":\"0x%08X\"}", id, slot, addr);
  }
  
@@ -155,7 +155,7 @@ index 461d2143..46de97fa 100644
  static void handle_get_snapshots(int id, const char *json)
  {
      (void)json;
-@@ -16418,6 +16475,7 @@ static const CmdEntry s_commands[] = {
+@@ -16670,6 +16727,7 @@ static const CmdEntry s_commands[] = {
      { "read_frame_ram",    handle_read_frame_ram },
      { "set_snapshot",      handle_set_snapshot },
      { "get_snapshots",     handle_get_snapshots },
@@ -163,7 +163,7 @@ index 461d2143..46de97fa 100644
      { "screenshot",        handle_present_screenshot },
      { "screenshot_file",   handle_screenshot_file },
      { "screenshot_hires",  handle_screenshot_hires },
-@@ -17293,8 +17351,9 @@ void debug_server_record_frame(void)
+@@ -17563,8 +17621,9 @@ void debug_server_record_frame(void)
          }
      }
  
@@ -176,7 +176,7 @@ index 461d2143..46de97fa 100644
      /* Last function */
      strcpy(r->last_func, "(no tracking)");
 diff --git a/runtime/src/dirty_ram_interp.c b/runtime/src/dirty_ram_interp.c
-index afe81bf5..9c960997 100644
+index 70044164..1dbd1bd9 100644
 --- a/runtime/src/dirty_ram_interp.c
 +++ b/runtime/src/dirty_ram_interp.c
 @@ -512,6 +512,15 @@ uint32_t g_overlay_region_floor = OVERLAY_REGION_FLOOR_DEFAULT;
@@ -195,7 +195,7 @@ index afe81bf5..9c960997 100644
  #ifdef PSX_HAS_GAME_DISPATCH
  extern int psx_dispatch_game_compiled(CPUState* cpu, uint32_t addr);
  extern int psx_game_address_in_text(uint32_t addr);
-@@ -1481,6 +1490,7 @@ static void exec_delay_slot(CPUState *cpu, uint32_t pc) {
+@@ -1493,6 +1502,7 @@ static void exec_delay_slot(CPUState *cpu, uint32_t pc) {
      uint32_t dummy_next = 0;
      (void)exec_one_fetched(cpu, pc, insn, &dummy_next);
      g_dirty_ram_insns_run++;
@@ -203,7 +203,7 @@ index afe81bf5..9c960997 100644
      /* CYCLE MODEL: the delay-slot instruction is a real retired R3000A instruction
       * and is charged its own per-instruction interlock INSIDE exec_one (top-of-fn
       * §1+deps+DO_LDS, or psx_cyc_load_* for a load delay slot) — so a branch+slot
-@@ -2866,6 +2876,7 @@ static void psx_run_precise(CPUState *cpu, uint32_t bcyc, int deadline_entry) {
+@@ -2956,6 +2966,7 @@ static void psx_run_precise(CPUState *cpu, uint32_t bcyc, int deadline_entry) {
          cosim_exec_one_begin();
          int transferred = exec_one(cpu, pc, &next_pc);  /* charges its own interlock */
          g_dirty_ram_insns_run++;
@@ -211,7 +211,7 @@ index afe81bf5..9c960997 100644
  #ifdef PSX_COSIM
          if (!cosim_exec_one_did_hook()) { extern void cosim_instr(uint32_t); cosim_instr(pc); }
  #endif
-@@ -3423,6 +3434,7 @@ static int dirty_ram_dispatch_inner(CPUState* cpu, uint32_t addr, uint32_t stop_
+@@ -3515,6 +3526,7 @@ static int dirty_ram_dispatch_inner(CPUState* cpu, uint32_t addr, uint32_t stop_
              OV_FPLOG_RET1();
          }
          g_dirty_ram_insns_run++;
@@ -251,10 +251,10 @@ index f3fb810e..69fcd794 100644
  
      if (!s_wedge_classification_paused &&
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index c9499ddf..fbb41be2 100644
+index 82e73ec5..208da627 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -9657,6 +9657,43 @@ static bool drain_host_events() {
+@@ -9862,6 +9862,43 @@ static bool drain_host_events() {
                  host_osd_push(rc == PSX_DISC_TRAY_OK ? "CD reinsert" :
                                "Disc changes are unavailable in this game mode.", 1500);
              }

@@ -1,8 +1,8 @@
 diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
-index 4a27bdb2..ee263d78 100644
+index 90b98206..e5cc07ee 100644
 --- a/runtime/include/gpu_gl_renderer.h
 +++ b/runtime/include/gpu_gl_renderer.h
-@@ -287,6 +287,8 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
+@@ -298,6 +298,8 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
   * stretches the 4:3 frame; pair with gte_set_display_aspect (cpu_state.h)
   * for the widescreen field-of-view hack. */
  void gl_renderer_set_display_aspect(int num, int den);
@@ -12,10 +12,10 @@ index 4a27bdb2..ee263d78 100644
  /* Scanline post-process (host display setting). on toggles the effect; strength
   * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
 diff --git a/runtime/include/window_fullscreen.h b/runtime/include/window_fullscreen.h
-index 2a74dd5c..ae3127dd 100644
+index a79acf7d..5bbea0d3 100644
 --- a/runtime/include/window_fullscreen.h
 +++ b/runtime/include/window_fullscreen.h
-@@ -66,6 +66,7 @@ static inline int psx_window_fullscreen_set(SDL_Window* window,
+@@ -82,6 +82,7 @@ static inline int psx_window_fullscreen_set(SDL_Window* window,
          SDL_SetWindowResizable(window, SDL_FALSE);
          SDL_SetWindowPosition(window, desktop.x, desktop.y);
          SDL_SetWindowSize(window, desktop.w, desktop.h);
@@ -24,10 +24,10 @@ index 2a74dd5c..ae3127dd 100644
  #elif defined(PSX_SDL3)
          if (!SDL_SetWindowFullscreen(window, true)) return -1;
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index f4bc939c..0b2f56a9 100644
+index 87963879..a1b9f5f4 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
-@@ -4251,7 +4251,7 @@ const uint16_t* gpu_get_vram(void) {
+@@ -4548,7 +4548,7 @@ const uint16_t* gpu_get_vram(void) {
   * Only FB-class A0s (w >= 256 halfwords) grow the span; texture uploads must
   * not collapse it. During present-hold, ignore updates entirely. */
  static void depth24_note_upload(uint32_t x, uint32_t w) {
@@ -37,10 +37,10 @@ index f4bc939c..0b2f56a9 100644
      uint32_t x1 = x + w;
      if (x1 > 1024u) x1 = 1024u;
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index dab81837..f938529d 100644
+index 9e7f32d2..7ea99be6 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -625,6 +625,7 @@ static GLint         s_present_uTex = -1, s_present_uUvRect = -1;
+@@ -631,6 +631,7 @@ static GLint         s_present_uTex = -1, s_present_uUvRect = -1;
  static GLint         s_present_uTexSize = -1, s_present_uSharpScale = -1;
  static GLint         s_present_uSharp = -1;
  static GLint         s_present_uGamma = -1;
@@ -48,7 +48,7 @@ index dab81837..f938529d 100644
  /* Host-side presentation state. The shader applies this only to the source
   * image being presented; overlays and already-composed hold-last images set
   * the uniform back to the identity explicitly. */
-@@ -1307,6 +1308,7 @@ static void hold_capture_drawable(void) {
+@@ -1313,6 +1314,7 @@ static void hold_capture_drawable(void) {
  }
  
  /* Defined after present_target_quad (letterbox helpers). */
@@ -56,7 +56,7 @@ index dab81837..f938529d 100644
  static void letterbox_rect_aspect(int ww, int wh, int num, int den,
                                    int *x, int *y, int *w, int *h);
  static void letterbox_rect(int ww, int wh, int *x, int *y, int *w, int *h);
-@@ -1326,7 +1328,7 @@ static void hiw_capture_size(int sw, int sh, int force_4_3, int *cw, int *ch) {
+@@ -1332,7 +1334,7 @@ static void hiw_capture_size(int sw, int sh, int force_4_3, int *cw, int *ch) {
      if (!s_hiw || !s_win) return;
      SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      if (ww < 1 || wh < 1) return;
@@ -65,7 +65,7 @@ index dab81837..f938529d 100644
      else letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
      if (lw > 0 && lh > 0 && (int64_t)lw * lh < (int64_t)sw * sh) {
          *cw = lw; *ch = lh;
-@@ -1640,6 +1642,7 @@ static const char *PRESENT_FS =
+@@ -1646,6 +1648,7 @@ static const char *PRESENT_FS =
      "uniform int  u_sharp;\n"
      "uniform float u_gamma;\n"
      "uniform int  u_chroma;   /* [video] fmv_chroma_smoothing (24-bit frames) */\n"
@@ -73,7 +73,7 @@ index dab81837..f938529d 100644
      PSX_SCANLINE_UNIFORMS
      /* Catmull-Rom bicubic via 9 bilinear taps. Sharper than plain bilinear at
       * the same smoothness, with mild overshoot that reads as edge definition.
-@@ -1692,11 +1695,41 @@ static const char *PRESENT_FS =
+@@ -1698,11 +1701,41 @@ static const char *PRESENT_FS =
      "      acc += texture(u_tex, clamp((base + vec2(i, j) * st) / u_tex_size, lo, hi));\n"
      "  return acc / float(n.x * n.y);\n"
      "}\n"
@@ -116,7 +116,7 @@ index dab81837..f938529d 100644
      "  else {\n"
      "    if (u_sharp == 1) {\n"
      "      vec2 scale = max(u_sharp_scale, vec2(1.0));\n"
-@@ -1711,6 +1744,7 @@ static const char *PRESENT_FS =
+@@ -1717,6 +1750,7 @@ static const char *PRESENT_FS =
      "      uv = clamp(uv, lo, hi);\n"
      "    }\n"
      "    c = texture(u_tex, uv);\n"
@@ -124,7 +124,7 @@ index dab81837..f938529d 100644
      "  }\n"
      /* MDEC decodes 4:2:0 video: one Cb/Cr pair per 2x2 pixels, upsampled by
       * replication, so saturated edges in a 24-bit movie frame show 2-pixel
-@@ -5744,6 +5778,7 @@ static int fmv_filter_mode(void) {
+@@ -5856,6 +5890,7 @@ static int fmv_filter_mode(void) {
   * the historical straight sample. */
  static void present_set_sharp(int mode, int tex_w, int tex_h,
                                int out_w, int out_h) {
@@ -132,7 +132,7 @@ index dab81837..f938529d 100644
      if (s_present_uSharp < 0) return;
      if (mode <= 0 || tex_w <= 0 || tex_h <= 0) {
          p_glUniform1i(s_present_uSharp, 0);
-@@ -5812,6 +5847,10 @@ void gl_renderer_set_display_aspect(int num, int den) {
+@@ -5924,6 +5959,10 @@ void gl_renderer_set_display_aspect(int num, int den) {
      s_aspect_num = num; s_aspect_den = den;
  }
  
@@ -143,7 +143,7 @@ index dab81837..f938529d 100644
  /* Scanline post-process toggle (host display setting). strength is the depth of
   * the dark gap between lines, 0..1 (0 = off-looking, 1 = fully black gap). The
   * actual darkening is applied per-draw in the present/interpolation shaders and
-@@ -6477,6 +6516,8 @@ int gl_renderer_init_context(SDL_Window *win) {
+@@ -6593,6 +6632,8 @@ int gl_renderer_init_context(SDL_Window *win) {
                  p_glGetUniformLocation(s_present_prog, "u_gamma");
              s_present_uChroma =
                  p_glGetUniformLocation(s_present_prog, "u_chroma");
@@ -152,7 +152,7 @@ index dab81837..f938529d 100644
              s_present_uScanline =
                  p_glGetUniformLocation(s_present_prog, "u_scanline");
              s_present_uScanStrength =
-@@ -6613,7 +6654,7 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+@@ -6798,7 +6839,7 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
      glViewport(0, 0, ww, wh);
      glClearColor(0.f,0.f,0.f,1.f); glClear(GL_COLOR_BUFFER_BIT);
      int lx, ly, lw, lh;
@@ -161,7 +161,7 @@ index dab81837..f938529d 100644
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -6632,15 +6673,15 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
+@@ -6817,15 +6858,15 @@ void gl_renderer_present(const uint32_t *pixels, int src_w, int src_h, int linea
          ly += (lh - content_h) / 2;
          lh = content_h;
      }
@@ -181,7 +181,7 @@ index dab81837..f938529d 100644
      /* This is the low-res source path (24-bit FMV, and the forced-CPU present
       * diagnostic): a 320x192-class image blown up to fill the window, so how it
       * is reconstructed is very visible. `linear` (the video AA setting) allows
-@@ -7852,7 +7893,7 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
+@@ -8045,7 +8086,7 @@ static int interp_present_pair(GLuint a, GLuint b, float t, int blend_mode) {
      uint64_t present_t0 = SDL_GetPerformanceCounter();
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -190,7 +190,7 @@ index dab81837..f938529d 100644
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10101,6 +10142,8 @@ static void present_target_quad(GLuint tex, float tex_w, float tex_h,
+@@ -10328,6 +10369,8 @@ static void present_target_quad(GLuint tex, float tex_w, float tex_h,
      } else {
          present_set_sharp(0, 0, 0, 0, 0);
      }
@@ -199,7 +199,7 @@ index dab81837..f938529d 100644
      /* Scanline at the native line grid. v_uv is normalized against tex_h (the
       * full VRAM/FBO texture), and one texel row is one PS1 scanline, so tex_h is
       * the phase pitch; h is the displayed line count for the output-scale gate.
-@@ -10226,7 +10269,7 @@ int gl_renderer_present_hold_last(void) {
+@@ -10453,7 +10496,7 @@ int gl_renderer_present_hold_last(void) {
          present_target_quad(s_hold_tex, s_hold_tw, s_hold_th,
                              0, 0, s_hold_tw, s_hold_th, 0, lx, ly, lw, lh, 0, 0, 1);
      } else {
@@ -208,7 +208,7 @@ index dab81837..f938529d 100644
              letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
          else
              letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10295,7 +10338,7 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10522,7 +10565,7 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -218,10 +218,10 @@ index dab81837..f938529d 100644
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index b46655f8..8885ab85 100644
+index 4585d14d..21e05a5c 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -2262,7 +2262,7 @@ static bool          g_ws_engaged = true;
+@@ -2168,7 +2168,7 @@ static bool          g_ws_engaged = true;
  /* Wide-aspect strategy: native-wide (render the wider FOV into a wider frame,
   * present 1:1 — the GTE is NOT squashed) vs. the legacy squash hack. Default
   * native-wide; toggle live via the ws_nw TCP command for A/B comparison. */
@@ -230,7 +230,7 @@ index b46655f8..8885ab85 100644
  /* Logical present width for the SDL_Renderer (software) path; 640*scale at
   * 4:3, wider for wide aspects. Height is always 480*scale. Set at window
   * creation alongside SDL_RenderSetLogicalSize. */
-@@ -10000,9 +10000,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -10202,9 +10202,25 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
           * Set video AA off to get nearest back. */
          gl_renderer_set_fmv_filter(g_video_fmv_filter);
          gl_renderer_note_present_depth24(depth24_frame ? 1 : 0);
@@ -252,12 +252,12 @@ index b46655f8..8885ab85 100644
 +        }
          gl_renderer_present(sdl_pixel_buf, src_w, src_h,
                              g_video_aa ? 1 : 0,
--                            pin_43 ? 1 : 0, 0 /* full width */);
-+                            pin_43 ? 1 : 0, d24_content_w);
-         netplay_note_present();
-     } else {
-     if ((!sdl_renderer || !sdl_texture) && ensure_sw_sdl_present() != 0)
-@@ -10043,11 +10059,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+-                            pin_43 ? 1 : 0, 0 /* full width */,
++                            pin_43 ? 1 : 0, d24_content_w,
+                             psx_cycle_count, s_frame_count, s_fmv_timeline_epoch,
+                             cdrom_get_stream_generation(), cdrom_get_stream_start_lba(),
+                             cdrom_get_delivered_lba(),
+@@ -10249,11 +10265,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * the widescreen stretch — pillarbox them at native 4:3 instead. Same for
       * native-wide game frames that could not present wide (pin_43): canonical
       * content is never stretched across the wide window. */
@@ -272,7 +272,7 @@ index b46655f8..8885ab85 100644
          int content_h = (dst_h * (int)present_h) / 240;
          if (content_h < 1) content_h = 1;
          dst.y = (dst_h - content_h) / 2;
-@@ -17631,8 +17648,8 @@ int main(int argc, char** argv) {
+@@ -17745,8 +17762,8 @@ int main(int argc, char** argv) {
       * game.toml offer flags remain parseable for old projects but deliberately
       * cannot expose generic launcher controls or activate the features. Trusted
       * activation plugins apply them after launcher/settings resolution. */
@@ -283,7 +283,7 @@ index b46655f8..8885ab85 100644
      constexpr bool frame_interpolation_offered = false;
      constexpr bool skip_fmv_offered = false;
      /* Load acceleration is likewise mod-owned (Fast Loading / CD Speed). The
-@@ -18575,17 +18592,10 @@ int main(int argc, char** argv) {
+@@ -18725,17 +18742,10 @@ int main(int argc, char** argv) {
              "ignoring the legacy value\n");
          g_turbo_loads_enabled = 0;
      }

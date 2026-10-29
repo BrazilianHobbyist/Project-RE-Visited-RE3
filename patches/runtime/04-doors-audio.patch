@@ -1,8 +1,8 @@
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 8885ab85..e1d35bbe 100644
+index 21e05a5c..e09298a6 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -4376,6 +4376,10 @@ static void sdl_audio_gain_ramp(int16_t* buf, int frames, float g0, float g1) {
+@@ -4333,6 +4333,10 @@ static void sdl_audio_gain_ramp(int16_t* buf, int frames, float g0, float g1) {
   * frames in one spu_render call. 1764 frames = 40 ms.
   * sdl_audio_fadein_left is declared with present_session_reset. */
  static const int sdl_audio_fade_samples = 44100 * 40 / 1000;  /* 40 ms */
@@ -13,7 +13,7 @@ index 8885ab85..e1d35bbe 100644
  
  static void sdl_audio_pump(bool discard_output = false) {
      /* Guest-cycle SPU advance must not depend on host audio device/backpressure.
-@@ -4471,10 +4475,10 @@ static void sdl_audio_pump(bool discard_output = false) {
+@@ -4428,10 +4432,10 @@ static void sdl_audio_pump(bool discard_output = false) {
      frames = host_frames;
      if (sdl_audio_fadein_left > 0) {
          const float g0 = 1.0f - (float)sdl_audio_fadein_left
@@ -26,7 +26,7 @@ index 8885ab85..e1d35bbe 100644
          sdl_audio_gain_ramp(sdl_audio_buf, ramp, g0, g1);
          sdl_audio_fadein_left -= ramp;
      }
-@@ -4993,7 +4997,7 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+@@ -5126,7 +5130,7 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
               * from its current gain so the edge stays continuous. */
              const float vol = (float)host_volume_get() / 100.0f;
              const float g0 = (1.0f - (float)sdl_audio_fadein_left
@@ -35,7 +35,7 @@ index 8885ab85..e1d35bbe 100644
              sdl_audio_fadein_left = 0;
              /* Fade out what the SPU has already produced; rendering ahead of
               * the guest clock would advance SPU state out of guest time. */
-@@ -5020,7 +5024,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+@@ -5153,7 +5157,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
           * mid-frame pump does not sneak audio out ahead of the unmute ramp. */
          if (hangover > 0) { hangover--; return; }
          muted = 0;
@@ -45,7 +45,7 @@ index 8885ab85..e1d35bbe 100644
          audio_trace_event(AUDIO_EV_UNMUTE, (uint32_t)sdl_audio_fadein_left, 0);
          extern int g_audio_unmute_resync;
          g_audio_unmute_resync = 1;
-@@ -5028,7 +5033,28 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+@@ -5161,7 +5166,28 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
      if (turbo_sink_active) {
          if (!sink_was_active) {
              sink_was_active = 1;
@@ -75,17 +75,17 @@ index 8885ab85..e1d35bbe 100644
          }
          g_turbo_audio_sink_active = 1;
          s_audio_gate = AUDIO_GATE_SINK;
-@@ -5038,7 +5064,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
-     g_turbo_audio_sink_active = 0;
-     if (sink_was_active) {
-         sink_was_active = 0;
+@@ -5177,7 +5203,8 @@ static void sdl_audio_update(int hard_mute_active, int turbo_sink_active) {
+             rab_resume_after_sink(&s_drc);
+             psx_sdl_audio_unlock(sdl_audio_device);
+         }
 -        sdl_audio_fadein_left = sdl_audio_fade_samples;
 +        sdl_audio_fadein_total = sdl_audio_sink_fadein_samples;
 +        sdl_audio_fadein_left = sdl_audio_fadein_total;
          audio_trace_event(AUDIO_EV_UNMUTE,
                            (uint32_t)sdl_audio_fadein_left, 2);
          g_audio_unmute_resync = 1;
-@@ -9289,6 +9316,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9473,6 +9500,12 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * old fast_boot snapshot restore; all guest timing is authentic. */
      if (psx_bios_hle_boot_turbo_active())
          turbo_loads_active = 1;
@@ -98,17 +98,17 @@ index 8885ab85..e1d35bbe 100644
      probe_turbo = turbo_loads_active;
  
      load_transition_note(cdrom_data_read_active(), logical_load_active,
-@@ -9348,7 +9381,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
-      * paths cannot fork peers during the episode window. */
-     if (!psx_netplay_is_resimulating() && !psx_selfcheck_resim_active()) {
-         sdl_audio_update(fmv_skip_active,
--                         turbo_loads_active && g_turbo_audio_sink_enabled);
-+                         (turbo_loads_active && g_turbo_audio_sink_enabled) ||
+@@ -9556,7 +9589,8 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+             (turbo_loads_active && g_turbo_audio_sink_enabled);
+         const int catchup_audio_sink = sdl_audio_catchup_sink(
+             accelerated_audio_sink || fmv_skip_active);
+-        sdl_audio_update(fmv_skip_active, accelerated_audio_sink || catchup_audio_sink);
++        sdl_audio_update(fmv_skip_active, accelerated_audio_sink || catchup_audio_sink ||
 +                         re3_door_audio_muted());
      }
  #endif
  
-@@ -9363,6 +9397,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9571,6 +9605,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
       * frame is presented — otherwise headless validation runs a different game
       * than the windowed build. Hooks still run after all normal input sampling. */
      mod_call_frame_hooks();
@@ -116,7 +116,7 @@ index 8885ab85..e1d35bbe 100644
  
      /* Resize-driven mode updates the pending aspect during BIOS boot too, but
       * the actual wide compositor remains disengaged until game entry. No-op
-@@ -9795,6 +9830,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
+@@ -9997,6 +10032,7 @@ static NetplayVblankEpilogue sdl_vblank_present_body(void) {
                      return ep;
                  }
              } else {

@@ -11,10 +11,10 @@ index 72ce5e7a..65c0e3f0 100644
      return count;
  }
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index fbb41be2..4df161fb 100644
+index 208da627..67d4e07f 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -2001,7 +2001,7 @@ static void reset_mod_owned_presentation(void) {
+@@ -1901,7 +1901,7 @@ static void reset_mod_owned_presentation(void) {
      psx_mod_set_native_wide_projection_correction(0);
      psx_mod_set_retained_scene_predicate(nullptr);
      psx_mod_set_adaptive_backdrop_preload(0);
@@ -24,10 +24,10 @@ index fbb41be2..4df161fb 100644
      /* [timing] guest_cycle_scale mod gate: shut until this session's
       * activation opens it (an online match clears the plan, so a mod-gated
 diff --git a/runtime/src/mod_runtime.cpp b/runtime/src/mod_runtime.cpp
-index 5bfe6257..6dbe6806 100644
+index 20179f9f..9b42f668 100644
 --- a/runtime/src/mod_runtime.cpp
 +++ b/runtime/src/mod_runtime.cpp
-@@ -2170,6 +2170,58 @@ static bool install_plan(RuntimeMods& s, ModResolution plan,
+@@ -2420,6 +2420,58 @@ static bool install_plan(RuntimeMods& s, ModResolution plan,
      return true;
  }
  
@@ -86,7 +86,7 @@ index 5bfe6257..6dbe6806 100644
  bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* error, bool save_selection) {
      HostLaunchTimingScope timing(HOST_LAUNCH_COMMIT);
      RuntimeMods& s = state();
-@@ -2214,8 +2266,17 @@ bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* err
+@@ -2464,8 +2516,17 @@ bool mod_runtime_commit(const std::filesystem::path& disc_path, std::string* err
          const bool hashed = save_selection
              ? offline_disc_digest(disc_path, digest, &hash_error, s.cached_prepare)
              : measured_disc_digest(disc_path, digest, &hash_error);

@@ -1,8 +1,8 @@
 diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
-index ee263d78..1b641f81 100644
+index e5cc07ee..648b41bc 100644
 --- a/runtime/include/gpu_gl_renderer.h
 +++ b/runtime/include/gpu_gl_renderer.h
-@@ -289,6 +289,10 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
+@@ -300,6 +300,10 @@ int gl_renderer_present_wide_fbo(int disp_x, int disp_y, int disp_h, int linear)
  void gl_renderer_set_display_aspect(int num, int den);
  /* 1 = stretch 4:3 content to the window (16:9 "stretched"); 0 = pillarbox. */
  void gl_renderer_set_aspect_stretch(int enabled);
@@ -14,10 +14,10 @@ index ee263d78..1b641f81 100644
  /* Scanline post-process (host display setting). on toggles the effect; strength
   * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 46de97fa..4fb79951 100644
+index ea59e101..f760a82b 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -5817,6 +5817,26 @@ static void handle_pgxp_store_ring(int id, const char *json)
+@@ -5819,6 +5819,26 @@ static void handle_pgxp_store_ring(int id, const char *json)
   * "position_fallback":0|1,"preserve_projection":0|1,"culling":0|1}. Fields
   * are optional; the reply echoes the resulting state (same shape as
   * geom_correction's "pgxp" object, flattened). */
@@ -44,7 +44,7 @@ index 46de97fa..4fb79951 100644
  static void handle_pgxp(int id, const char *json)
  {
      /* Live toggles for the one-toggle-at-a-time A/B protocol (docs/ENHANCEMENTS.md
-@@ -16218,6 +16238,8 @@ static const CmdEntry s_commands[] = {
+@@ -16462,6 +16482,8 @@ static const CmdEntry s_commands[] = {
      { "gpu_state",         handle_gpu_state },
      { "geom_correction",   handle_geom_correction },
      { "pgxp",              handle_pgxp },
@@ -54,10 +54,10 @@ index 46de97fa..4fb79951 100644
      { "pgxp_store_ring",   handle_pgxp_store_ring },
      { "pgxp_shadow",       handle_pgxp_shadow },
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index 0b2f56a9..f6806a58 100644
+index a1b9f5f4..f2879973 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
-@@ -3769,7 +3769,9 @@ void gpu_set_gp0_linked_list_node(uint32_t addr, uint32_t word_count) {
+@@ -4065,7 +4065,9 @@ void gpu_set_gp0_linked_list_node(uint32_t addr, uint32_t word_count) {
      }
  }
  
@@ -67,7 +67,7 @@ index 0b2f56a9..f6806a58 100644
      gp0_ot_rank = 0xFFFFu;
  }
  
-@@ -7355,6 +7357,132 @@ int gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path) {
+@@ -7706,6 +7708,132 @@ int gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path) {
  void gpu_ws_census_set(int on) { ws_census_on = on ? 1 : 0; }
  uint64_t gpu_ws_census_seq(void) { return ws_census_seq; }
  
@@ -200,19 +200,19 @@ index 0b2f56a9..f6806a58 100644
  /* Execute a fully-collected GP0 command */
  static void gp0_dispatch_command(uint8_t opcode);
  
-@@ -7362,6 +7490,7 @@ static void gp0_execute_command(void) {
+@@ -7713,6 +7841,7 @@ static void gp0_execute_command(void) {
      uint8_t opcode = (gp0_cmd_buf[0] >> 24) & 0xFF;
      gp0_opcode_count[opcode]++;
      gp0_ring_record(gp0_cmd_buf, gp0_words_needed);
 +    ly_note_command(opcode);
      extern void ws_bg_phase_note(uint32_t op);
      ws_bg_phase_note(opcode);   /* native-wide 2D-backdrop stretch: background-phase latch */
-     if (ws_view_camera_addr || g_bg2d_host_size) {
+     if (ws_view_camera_addr || ws_view_manual || g_bg2d_host_size) {
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f938529d..930faa0c 100644
+index 7ea99be6..f48e79c3 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -10298,6 +10298,283 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10525,6 +10525,283 @@ static float present_alloc_extent(int units, int scale) {
      return (float)units * (float)as / (float)scale;
  }
  
@@ -496,7 +496,7 @@ index f938529d..930faa0c 100644
  static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
                                int force_4_3) {
      /* The crop a pass applies (transaction_begin), taken on the emulation
-@@ -10338,7 +10615,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10565,7 +10842,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -516,7 +516,7 @@ index f938529d..930faa0c 100644
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10395,8 +10683,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10622,8 +10910,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
              tw = present_alloc_extent(src_tw, s_hr_scale);
              th = present_alloc_extent(VRAM_H, s_hr_scale);
          }
@@ -531,10 +531,10 @@ index f938529d..930faa0c 100644
      }
      pres_record(GL_PRES_VRAM, disp_x, disp_y, w, h, lx, ly, lw, lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index e4dc2826..667c3cca 100644
+index 67d4e07f..360bf1db 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -6321,6 +6321,7 @@ static void re3_apply_directinput_hint(void) {
+@@ -6460,6 +6460,7 @@ static void re3_apply_directinput_hint(void) {
  static void load_re3_qol_settings(const std::filesystem::path& path) {
      std::ifstream f(path);
      if (!f.is_open()) return;
@@ -542,7 +542,7 @@ index e4dc2826..667c3cca 100644
      std::string line;
      while (std::getline(f, line)) {
          size_t first = line.find_first_not_of(" \t\r\n");
-@@ -6366,6 +6367,13 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6505,6 +6506,13 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
              int stretch = (val == "true" || val == "1") ? 1 : 0;
              gl_renderer_set_aspect_stretch(stretch);
          }
@@ -556,7 +556,7 @@ index e4dc2826..667c3cca 100644
      }
  
      if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
-@@ -6376,6 +6384,59 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6515,6 +6523,59 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
      }
  }
  
@@ -617,10 +617,10 @@ index e4dc2826..667c3cca 100644
   * suppress_stick_axes is set (the pad is presenting as analog this frame), the
   * left/right analog-stick axes do NOT contribute button bits — see
 diff --git a/runtime/tests/gpu_exec_stubs.inc b/runtime/tests/gpu_exec_stubs.inc
-index 21173d69..449adec0 100644
+index 83a8fb2f..58fa9c8d 100644
 --- a/runtime/tests/gpu_exec_stubs.inc
 +++ b/runtime/tests/gpu_exec_stubs.inc
-@@ -450,6 +450,12 @@ void gl_renderer_note_wide_triangle_recovery(int enabled) {
+@@ -478,6 +478,12 @@ void gl_renderer_note_wide_triangle_recovery(int enabled) {
  int gl_renderer_frame_generation(void) { return 0; }
  /* PGXP renderer features: off in these fixtures. */
  int gl_renderer_pgxp_render_wanted(void) { return 0; }

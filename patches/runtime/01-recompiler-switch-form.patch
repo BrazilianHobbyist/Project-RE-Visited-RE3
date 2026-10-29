@@ -187,7 +187,7 @@ index 32b03dc9..cb9c64e2 100644
      check_static_dispatch_provenance()
      check_owned_direct_call_is_interior()
 diff --git a/tools/compile_overlays.py b/tools/compile_overlays.py
-index ad363d5c..46d183c7 100644
+index 82b2ed99..1860daba 100644
 --- a/tools/compile_overlays.py
 +++ b/tools/compile_overlays.py
 @@ -1248,6 +1248,7 @@ def _find_jump_table_targets(data: bytes, load_addr: int, size: int,

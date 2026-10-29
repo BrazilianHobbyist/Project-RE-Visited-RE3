@@ -66,8 +66,12 @@ The recogniser now accepts it in both copies, which stay in parity:
 
 X must not be control flow and must not write the index, table or upper
 registers. Every other proof is unchanged. This changes the codegen hash, so the
-cache tag is now `cg18_a8839e97_gcc15c8ed0_f2`. Regenerating the game C changed
+cache tag became `cg18_a8839e97_gcc15c8ed0_f2`. Regenerating the game C changed
 only those 7 executable switches, which became native jump tables.
+
+The PSXRecomp update to `ffbd9d1c` (2026-10-28) changed the code generator
+again, so the tag is now `cg18_a601f18f_gcc15c8ed0_f2`. The pipeline was rerun
+from the disc: 59 of 59 pairs, all valid, 2952 manifest rows.
 
 ## Results and limits
 
