@@ -14,20 +14,29 @@ index ee263d78..1b641f81 100644
  /* Scanline post-process (host display setting). on toggles the effect; strength
   * (0..1) is the depth of the dark gap between PS1 scanlines. Applied at the
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 46de97fa..a421c231 100644
+index 46de97fa..4fb79951 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -5817,6 +5817,17 @@ static void handle_pgxp_store_ring(int id, const char *json)
+@@ -5817,6 +5817,26 @@ static void handle_pgxp_store_ring(int id, const char *json)
   * "position_fallback":0|1,"preserve_projection":0|1,"culling":0|1}. Fields
   * are optional; the reply echoes the resulting state (same shape as
   * geom_correction's "pgxp" object, flattened). */
++/* re3_settings: RE3 options as applied by this process (main.cpp). */
++extern int re3_settings_json(char *buf, int cap);
++static void handle_re3_settings(int id, const char *json) {
++    (void)json;
++    char b[1024];
++    re3_settings_json(b, (int)sizeof b);
++    send_fmt("{\"id\":%d,\"ok\":true,%s}", id, b);
++}
++
 +/* ws_layers [on=0|1]: layered pan & scan state (RE3, gpu_gl_renderer.c). */
 +extern int  gl_renderer_ws_layers_stats(char *buf, int cap);
 +extern void gl_renderer_set_ws_layers(int on);
 +static void handle_ws_layers(int id, const char *json) {
 +    int on = json_get_int(json, "on", -1);
 +    if (on >= 0) gl_renderer_set_ws_layers(on);
-+    char b[768];
++    char b[1536];
 +    gl_renderer_ws_layers_stats(b, (int)sizeof b);
 +    send_fmt("{\"id\":%d,\"ok\":true,%s}", id, b);
 +}
@@ -35,11 +44,12 @@ index 46de97fa..a421c231 100644
  static void handle_pgxp(int id, const char *json)
  {
      /* Live toggles for the one-toggle-at-a-time A/B protocol (docs/ENHANCEMENTS.md
-@@ -16218,6 +16229,7 @@ static const CmdEntry s_commands[] = {
+@@ -16218,6 +16238,8 @@ static const CmdEntry s_commands[] = {
      { "gpu_state",         handle_gpu_state },
      { "geom_correction",   handle_geom_correction },
      { "pgxp",              handle_pgxp },
 +    { "ws_layers",         handle_ws_layers },
++    { "re3_settings",      handle_re3_settings },
      { "pgxp_tri_ring",     handle_pgxp_tri_ring },
      { "pgxp_store_ring",   handle_pgxp_store_ring },
      { "pgxp_shadow",       handle_pgxp_shadow },
@@ -149,10 +159,10 @@ index 0b2f56a9..06e83669 100644
      ws_bg_phase_note(opcode);   /* native-wide 2D-backdrop stretch: background-phase latch */
      if (ws_view_camera_addr || g_bg2d_host_size) {
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f938529d..092ed2a1 100644
+index f938529d..26b19515 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -10298,6 +10298,220 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10298,6 +10298,235 @@ static float present_alloc_extent(int units, int scale) {
      return (float)units * (float)as / (float)scale;
  }
  
@@ -183,6 +193,10 @@ index f938529d..092ed2a1 100644
 +static float    s_ly_pan = -1.0f;
 +static uint32_t s_ly_pan_hash = 0;
 +static uint64_t s_ly_snaps = 0, s_ly_invalidations = 0, s_ly_composed = 0, s_ly_pillar = 0;
++/* Why a present did not compose (ws_layers stats): no copy for the band,
++ * copy invalid, size or scale mismatch, rect not wider than 4:3. */
++static uint64_t s_ly_why[5];
++static int s_ly_last_disp[4], s_ly_last_slot[4];
 +
 +void gl_renderer_set_ws_layers(int on) { s_ly_on = on ? 1 : 0; }
 +int gl_renderer_ws_layers_enabled(void) {
@@ -278,8 +292,13 @@ index f938529d..092ed2a1 100644
 +static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
 +                      int lx, int ly_, int lw, int lh) {
 +    LySlot *s = ly_find(disp_x, disp_y);
-+    if (!s || !s->valid || s->w != w || s->h != h || s->scale != s_hr_scale ||
-+        lw <= 0 || lh <= 0 || lw * 3 <= lh * 4) return 0;
++    s_ly_last_disp[0] = disp_x; s_ly_last_disp[1] = disp_y; s_ly_last_disp[2] = w; s_ly_last_disp[3] = h;
++    if (!s) { s_ly_why[0]++; return 0; }
++    s_ly_last_slot[0] = s->w; s_ly_last_slot[1] = s->h; s_ly_last_slot[2] = s->scale; s_ly_last_slot[3] = s_hr_scale;
++    if (!s->valid) { s_ly_why[1]++; return 0; }
++    if (s->w != w || s->h != h) { s_ly_why[2]++; return 0; }
++    if (s->scale != s_hr_scale) { s_ly_why[3]++; return 0; }
++    if (lw <= 0 || lh <= 0 || lw * 3 <= lh * 4) { s_ly_why[4]++; return 0; }
 +    if (!s_ly_prog) {
 +        s_ly_prog = build_program(LY_VS, LY_FS);
 +        if (!s_ly_prog) return 0;
@@ -361,11 +380,17 @@ index f938529d..092ed2a1 100644
 +    return snprintf(buf, (size_t)cap,
 +        "\"enabled\":%d,\"active\":%d,\"snapshots\":%llu,\"invalidations\":%llu,"
 +        "\"composed\":%llu,\"pillarboxed\":%llu,\"pan\":%.2f,"
++        "\"why\":{\"no_copy\":%llu,\"invalid\":%llu,\"size\":%llu,\"scale\":%llu,\"narrow\":%llu},"
++        "\"last_display\":[%d,%d,%d,%d],\"last_copy\":[%d,%d,%d,%d],"
 +        "\"slots\":[{\"valid\":%d,\"x\":%d,\"y\":%d,\"fy0\":%d,\"fy1\":%d},"
 +        "{\"valid\":%d,\"x\":%d,\"y\":%d,\"fy0\":%d,\"fy1\":%d}]",
 +        s_ly_on > 0, gl_renderer_ws_layers_enabled(),
 +        (unsigned long long)s_ly_snaps, (unsigned long long)s_ly_invalidations,
 +        (unsigned long long)s_ly_composed, (unsigned long long)s_ly_pillar, s_ly_pan,
++        (unsigned long long)s_ly_why[0], (unsigned long long)s_ly_why[1], (unsigned long long)s_ly_why[2],
++        (unsigned long long)s_ly_why[3], (unsigned long long)s_ly_why[4],
++        s_ly_last_disp[0], s_ly_last_disp[1], s_ly_last_disp[2], s_ly_last_disp[3],
++        s_ly_last_slot[0], s_ly_last_slot[1], s_ly_last_slot[2], s_ly_last_slot[3],
 +        s_ly[0].valid, s_ly[0].x, s_ly[0].y, s_ly[0].fy0, s_ly[0].fy1,
 +        s_ly[1].valid, s_ly[1].x, s_ly[1].y, s_ly[1].fy0, s_ly[1].fy1);
 +}
@@ -373,7 +398,7 @@ index f938529d..092ed2a1 100644
  static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
                                int force_4_3) {
      /* The crop a pass applies (transaction_begin), taken on the emulation
-@@ -10338,7 +10552,12 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10338,7 +10567,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -382,12 +407,18 @@ index f938529d..092ed2a1 100644
 +     * rect; any other (2D screens, the logos) pillarboxes. */
 +    const int layered = gl_renderer_ws_layers_enabled();
 +    LySlot *lys = layered ? ly_find(disp_x, disp_y) : NULL;
-+    const int ly_scene = lys && lys->valid && lys->w == w && lys->h == h;
-+    if ((force_4_3 && !s_aspect_stretch) || (layered && !ly_scene))
++    const int ly_scene = lys && lys->valid;
++    if (ly_scene) {
++        /* Layered mode turns the stretch off, so the title asks for a 4:3
++         * present (force_4_3) and the display aspect may be 4:3; the composed
++         * scene still takes the wide rect. */
++        if (s_aspect_num * 3 > s_aspect_den * 4) letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
++        else letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++    } else if ((force_4_3 && !s_aspect_stretch) || layered)
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10395,8 +10614,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10395,8 +10635,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
              tw = present_alloc_extent(src_tw, s_hr_scale);
              th = present_alloc_extent(VRAM_H, s_hr_scale);
          }
@@ -402,7 +433,7 @@ index f938529d..092ed2a1 100644
      }
      pres_record(GL_PRES_VRAM, disp_x, disp_y, w, h, lx, ly, lw, lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 4df161fb..5ff4f0d7 100644
+index e4dc2826..7c9ee698 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -6321,6 +6321,7 @@ static void re3_apply_directinput_hint(void) {
@@ -427,6 +458,32 @@ index 4df161fb..5ff4f0d7 100644
      }
  
      if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
+@@ -6376,6 +6384,25 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+     }
+ }
+ 
++/* re3_settings (debug server): the RE3 options as this process applied them,
++ * so a test can check settings.toml -> game end to end. */
++extern "C" int gte_geometry_correction_enabled(void);
++extern "C" int re3_settings_json(char* buf, int cap) {
++    return std::snprintf(buf, (size_t)cap,
++        "\"fullscreen\":%d,\"fast_doors\":%d,\"modern_controls\":%d,\"modern_turn_speed\":%d,"
++        "\"directinput_joysticks\":%d,\"rumble_intensity\":%.2f,\"spu_hq\":%d,\"auto_skip_fmv\":%d,"
++        "\"skip_cutscenes\":%d,\"ws_layers\":%d,\"geometry_correction\":%d,"
++        "\"cheats\":{\"health\":%d,\"ammo\":%d,\"ribbons\":%d,\"weapons\":%d,\"mercenaries\":%d,"
++        "\"boutique\":%d,\"epilogues\":%d}",
++        g_fullscreen, g_fast_doors, g_modern_controls ? 1 : 0, g_modern_turn_speed,
++        g_directinput_joysticks ? 1 : 0, (double)g_rumble_intensity, g_audio_spu_hq ? 1 : 0,
++        g_auto_skip_fmv, g_skip_cutscenes ? 1 : 0, gl_renderer_ws_layers_enabled(),
++        gte_geometry_correction_enabled(),
++        g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
++        g_all_weapons_box ? 1 : 0, g_unlock_mercenaries ? 1 : 0, g_unlock_boutique ? 1 : 0,
++        g_unlock_epilogues ? 1 : 0);
++}
++
+ /* Build the active-low PSX button word from a controller's input.ini map. When
+  * suppress_stick_axes is set (the pad is presenting as analog this frame), the
+  * left/right analog-stick axes do NOT contribute button bits — see
 diff --git a/runtime/tests/gpu_exec_stubs.inc b/runtime/tests/gpu_exec_stubs.inc
 index 21173d69..449adec0 100644
 --- a/runtime/tests/gpu_exec_stubs.inc

@@ -60,3 +60,12 @@ Opção "16:9 ampliado" no launcher (`ws_layers = true` no `settings.toml`; desl
 - Legendas de cutscene, LIVE SELECTION, mapa e arquivos.
 - FMV com a opção ligada.
 - Salas cuja altura útil depende do corte de cima (a placa EXIT da Dark Room fica cortada pela metade).
+
+### Correção de 28/10/2026 (relato do mantenedor: "com a opção ativa, nada muda")
+
+**CONFIRMADO**: escolhida pelo launcher, a opção não compunha nenhum quadro.
+- **Causa:** `ws_layers` desliga o "esticar", e com isso o RE3 pede apresentação 4:3 (`force_4_3`). O ramo de 4:3 vinha antes do modo em camadas, então o compositor recebia um retângulo 4:3 e recusava.
+- **Por que os testes não pegaram:** ligavam as camadas pelo comando de debug, com o esticar ainda ligado. O teste via `settings.toml` só conferia que a opção estava ativa, sem olhar a imagem.
+- **Correção:** um buffer com cópia da cena sempre usa o retângulo largo.
+- **Diagnóstico novo:** o `ws_layers` agora informa o motivo de cada recusa (`why`: no_copy, invalid, size, scale, narrow) e o último tamanho de tela e de cópia.
+- **Teste novo:** `tools/test_settings_e2e.py` dirige o launcher real e confere o efeito de cada escolha no jogo, inclusive se quadros foram compostos. Resultado: 33/33.
