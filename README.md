@@ -55,7 +55,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Audio | Works; the experimental mix (`spu_hq`) can sound clipped and is off by default |
 | Cheats (launcher toggles + F6/F7/F8) | Works in the maintainer's earlier tests; not re-tested since v1.6.0 |
 | Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
-| 16:9 Zoomed (`ws_layers`, launcher aspect option) | Needs testing. New in v2.0.0: the 3D scene fills 16:9 without distortion (zoomed, with a vertical pan that follows the characters), text and prompts stay at their original size, and 2D screens (inventory, map, files, menus) and FMV stay 4:3. Off by default |
+| 16:9 Zoomed (`ws_layers`, launcher Picture option) | Works in the maintainer's play sessions. New in v2.0.0: the 3D scene fills 16:9 without distortion. A smooth vertical pan follows Jill: it holds still while she stays in the middle band, eases in and out, and starts already framed on each camera cut. Text, prompts and the pause overlay stay at their original size. Full 2D screens (inventory, map, files, menus), FMV and LIVE SELECTION stay 4:3. Some rooms lose a little of the ceiling or floor. Off by default |
 | Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
 | Sharp font (launcher option) | Works. New in v2.0.0: the first session with the option on extracts the font from your own game, and the launcher then upscales it 4x (EPX). Nothing from the game is shipped |

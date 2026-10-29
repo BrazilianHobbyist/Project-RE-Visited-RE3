@@ -209,10 +209,10 @@ index 0b2f56a9..f6806a58 100644
      ws_bg_phase_note(opcode);   /* native-wide 2D-backdrop stretch: background-phase latch */
      if (ws_view_camera_addr || g_bg2d_host_size) {
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f938529d..a6a8e01d 100644
+index f938529d..930faa0c 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -10298,6 +10298,236 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10298,6 +10298,283 @@ static float present_alloc_extent(int units, int scale) {
      return (float)units * (float)as / (float)scale;
  }
  
@@ -375,17 +375,64 @@ index f938529d..a6a8e01d 100644
 +        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
 +        s_ly_comp_w = cw; s_ly_comp_h = ch;
 +    }
-+    /* Vertical pan (native lines): keep the models' box centred; follow it
-+     * smoothly, jump on a camera cut (new background). */
++    /* Vertical pan (native lines), in the manner of a remastered fixed-camera
++     * game: the frame holds still while the focus (Jill, or the models' box)
++     * stays inside a central band, then glides with a critically damped
++     * spring (ease in and out, capped speed) measured in real time, leading a
++     * little in the direction the focus moves on screen. A camera cut starts
++     * already framed instead of sliding. */
 +    const float vis = (float)h * (float)w / (float)nw;
 +    const float room = (float)h - vis;
-+    /* fy0 = -32768: no focus; a focus may start above the top line. */
-+    float centre = s->fy0 > -32768 && s->fy1 >= s->fy0 ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
-+    float want = centre - 0.5f * vis;
-+    if (want < 0.0f) want = 0.0f;
-+    if (want > room) want = room;
-+    if (s_ly_pan < 0.0f || s->hash != s_ly_pan_hash) s_ly_pan = want;
-+    else s_ly_pan += (want - s_ly_pan) * 0.15f;
++    const int has_focus = s->fy0 > -32768 && s->fy1 >= s->fy0;   /* -32768: none */
++    const float fc = has_focus ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
++    const float fh = has_focus ? (float)(s->fy1 - s->fy0) : 0.0f;
++    static uint64_t t_prev = 0;
++    static float vel = 0.0f, fc_prev = 0.0f, fc_vel = 0.0f, hold = -1.0f;
++    const uint64_t t_now = SDL_GetPerformanceCounter();
++    float dt = t_prev ? (float)((double)(t_now - t_prev) / (double)SDL_GetPerformanceFrequency()) : 0.0f;
++    if (dt > 0.1f) dt = 0.1f;
++    t_prev = t_now;
++    const int cut = s_ly_pan < 0.0f || s->hash != s_ly_pan_hash;
++    if (cut) {
++        float want = fc - 0.5f * vis;
++        if (want < 0.0f) want = 0.0f;
++        if (want > room) want = room;
++        s_ly_pan = hold = want;
++        vel = fc_vel = 0.0f;
++    } else if (dt > 0.0f) {
++        /* Focus velocity on screen (lines/s), smoothed, for a small lead. */
++        const float raw_v = (fc - fc_prev) / dt;
++        fc_vel += (raw_v - fc_vel) * (dt / (0.25f + dt));
++        float lead = fc_vel * 0.30f;
++        if (lead > 0.12f * vis) lead = 0.12f * vis;
++        if (lead < -0.12f * vis) lead = -0.12f * vis;
++        /* Dead zone: move the target only when the focus (plus lead) leaves
++         * the band [margin, vis - margin] of the current target window. */
++        const float margin = 0.18f * vis;
++        float top = fc - 0.5f * fh + lead, bot = fc + 0.5f * fh + lead;
++        if (fh > vis - 2.0f * margin) { top = bot = fc + lead; }   /* tall focus: centre it */
++        if (top < hold + margin) hold = top - margin;
++        if (bot > hold + vis - margin) hold = bot - (vis - margin);
++        if (hold < 0.0f) hold = 0.0f;
++        if (hold > room) hold = room;
++        /* Critically damped spring toward hold (Game Programming Gems 4,
++         * "Critically Damped Ease-In/Ease-Out Smoothing"), capped speed. */
++        const float smooth = 0.45f, max_speed = 0.9f * (float)h;    /* lines/s */
++        const float omega = 2.0f / smooth, x = omega * dt;
++        const float ex = 1.0f / (1.0f + x + 0.48f * x * x + 0.235f * x * x * x);
++        float change = s_ly_pan - hold;
++        const float max_change = max_speed * smooth;
++        if (change > max_change) change = max_change;
++        if (change < -max_change) change = -max_change;
++        const float temp = (vel + omega * change) * dt;
++        vel = (vel - omega * temp) * ex;
++        float next = (s_ly_pan - change) + (change + temp) * ex;
++        if ((hold - s_ly_pan > 0.0f) == (next > hold)) { next = hold; vel = 0.0f; }
++        s_ly_pan = next;
++        if (s_ly_pan < 0.0f) s_ly_pan = 0.0f;
++        if (s_ly_pan > room) s_ly_pan = room;
++    }
++    fc_prev = fc;
 +    s_ly_pan_hash = s->hash;
 +
 +    p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s_ly_comp_fbo);
@@ -449,7 +496,7 @@ index f938529d..a6a8e01d 100644
  static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
                                int force_4_3) {
      /* The crop a pass applies (transaction_begin), taken on the emulation
-@@ -10338,7 +10568,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10338,7 +10615,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -469,7 +516,7 @@ index f938529d..a6a8e01d 100644
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10395,8 +10636,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10395,8 +10683,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
              tw = present_alloc_extent(src_tw, s_hr_scale);
              th = present_alloc_extent(VRAM_H, s_hr_scale);
          }

@@ -55,7 +55,7 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Audio | Funciona; la mezcla experimental (`spu_hq`) puede sonar saturada y viene desactivada |
 | Trucos (opciones del launcher + F6/F7/F8) | Funcionaron en pruebas anteriores del mantenedor; no se han vuelto a probar desde la v1.6.0 |
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
-| 16:9 Ampliado (`ws_layers`, opción de proporción del launcher) | Requiere pruebas. Nuevo en la v2.0.0: la escena 3D llena el 16:9 sin distorsión (ampliada, con paneo vertical que sigue a los personajes), los textos y avisos mantienen su tamaño original, y las pantallas 2D (inventario, mapa, archivos, menús) y los FMV quedan en 4:3. Desactivado por defecto |
+| 16:9 Ampliado (`ws_layers`, opción Imagen del launcher) | Funciona en las sesiones del mantenedor. Nuevo en la v2.0.0: la escena 3D llena el 16:9 sin distorsión. Un paneo vertical suave sigue a Jill: queda quieto mientras ella está en la franja central, acelera y frena con suavidad y ya empieza encuadrado en cada cambio de cámara. Textos, avisos y la pausa mantienen su tamaño original. Las pantallas 2D (inventario, mapa, archivos, menús), los FMV y LIVE SELECTION quedan en 4:3. Algunas salas pierden un poco del techo o del suelo. Desactivado por defecto |
 | Vibración | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
 | Fuente nítida (opción del launcher) | Funciona. Nuevo en la v2.0.0: la primera partida con la opción extrae la fuente de tu propio juego, y el launcher la amplía 4x (EPX). Nada del juego va en el paquete |
