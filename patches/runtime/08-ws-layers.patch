@@ -54,7 +54,7 @@ index 46de97fa..4fb79951 100644
      { "pgxp_store_ring",   handle_pgxp_store_ring },
      { "pgxp_shadow",       handle_pgxp_shadow },
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index 0b2f56a9..e9a492ef 100644
+index 0b2f56a9..f6806a58 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
 @@ -3769,7 +3769,9 @@ void gpu_set_gp0_linked_list_node(uint32_t addr, uint32_t word_count) {
@@ -67,7 +67,7 @@ index 0b2f56a9..e9a492ef 100644
      gp0_ot_rank = 0xFFFFu;
  }
  
-@@ -7355,6 +7357,126 @@ int gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path) {
+@@ -7355,6 +7357,132 @@ int gpu_ws_census_dump(uint32_t f0, uint32_t f1, const char *path) {
  void gpu_ws_census_set(int on) { ws_census_on = on ? 1 : 0; }
  uint64_t gpu_ws_census_seq(void) { return ws_census_seq; }
  
@@ -87,12 +87,18 @@ index 0b2f56a9..e9a492ef 100644
 +static int      ly_list_prims = 0, ly_list_scene = 0, ly_after_scene = 0, ly_resnap = 0, ly_complex = 0;
 +static uint32_t ly_scene_frame = 0xFFFFFFFFu, ly_bg_hash = 0;
 +static int      ly_y0 = 0x7FFF, ly_y1 = -0x7FFF;
++/* Optional title hook: the lines (relative to the draw area) the pan should
++ * keep in view, e.g. the player projected with the game's camera. Returns 0
++ * to fall back to the box of all opaque scene polygons. */
++int (*g_ws_layers_focus)(int area_h, int *y0, int *y1) = NULL;
 +static void ly_snapshot(void) {
 +    const int w = (int)draw_area_right - (int)draw_area_left + 1;
 +    const int h = (int)draw_area_bottom - (int)draw_area_top + 1;
 +    if (w <= 0 || h <= 0) return;
-+    gl_renderer_ws_layer_snapshot((int)draw_area_left, (int)draw_area_top, w, h,
-+                                  ly_y0 <= ly_y1 ? ly_y0 : -1, ly_y1, ly_bg_hash);
++    int f0 = ly_y0 <= ly_y1 ? ly_y0 : -32768, f1 = ly_y1;   /* -32768: no focus */
++    int p0, p1;
++    if (g_ws_layers_focus && g_ws_layers_focus(h, &p0, &p1)) { f0 = p0; f1 = p1; }
++    gl_renderer_ws_layer_snapshot((int)draw_area_left, (int)draw_area_top, w, h, f0, f1, ly_bg_hash);
 +}
 +static void ly_list_end(void) {
 +    if (gr_backend() != GR_BACKEND_OPENGL || !gl_renderer_ws_layers_enabled()) return;
@@ -194,7 +200,7 @@ index 0b2f56a9..e9a492ef 100644
  /* Execute a fully-collected GP0 command */
  static void gp0_dispatch_command(uint8_t opcode);
  
-@@ -7362,6 +7484,7 @@ static void gp0_execute_command(void) {
+@@ -7362,6 +7490,7 @@ static void gp0_execute_command(void) {
      uint8_t opcode = (gp0_cmd_buf[0] >> 24) & 0xFF;
      gp0_opcode_count[opcode]++;
      gp0_ring_record(gp0_cmd_buf, gp0_words_needed);
@@ -203,10 +209,10 @@ index 0b2f56a9..e9a492ef 100644
      ws_bg_phase_note(opcode);   /* native-wide 2D-backdrop stretch: background-phase latch */
      if (ws_view_camera_addr || g_bg2d_host_size) {
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f938529d..26b19515 100644
+index f938529d..a6a8e01d 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -10298,6 +10298,235 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10298,6 +10298,236 @@ static float present_alloc_extent(int units, int scale) {
      return (float)units * (float)as / (float)scale;
  }
  
@@ -373,7 +379,8 @@ index f938529d..26b19515 100644
 +     * smoothly, jump on a camera cut (new background). */
 +    const float vis = (float)h * (float)w / (float)nw;
 +    const float room = (float)h - vis;
-+    float centre = s->fy0 >= 0 && s->fy1 >= s->fy0 ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
++    /* fy0 = -32768: no focus; a focus may start above the top line. */
++    float centre = s->fy0 > -32768 && s->fy1 >= s->fy0 ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
 +    float want = centre - 0.5f * vis;
 +    if (want < 0.0f) want = 0.0f;
 +    if (want > room) want = room;
@@ -442,7 +449,7 @@ index f938529d..26b19515 100644
  static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
                                int force_4_3) {
      /* The crop a pass applies (transaction_begin), taken on the emulation
-@@ -10338,7 +10567,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10338,7 +10568,18 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
      gl_perf_present_enter();   /* per-frame backdrop-phase reset + dbg snapshot live in here */
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -462,7 +469,7 @@ index f938529d..26b19515 100644
          letterbox_rect_aspect(ww, wh, 4, 3, &lx, &ly, &lw, &lh);
      else
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
-@@ -10395,8 +10635,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -10395,8 +10636,11 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
              tw = present_alloc_extent(src_tw, s_hr_scale);
              th = present_alloc_extent(VRAM_H, s_hr_scale);
          }
@@ -477,7 +484,7 @@ index f938529d..26b19515 100644
      }
      pres_record(GL_PRES_VRAM, disp_x, disp_y, w, h, lx, ly, lw, lh);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index e4dc2826..7c9ee698 100644
+index e4dc2826..667c3cca 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -6321,6 +6321,7 @@ static void re3_apply_directinput_hint(void) {
@@ -502,10 +509,44 @@ index e4dc2826..7c9ee698 100644
      }
  
      if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
-@@ -6376,6 +6384,25 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6376,6 +6384,59 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
      }
  }
  
++/* 16:9 Zoomed pan focus (gpu.c g_ws_layers_focus): Jill's feet and head
++ * projected with the game's own view (0x80098990: 3x3 int16 rotation in 4.12,
++ * int32 translation) and the GTE projection (H = ctrl 26, OFY = ctrl 25 in
++ * 16.16). The box of all opaque models also takes the typewriter, item box
++ * and enemies, and in the top-down save room it centred the floor and cut
++ * Jill off at the top (maintainer report, 2026-10-28). */
++extern "C" int (*g_ws_layers_focus)(int area_h, int *y0, int *y1);
++static int re3_ws_focus(int area_h, int *y0, int *y1) {
++    extern CPUState *debug_cpu_ptr;
++    if (!g_psx_ram || !debug_cpu_ptr || !fntrace_is_game_started()) return 0;
++    const uint8_t *pl = g_psx_ram + 0x000CCBC4;
++    if (pl[0x04] != 1) return 0;                        /* Jill not in play */
++    const int16_t *R = (const int16_t *)(g_psx_ram + 0x00098990);
++    const int32_t *T = (const int32_t *)(g_psx_ram + 0x00098990 + 0x14);
++    const double H = (double)(debug_cpu_ptr->gte_ctrl[26] & 0xFFFFu);
++    const double ofy = (double)(int32_t)debug_cpu_ptr->gte_ctrl[25] / 65536.0;
++    if (H <= 0.0) return 0;
++    const double px = *(const int32_t *)(pl + 0x34), py = *(const int32_t *)(pl + 0x38),
++                 pz = *(const int32_t *)(pl + 0x3C);
++    double sy[2];
++    const double ys[2] = { py, py - 2800.0 };            /* feet, top of head (Y grows down; 2800 measured live, 2026-10-28) */
++    for (int k = 0; k < 2; k++) {
++        const double cy = (R[3] * px + R[4] * ys[k] + R[5] * pz) / 4096.0 + T[1];
++        const double cz = (R[6] * px + R[7] * ys[k] + R[8] * pz) / 4096.0 + T[2];
++        if (cz < 64.0) return 0;
++        sy[k] = ofy + H * cy / cz;
++    }
++    int a = (int)std::floor(std::min(sy[0], sy[1])), b = (int)std::ceil(std::max(sy[0], sy[1]));
++    if (b < 0 || a > area_h || b - a < 4) return 0;      /* off screen or implausible */
++    *y0 = a; *y1 = b;
++    return 1;
++}
++static const bool s_re3_ws_focus_installed = (g_ws_layers_focus = re3_ws_focus, true);
++
 +/* re3_settings (debug server): the RE3 options as this process applied them,
 + * so a test can check settings.toml -> game end to end. */
 +extern "C" int gte_geometry_correction_enabled(void);
