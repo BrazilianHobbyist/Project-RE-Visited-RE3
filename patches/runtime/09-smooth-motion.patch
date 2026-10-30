@@ -1,0 +1,297 @@
+diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
+index f2879973..d58df448 100644
+--- a/runtime/src/gpu.c
++++ b/runtime/src/gpu.c
+@@ -6669,6 +6669,13 @@ int gpu_get_a0_src(int index, uint32_t *s2, uint32_t *a0, uint32_t *a1, uint32_t
+     return 1;
+ }
+ 
++/* The GP0(A0) transfer the renderer is streaming, for the render thread's
++ * HD-authority hand-off (gpu_gl_renderer.c, rtb_vram_upload_open). */
++int gpu_vram_upload_masked(void) { return check_mask_bit ? 1 : 0; }
++void gpu_vram_upload_rect(int *x, int *y, int *w, int *h) {
++    *x = vram_write_x; *y = vram_write_y; *w = vram_write_w; *h = vram_write_h;
++}
++
+ static void gp0_exec_cpu_to_vram(void) {
+     /* 0xA0 — CPU→VRAM Copy (header: 3 words)
+      * Word 0: command
+diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
+index f48e79c3..6c75d990 100644
+--- a/runtime/src/gpu_gl_renderer.c
++++ b/runtime/src/gpu_gl_renderer.c
+@@ -473,7 +473,8 @@ enum {
+     RTH_WIDE_DISABLE, RTH_WIDE_CLEAR, RTH_WIDE_CLEAR_MARGINS, RTH_PROJ_TRI,
+     RTH_WIDE_RECOVERY, RTH_INTERP_SUSPENDED, RTH_PRESENT_VRAM,
+     RTH_PRESENT_WIDE, RTH_STATE, RTH_PEEK, RTH_RING_CAPTURE, RTH_DYN_STEP,
+-    RTH_FRAME, RTH_FG_SRC, RTH_DEPTH, RTH_HD_NOTE, RTH_DITHER, RTH_WIDE_FEEDBACK
++    RTH_FRAME, RTH_FG_SRC, RTH_DEPTH, RTH_HD_NOTE, RTH_DITHER, RTH_WIDE_FEEDBACK,
++    RTH_WS_SNAP, RTH_WS_INVAL
+ };
+ /* GP0(A0) whose payload gpu.c is still streaming into its array (the
+  * facade's vram_upload_open, emulation thread), tracked whatever the HD
+@@ -482,6 +483,12 @@ enum {
+  * (even a full-VRAM TRACK_UPLOAD) never ends it; only the commit, GP1(01h),
+  * a reset or a savestate restored outside A0 do. */
+ static int s_rth_a0_open = 0;
++/* The A0 the emulation thread holds the context for: only a mask-checked
++ * one (gpu.c reads the destination's mask bits through the facade while it
++ * streams). An unmasked upload's rectangle is exactly its payload, so it
++ * streams into gpu.c's array and records like any other, and the render
++ * thread keeps running (Smooth motion keeps its lists). */
++static int s_rth_a0_held = 0;
+ /* HD authority requested while an A0 streams under GPU authority: its
+  * received words exist only in gpu.c's array (the FBO gets the whole rect at
+  * the commit), so ensure_cpu's readback would overwrite them. The switch
+@@ -10533,8 +10540,11 @@ static float present_alloc_extent(int units, int scale) {
+  * models in view, and over it, inside the centred 4:3 rect, every pixel where
+  * the final image differs from the copy (the UI) at 1:1. A buffer last drawn
+  * as a full 2D screen has no copy and presents 4:3 pillarboxed. Only the plain
+- * VRAM present path composes (no render thread, high-resolution window or
+- * temporal blending); the others pillarbox. */
++ * VRAM present path composes (no high-resolution window or temporal
++ * blending); the others pillarbox. With the render thread the copy and its
++ * invalidation are records, run in stream order; Smooth motion keeps them in
++ * its lists, so a redrawn in-between frame copies its own scene (s_ly_gen)
++ * and composes like a real one. */
+ typedef struct {
+     int    used, valid, x, y, w, h, scale;
+     int    fy0, fy1;
+@@ -10543,6 +10553,8 @@ typedef struct {
+     int    tw, th;
+ } LySlot;
+ static LySlot   s_ly[2];
++static LySlot   s_ly_gen;                   /* the in-between frame being drawn */
++static LySlot  *s_ly_override = NULL;       /* ly_find answers with it          */
+ static int      s_ly_on = -1;
+ static GLuint   s_ly_comp_tex = 0, s_ly_comp_fbo = 0;
+ static int      s_ly_comp_w = 0, s_ly_comp_h = 0;
+@@ -10563,26 +10575,36 @@ int gl_renderer_ws_layers_enabled(void) {
+         const char *e = getenv("PSX_WS_LAYERS");
+         s_ly_on = (e && e[0] == '1') ? 1 : 0;
+     }
+-    return s_ly_on && !s_rth_on && !s_hiw && s_ctx && s_raster_ok;
++    return s_ly_on && !s_hiw && s_ctx && s_raster_ok;
+ }
+ 
+ static LySlot *ly_find(int x, int y) {
++    if (s_ly_override)
++        return s_ly_override->used && s_ly_override->x == x && s_ly_override->y == y
++               ? s_ly_override : NULL;
+     for (int i = 0; i < 2; i++)
+         if (s_ly[i].used && s_ly[i].x == x && s_ly[i].y == y) return &s_ly[i];
+     return NULL;
+ }
+ 
+-void gl_renderer_ws_layer_invalidate(int x, int y) {
++static void ly_invalidate_exec(int x, int y) {
++    if (s_fg_drawing) { s_ly_gen.valid = 0; return; }
+     LySlot *s = ly_find(x, y);
+     if (s && s->valid) { s->valid = 0; s_ly_invalidations++; }
+ }
+ 
+-void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
+-                                   int focus_y0, int focus_y1, uint32_t bg_hash) {
+-    if (!gl_renderer_ws_layers_enabled()) return;
+-    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > VRAM_W || y + h > VRAM_H) return;
+-    LySlot *s = ly_find(x, y);
+-    if (!s) {   /* a new buffer band: take the slot not written last */
++void gl_renderer_ws_layer_invalidate(int x, int y) {
++    if (rth_record_mode()) { RTH_REC(RTH_WS_INVAL, 0, x, y); return; }
++    ly_invalidate_exec(x, y);
++}
++
++static void ly_snapshot_exec(int x, int y, int w, int h,
++                             int focus_y0, int focus_y1, uint32_t bg_hash) {
++    LySlot *s;
++    if (s_fg_drawing) {   /* an in-between frame: its own scene, never a real slot */
++        s = &s_ly_gen;
++        s->used = 1; s->x = x; s->y = y;
++    } else if (!(s = ly_find(x, y))) {   /* a new buffer band: the slot not written last */
+         static int next = 0;
+         s = &s_ly[next];
+         next ^= 1;
+@@ -10615,7 +10637,18 @@ void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
+     p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, 0);
+     s->valid = 1; s->w = w; s->h = h; s->scale = R;
+     s->fy0 = focus_y0; s->fy1 = focus_y1; s->hash = bg_hash;
+-    s_ly_snaps++;
++    if (!s_fg_drawing) s_ly_snaps++;
++}
++
++void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
++                                   int focus_y0, int focus_y1, uint32_t bg_hash) {
++    if (!gl_renderer_ws_layers_enabled()) return;
++    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > VRAM_W || y + h > VRAM_H) return;
++    if (rth_record_mode()) {
++        RTH_REC(RTH_WS_SNAP, 0, x, y, w, h, focus_y0, focus_y1, (int32_t)bg_hash);
++        return;
++    }
++    ly_snapshot_exec(x, y, w, h, focus_y0, focus_y1, bg_hash);
+ }
+ 
+ static const char *LY_FS =
+@@ -11810,7 +11843,7 @@ static uint16_t rth_prim_flags(void) {
+ static int gl_rth_eligible(void) {
+     extern int psx_netplay_active(void);
+     return s_raster_ok && s_ctx && !s_cpu_auth_dual && !s_depth24_skip_up &&
+-           !(s_hd_native_authority && s_rth_a0_open) &&
++           !(s_hd_native_authority && s_rth_a0_held) &&
+            !gpu_display_is_depth24() && !s_interp_enabled && !s_pass_active &&
+            !psx_netplay_active() && !psx_openxr_session_active() &&
+            gr_backend() == GR_BACKEND_OPENGL;
+@@ -11823,7 +11856,26 @@ static int gl_rth_eligible(void) {
+  * VRAM: no A0 payload can be streaming (its header takes the context). */
+ static void rth_hd_publish_private(void) {
+     if (!s_hd_native_authority) return;
+-    memcpy(s_rth_vram_pub, s_rth_vram_priv, (size_t)VRAM_W * VRAM_H * sizeof(uint16_t));
++    if (!s_rth_a0_open || s_rth_a0_held) {
++        memcpy(s_rth_vram_pub, s_rth_vram_priv, (size_t)VRAM_W * VRAM_H * sizeof(uint16_t));
++        return;
++    }
++    /* An unmasked A0 is streaming into gpu.c's array: every word outside its
++     * rectangle comes from the private copy, the rectangle keeps the words
++     * already received (the commit copies it from there). */
++    extern void gpu_vram_upload_rect(int *x, int *y, int *w, int *h);
++    int ux, uy, uw, uh;
++    gpu_vram_upload_rect(&ux, &uy, &uw, &uh);
++    for (int r = 0; r < VRAM_H; r++) {
++        uint16_t *dst = s_rth_vram_pub + (size_t)r * VRAM_W;
++        const uint16_t *src = s_rth_vram_priv + (size_t)r * VRAM_W;
++        if (((r - uy) & (VRAM_H - 1)) >= uh) {
++            memcpy(dst, src, VRAM_W * sizeof(uint16_t));
++            continue;
++        }
++        for (int c = 0; c < VRAM_W; c++)
++            if (((c - ux) & (VRAM_W - 1)) >= uw) dst[c] = src[c];
++    }
+ }
+ 
+ static void gl_rth_acquire(const char *reason) {
+@@ -12364,6 +12416,7 @@ static int fg_op_kept(uint16_t op) {
+     case RTH_TEX_RECT_SCALED: case RTH_LINE: case RTH_SHADED_LINE: case RTH_AREA:
+     case RTH_OFFSET: case RTH_WIDE_VIEW: case RTH_WIDE_TARGET: case RTH_WIDE_DISABLE:
+     case RTH_WIDE_CLEAR: case RTH_WIDE_CLEAR_MARGINS: case RTH_PROJ_TRI: case RTH_STATE:
++    case RTH_WS_SNAP: case RTH_WS_INVAL:
+         return 1;
+     default:
+         return 0;
+@@ -12867,6 +12920,11 @@ static void fg_replay(const FgList *a, const FgList *b, double t, GLuint gen_wid
+             g_wide_cur_base = v[0];
+             break;
+         case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
++        case RTH_WS_SNAP:
++            if (!s_fg_replay_objects_only)
++                ly_snapshot_exec(v[0], v[1], v[2], v[3], v[4], v[5], (uint32_t)v[6]);
++            break;
++        case RTH_WS_INVAL: if (!s_fg_replay_objects_only) ly_invalidate_exec(v[0], v[1]); break;
+         case RTH_WIDE_CLEAR:
+             if (v[0] == disp[0] && gen_wide && !s_fg_replay_objects_only) glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]);
+             break;
+@@ -12995,6 +13053,30 @@ static void fg_compose(const FgList *b, GLuint wide_fbo, GLuint wide_tex, int li
+                        int force_4_3) {
+     int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
+     int lx, ly, lw, lh;
++    /* Layered pan & scan: the in-between frame copied its own scene while it
++     * was redrawn (s_ly_gen); compose it as present_vram_impl composes a
++     * real one. Without that copy it pillarboxes, as the real frame does. */
++    const int layered = !b->wide && gl_renderer_ws_layers_enabled();
++    if (layered && s_ly_gen.valid && s_ly_gen.x == b->disp[0] && s_ly_gen.y == b->disp[1]) {
++        if (s_aspect_num * 3 > s_aspect_den * 4) letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
++        else letterbox_rect_aspect(ww, wh, 16, 9, &lx, &ly, &lw, &lh);
++        p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, 0);
++        glDisable(GL_SCISSOR_TEST);
++        glViewport(0, 0, ww, wh);
++        if (lx != 0 || ly != 0 || lw != ww || lh != wh) {
++            glClearColor(0.f, 0.f, 0.f, 1.f); glClear(GL_COLOR_BUFFER_BIT);
++        }
++        present_bezel(ww, wh, lx, ly, lw, lh);
++        s_ly_override = &s_ly_gen;
++        const int ok = ly_present(b->disp[0], b->disp[1], b->disp[2], b->disp[3], linear,
++                                  lx, ly, lw, lh);
++        s_ly_override = NULL;
++        if (ok) {
++            if (postfx_active()) postfx_present(0, 0, lx, ly, lw, lh);
++            return;
++        }
++    }
++    if (layered) force_4_3 = 1;
+     if (b->wide) {
+         letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
+         /* A reprojected frame warped the composed wide image itself. */
+@@ -13920,6 +14002,7 @@ static int fg_generate(double t, int swap) {
+     hiw_flush_queue();
+     pack_flush();
+     if (!fg_surfaces_ensure(b->wide)) return 0;
++    s_ly_gen.valid = 0;   /* the redraw below copies this frame's own scene */
+     const int S = s_hr_scale;
+     /* Real bookkeeping the generated draws would touch. */
+     FgState real;
+@@ -14675,6 +14758,7 @@ static void rtb_init(uint16_t *vram) {
+     GL_RT_SYNC("init");
+     if (s_rth_on) s_rth_vram_pub = vram;
+     s_rth_a0_open = 0;   /* a reset abandons an incomplete A0 */
++    s_rth_a0_held = 0;
+     glb_init(vram);
+     if (s_hd_authority_pending) gl_renderer_set_hd_texture_mode(1);
+     if (s_rth_on && !rt_held()) rth_rebind_vram(s_rth_vram_priv);
+@@ -14805,13 +14889,16 @@ static void hd_note_exec(int op, int x, int y, int w, int h, int sx, int sy) {
+ }
+ /* After the upload/draw it follows, in command order, against s_vram. */
+ static void rtb_vram_upload_open(int open) {
++    extern int gpu_vram_upload_masked(void);
+     s_rth_a0_open = open;
++    s_rth_a0_held = open && s_hd_native_authority && gpu_vram_upload_masked();
+     if (!open && s_hd_authority_pending) gl_renderer_set_hd_texture_mode(1);
+     /* gpu.c streams the payload into its array and reads it back for
+      * mask-checked words: under HD authority take the context so that array
+      * holds every earlier native draw, and keep it until the commit
+-     * (eligibility). Also when a savestate restores a state mid-A0. */
+-    if (open && s_hd_native_authority) GL_RT_SYNC("hd_upload");
++     * (eligibility). Also when a savestate restores a state mid-A0. Without
++     * the mask check the words do not depend on the destination. */
++    if (s_rth_a0_held) GL_RT_SYNC("hd_upload");
+ }
+ static void rtb_hd_texture_note(int op, int x, int y, int w, int h, int sx, int sy) {
+     RTH_DIRECT_OR(RTH_REC(RTH_HD_NOTE, 0, op, x, y, w, h, sx, sy)); hd_note_exec(op, x, y, w, h, sx, sy); }
+@@ -15006,6 +15093,8 @@ static void gl_rth_exec(void *user, const RtCmd *c, const void *payload) {
+     case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
+     case RTH_WIDE_CLEAR: glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]); break;
+     case RTH_WIDE_CLEAR_MARGINS: glb_wide_clear_margins(v[0], v[1], v[2], (uint16_t)v[3], v[4]); break;
++    case RTH_WS_SNAP:  ly_snapshot_exec(v[0], v[1], v[2], v[3], v[4], v[5], (uint32_t)v[6]); break;
++    case RTH_WS_INVAL: ly_invalidate_exec(v[0], v[1]); break;
+     case RTH_WIDE_FEEDBACK:
+         glb_wide_feedback_rect(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9],
+                                v[10], v[11]);
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 270876eb..88095dde 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -6520,6 +6520,11 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+             }
+         }
+         else if (key == "perspective_texturing") g_video_perspective_texturing = (val == "true" || val == "1") ? 1 : 0;
++        else if (key == "smooth_motion") {
++            /* Smooth motion: in-between frames redrawn by the render thread
++             * (docs/FRAME_GENERATION.md). Off leaves the title's choice. */
++            if (val == "true" || val == "1") g_render_thread = g_frame_generation = 1;
++        }
+         else if (key == "internal_resolution") {
+             int ir = 0;
+             if (psx_ir_parse(val.c_str(), &ir)) {
+@@ -6597,13 +6602,13 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+     return std::snprintf(buf, (size_t)cap,
+         "\"fullscreen\":%d,\"fast_doors\":%d,\"modern_controls\":%d,\"modern_turn_speed\":%d,"
+         "\"directinput_joysticks\":%d,\"rumble_intensity\":%.2f,\"spu_hq\":%d,\"auto_skip_fmv\":%d,"
+-        "\"skip_cutscenes\":%d,\"ws_layers\":%d,\"geometry_correction\":%d,"
++        "\"skip_cutscenes\":%d,\"ws_layers\":%d,\"geometry_correction\":%d,\"smooth_motion\":%d,"
+         "\"cheats\":{\"health\":%d,\"ammo\":%d,\"ribbons\":%d,\"weapons\":%d,\"mercenaries\":%d,"
+         "\"boutique\":%d,\"epilogues\":%d}",
+         g_fullscreen, g_fast_doors, g_modern_controls ? 1 : 0, g_modern_turn_speed,
+         g_directinput_joysticks ? 1 : 0, (double)g_rumble_intensity, g_audio_spu_hq ? 1 : 0,
+         g_auto_skip_fmv, g_skip_cutscenes ? 1 : 0, gl_renderer_ws_layers_enabled(),
+-        gte_geometry_correction_enabled(),
++        gte_geometry_correction_enabled(), (g_render_thread && gl_renderer_frame_generation()) ? 1 : 0,
+         g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
+         g_all_weapons_box ? 1 : 0, g_unlock_mercenaries ? 1 : 0, g_unlock_boutique ? 1 : 0,
+         g_unlock_epilogues ? 1 : 0);

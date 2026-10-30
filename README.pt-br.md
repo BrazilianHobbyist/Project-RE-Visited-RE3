@@ -59,9 +59,9 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 | Vibração | Precisa de teste |
 | Texturas com correção de perspectiva | Precisa de teste |
 | Fonte nítida (opção do launcher) | Funciona. Novo na v2.0.0: a primeira partida com a opção extrai a fonte do seu próprio jogo, e o launcher a amplia 4x (EPX). Nada do jogo vai no pacote |
-| Correção geométrica PGXP | Problemas conhecidos: elimina o tremor. As fendas pretas nos rostos ficaram bem menores desde a v1.7.0, porque os vértices das costuras são soldados, mas ainda há pequenas falhas. Desligada por padrão |
+| Correção geométrica PGXP | Precisa de teste. Elimina o tremor. Após a v2.0.0, as juntas dos modelos (rosto, nuca, axila) ficam fechadas: o PGXP acompanha a solda que o próprio jogo faz entre as partes do modelo, inclusive a profundidade, e a expansão de emendas do PSXRecomp cobre as partes sem vértice em comum. Desligada por padrão |
 | Velocidade do texto de introdução | Corrigida segundo o mantenedor para a v2.0.0; precisa de teste |
-| 60 FPS / interpolação de quadros | **Removido.** Nunca funcionou de verdade (era placebo) |
+| Movimento suave (quadros intermediários, opção avançada do launcher) | Precisa de teste. O interpolador antigo foi removido (era placebo). A opção nova, após a v2.0.0, usa o Smooth motion do PSXRecomp: desenha a cena de novo entre dois quadros do jogo, com os modelos a meio caminho. A lógica e a velocidade do jogo não mudam. Medido num monitor de 144 Hz: ~72 imagens diferentes por segundo, contra ~36 sem a opção. Funciona junto com a fonte nítida e o 16:9 Ampliado. Desligado por padrão |
 
 Controles antigos que só funcionam via DirectInput: ative "Controles genéricos antigos (DirectInput)" no launcher. A opção vem desligada porque, em alguns PCs, atrasa a abertura em vários segundos; controles de Xbox, PlayStation, Switch e a maioria dos outros funcionam sem ela.
 

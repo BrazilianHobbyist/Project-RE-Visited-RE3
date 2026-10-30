@@ -74,7 +74,8 @@ enum ControlID {
     ID_BTN_ADVANCED = 1040,
     ID_BTN_ADV_OK = 1041,
     ID_BTN_ADV_CANCEL = 1042,
-    ID_BTN_ADV_RESTORE = 1043
+    ID_BTN_ADV_RESTORE = 1043,
+    ID_CHK_SMOOTH_MOTION = 1044
 };
 
 // Global handles
@@ -137,6 +138,7 @@ HWND g_hComboRenderer = NULL;
 HWND g_hComboInternalRes = NULL;
 HWND g_hComboControls = NULL;
 HWND g_hChkPgxpGeom = NULL;
+HWND g_hChkSmoothMotion = NULL;
 HWND g_hChkPgxpTex = NULL;
 HWND g_hChkAntialiasing = NULL;
 HWND g_hChkSharpFont = NULL;
@@ -903,6 +905,7 @@ struct GameConfig {
     bool modern_controls = false;  // original tank controls until modern mode is refined
     int modern_turn_speed = 90;   // not in the UI; kept so saving does not drop it
     bool geometry_correction = false;
+    bool smooth_motion = false;    // in-between frames (render thread), experimental
     bool perspective_texturing = true;
     bool antialiasing = true;
     bool auto_skip_fmv = false;
@@ -979,6 +982,7 @@ GameConfig LoadConfig() {
             if (v >= 16 && v <= 2048) cfg.modern_turn_speed = v;
         }
         else if (key == L"geometry_correction") cfg.geometry_correction = (val == L"true");
+        else if (key == L"smooth_motion") cfg.smooth_motion = (val == L"true");
         else if (key == L"perspective_texturing") cfg.perspective_texturing = (val == L"true");
         else if (key == L"antialiasing") cfg.antialiasing = (val == L"true" || val == L"1");
         else if (key == L"auto_skip_fmv") cfg.auto_skip_fmv = (val == L"true");
@@ -1018,6 +1022,7 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"internal_resolution = \"" << cfg.internal_resolution << L"\"\n";
         sFile << L"supersampling       = " << supersampling << L"\n";
         sFile << L"geometry_correction = " << (cfg.geometry_correction ? L"true" : L"false") << L"\n";
+        sFile << L"smooth_motion       = " << (cfg.smooth_motion ? L"true" : L"false") << L"\n";
         sFile << L"perspective_texturing = " << (cfg.perspective_texturing ? L"true" : L"false") << L"\n";
         sFile << L"antialiasing        = " << (cfg.antialiasing ? L"true" : L"false") << L"\n";
         sFile << L"auto_skip_fmv       = " << (cfg.auto_skip_fmv ? L"true" : L"false") << L"\n";
@@ -1078,6 +1083,8 @@ bool SaveConfig(const GameConfig& cfg) {
                 line = L"renderer = \"" + cfg.renderer + L"\"";
             } else if (line.find(L"geometry_correction") != std::wstring::npos) {
                 line = L"geometry_correction = " + std::wstring(cfg.geometry_correction ? L"true" : L"false");
+            } else if (line.find(L"smooth_motion") != std::wstring::npos) {
+                line = L"smooth_motion = " + std::wstring(cfg.smooth_motion ? L"true" : L"false");
             } else if (line.find(L"perspective_texturing") != std::wstring::npos) {
                 line = L"perspective_texturing = " + std::wstring(cfg.perspective_texturing ? L"true" : L"false");
             } else if (line.find(L"auto_skip_fmv") != std::wstring::npos) {
@@ -1130,6 +1137,7 @@ GameConfig GetGuiConfig() {
 
     if (g_hComboRenderer) cfg.renderer = (SendMessageW(g_hComboRenderer, CB_GETCURSEL, 0, 0) == 1) ? L"software" : L"opengl";
     if (g_hChkPgxpGeom) cfg.geometry_correction = Checked(g_hChkPgxpGeom);
+    if (g_hChkSmoothMotion) cfg.smooth_motion = Checked(g_hChkSmoothMotion);
     if (g_hChkPgxpTex) cfg.perspective_texturing = Checked(g_hChkPgxpTex);
     if (g_hChkAntialiasing) cfg.antialiasing = Checked(g_hChkAntialiasing);
     if (g_hChkSkipFmv) cfg.auto_skip_fmv = Checked(g_hChkSkipFmv);
@@ -1226,9 +1234,12 @@ void ApplyLanguage(const std::wstring& lang) {
                               L"Texturas sin deformación (corrección de perspectiva)",
                               L"Texturas sem deformação (correção de perspectiva)"));
     SetText(g_hChkAntialiasing, L3(L"Smooth edges (FXAA)", L"Bordes suaves (FXAA)", L"Bordas suaves (FXAA)"));
-    SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP, experimental: small gaps on faces)",
-                               L"Modelos 3D estables (PGXP, experimental: pequeñas grietas en caras)",
-                               L"Modelos 3D estáveis (PGXP, experimental: pequenas falhas nos rostos)"));
+    SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP, experimental)",
+                               L"Modelos 3D estables (PGXP, experimental)",
+                               L"Modelos 3D estáveis (PGXP, experimental)"));
+    SetText(g_hChkSmoothMotion, L3(L"Smooth motion: in-between frames on fast monitors (experimental)",
+                                   L"Movimiento suave: fotogramas intermedios en monitores rápidos (experimental)",
+                                   L"Movimento suave: quadros intermediários em monitores rápidos (experimental)"));
     SetText(g_hGrpAudio, L3(L"  Sound and controller  ", L"  Sonido y mando  ", L"  Som e controle  "));
     SetText(g_hChkSpuHq, L3(L"Experimental audio mixing (may sound clipped)", L"Mezcla de audio experimental (puede saturar)",
                             L"Mixagem de áudio experimental (pode estourar)"));
@@ -2397,6 +2408,7 @@ static void AdvancedFill(const GameConfig& c) {
     SendMessageW(g_hChkPgxpTex, BM_SETCHECK, c.perspective_texturing ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g_hChkAntialiasing, BM_SETCHECK, c.antialiasing ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g_hChkPgxpGeom, BM_SETCHECK, c.geometry_correction ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(g_hChkSmoothMotion, BM_SETCHECK, c.smooth_motion ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g_hChkSpuHq, BM_SETCHECK, c.spu_hq ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g_hChkSkipFmv, BM_SETCHECK, c.auto_skip_fmv ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(g_hChkDinput, BM_SETCHECK, c.directinput_joysticks ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -2412,13 +2424,14 @@ LRESULT CALLBACK AdvancedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
             return c;
         };
         int y = 14;
-        g_hGrpInput = mk(L"BUTTON", BS_GROUPBOX, 14, y, 512, 156, 0, g_hFontBold);
+        g_hGrpInput = mk(L"BUTTON", BS_GROUPBOX, 14, y, 512, 182, 0, g_hFontBold);
         g_hLblRend = mk(L"STATIC", 0, 28, y + 29, 140, 20, 0, g_hFontBody);
         g_hComboRenderer = mk(L"COMBOBOX", CBS_DROPDOWNLIST | WS_TABSTOP, 176, y + 26, 336, 120, ID_COMBO_RENDERER, g_hFontBody);
         g_hChkPgxpTex = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 62, 490, 22, ID_CHK_PGXP_TEX, g_hFontBody);
         g_hChkAntialiasing = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 88, 490, 22, ID_CHK_ANTIALIASING, g_hFontBody);
         g_hChkPgxpGeom = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 114, 490, 22, ID_CHK_PGXP_GEOM, g_hFontBody);
-        y += 168;
+        g_hChkSmoothMotion = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 140, 490, 22, ID_CHK_SMOOTH_MOTION, g_hFontBody);
+        y += 194;
         g_hGrpAudio = mk(L"BUTTON", BS_GROUPBOX, 14, y, 512, 152, 0, g_hFontBold);
         g_hChkSpuHq = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 24, 490, 22, ID_CHK_SPU_HQ, g_hFontBody);
         g_hChkSkipFmv = mk(L"BUTTON", BS_AUTOCHECKBOX | WS_TABSTOP, 28, y + 50, 490, 22, ID_CHK_SKIP_FMV, g_hFontBody);
@@ -2474,7 +2487,7 @@ LRESULT CALLBACK AdvancedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
         break;
     case WM_DESTROY:
         g_hGrpInput = g_hLblRend = g_hComboRenderer = g_hChkPgxpTex = g_hChkAntialiasing = NULL;
-        g_hChkPgxpGeom = g_hGrpAudio = g_hChkSpuHq = g_hChkSkipFmv = g_hChkDinput = NULL;
+        g_hChkPgxpGeom = g_hChkSmoothMotion = g_hGrpAudio = g_hChkSpuHq = g_hChkSkipFmv = g_hChkDinput = NULL;
         g_hBtnInput = g_hBtnSaves = NULL;
         g_hWndAdvanced = NULL;
         if (g_hWndMain) { EnableWindow(g_hWndMain, TRUE); SetForegroundWindow(g_hWndMain); }
@@ -2489,7 +2502,7 @@ void ShowAdvancedDialog(HWND hWndParent) {
     if (g_hWndAdvanced) { SetForegroundWindow(g_hWndAdvanced); return; }
     RECT rp; GetWindowRect(hWndParent, &rp);
     DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU, ex = WS_EX_DLGMODALFRAME;
-    RECT rc = { 0, 0, 540, 398 };
+    RECT rc = { 0, 0, 540, 424 };
     AdjustWindowRectEx(&rc, style, FALSE, ex);
     int w = rc.right - rc.left, h = rc.bottom - rc.top;
     int x = rp.left + ((rp.right - rp.left) - w) / 2, y = rp.top + ((rp.bottom - rp.top) - h) / 2;

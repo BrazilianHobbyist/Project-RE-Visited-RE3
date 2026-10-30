@@ -10,6 +10,7 @@ renderer            = "opengl"
 internal_resolution = "1080p"
 supersampling       = 2
 geometry_correction = false
+smooth_motion       = false
 perspective_texturing = true
 antialiasing        = true
 auto_skip_fmv       = false

@@ -59,9 +59,9 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Vibración | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
 | Fuente nítida (opción del launcher) | Funciona. Nuevo en la v2.0.0: la primera partida con la opción extrae la fuente de tu propio juego, y el launcher la amplía 4x (EPX). Nada del juego va en el paquete |
-| Corrección geométrica PGXP | Problemas conocidos: elimina el temblor. Las grietas negras en las caras son mucho menores desde la v1.7.0, porque los vértices de las costuras se sueldan, pero quedan pequeños fallos. Desactivada por defecto |
+| Corrección geométrica PGXP | Necesita prueba. Elimina el temblor. Después de la v2.0.0, las juntas de los modelos (cara, nuca, axila) quedan cerradas: PGXP sigue la soldadura que el propio juego hace entre las partes del modelo, profundidad incluida, y la expansión de costuras de PSXRecomp cubre las partes sin vértice común. Desactivada por defecto |
 | Velocidad del texto de introducción | Corregida según el mantenedor para la v2.0.0; requiere pruebas |
-| 60 FPS / interpolación de fotogramas | **Eliminado.** Nunca funcionó realmente (era placebo) |
+| Movimiento suave (fotogramas intermedios, opción avanzada del launcher) | Necesita prueba. El interpolador antiguo se eliminó (era placebo). La opción nueva, después de la v2.0.0, usa el Smooth motion de PSXRecomp: dibuja la escena de nuevo entre dos fotogramas del juego, con los modelos a medio camino. La lógica y la velocidad del juego no cambian. Medido en un monitor de 144 Hz: ~72 imágenes distintas por segundo, frente a ~36 sin la opción. Funciona junto con la fuente nítida y el 16:9 Ampliado. Desactivado por defecto |
 
 Mandos antiguos que solo funcionan con DirectInput: activa "Mandos genéricos antiguos (DirectInput)" en el launcher. Viene desactivado porque en algunos PC retrasa el arranque varios segundos; los mandos de Xbox, PlayStation, Switch y la mayoría de los demás funcionan sin él.
 

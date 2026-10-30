@@ -59,9 +59,9 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
 | Sharp font (launcher option) | Works. New in v2.0.0: the first session with the option on extracts the font from your own game, and the launcher then upscales it 4x (EPX). Nothing from the game is shipped |
-| PGXP geometry correction | Known issues: stops wobble. The black cracks on faces are much smaller since v1.7.0, because seam vertices are welded, but small artifacts remain. Off by default |
+| PGXP geometry correction | Needs testing. Stops wobble. After v2.0.0 the model joints (face, neck, armpit) stay closed: PGXP follows the weld the game itself makes between model parts, depth included, and PSXRecomp's seam expansion covers the parts that share no vertex. Off by default |
 | Intro/story text speed | Reported fixed by the maintainer for v2.0.0; needs testing |
-| 60 FPS / frame interpolation | **Removed.** It never worked properly (it was placebo) |
+| Smooth motion (in-between frames, launcher advanced option) | Needs testing. The old interpolator was removed (it was placebo). The new option, after v2.0.0, uses PSXRecomp's Smooth motion: it draws the scene again between two game frames, with the models part of the way along. Game logic and speed do not change. Measured on a 144 Hz monitor: ~72 different images per second, against ~36 without it. Works together with the sharp font and 16:9 Zoomed. Off by default |
 
 Old DirectInput-only controllers: enable "Old generic controllers (DirectInput)" in the launcher. It is off by default because on some PCs it delays startup by several seconds; Xbox, PlayStation, Switch and most other pads work without it.
 
