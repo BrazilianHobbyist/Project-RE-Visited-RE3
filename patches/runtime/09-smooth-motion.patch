@@ -17,20 +17,21 @@ index f2879973..d58df448 100644
      /* 0xA0 — CPU→VRAM Copy (header: 3 words)
       * Word 0: command
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f48e79c3..6c75d990 100644
+index f48e79c3..aa32d3d7 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -473,7 +473,8 @@ enum {
+@@ -473,7 +473,9 @@ enum {
      RTH_WIDE_DISABLE, RTH_WIDE_CLEAR, RTH_WIDE_CLEAR_MARGINS, RTH_PROJ_TRI,
      RTH_WIDE_RECOVERY, RTH_INTERP_SUSPENDED, RTH_PRESENT_VRAM,
      RTH_PRESENT_WIDE, RTH_STATE, RTH_PEEK, RTH_RING_CAPTURE, RTH_DYN_STEP,
 -    RTH_FRAME, RTH_FG_SRC, RTH_DEPTH, RTH_HD_NOTE, RTH_DITHER, RTH_WIDE_FEEDBACK
 +    RTH_FRAME, RTH_FG_SRC, RTH_DEPTH, RTH_HD_NOTE, RTH_DITHER, RTH_WIDE_FEEDBACK,
-+    RTH_WS_SNAP, RTH_WS_INVAL
++    RTH_WS_SNAP, RTH_WS_INVAL,
++    RTH_FG_BACKDROP   /* Smooth motion lists only: restore a buffer's uploaded backdrop */
  };
  /* GP0(A0) whose payload gpu.c is still streaming into its array (the
   * facade's vram_upload_open, emulation thread), tracked whatever the HD
-@@ -482,6 +483,12 @@ enum {
+@@ -482,6 +484,12 @@ enum {
   * (even a full-VRAM TRACK_UPLOAD) never ends it; only the commit, GP1(01h),
   * a reset or a savestate restored outside A0 do. */
  static int s_rth_a0_open = 0;
@@ -43,7 +44,7 @@ index f48e79c3..6c75d990 100644
  /* HD authority requested while an A0 streams under GPU authority: its
   * received words exist only in gpu.c's array (the FBO gets the whole rect at
   * the commit), so ensure_cpu's readback would overwrite them. The switch
-@@ -10533,8 +10540,11 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10533,8 +10541,11 @@ static float present_alloc_extent(int units, int scale) {
   * models in view, and over it, inside the centred 4:3 rect, every pixel where
   * the final image differs from the copy (the UI) at 1:1. A buffer last drawn
   * as a full 2D screen has no copy and presents 4:3 pillarboxed. Only the plain
@@ -57,7 +58,7 @@ index f48e79c3..6c75d990 100644
  typedef struct {
      int    used, valid, x, y, w, h, scale;
      int    fy0, fy1;
-@@ -10543,6 +10553,8 @@ typedef struct {
+@@ -10543,6 +10554,8 @@ typedef struct {
      int    tw, th;
  } LySlot;
  static LySlot   s_ly[2];
@@ -66,7 +67,7 @@ index f48e79c3..6c75d990 100644
  static int      s_ly_on = -1;
  static GLuint   s_ly_comp_tex = 0, s_ly_comp_fbo = 0;
  static int      s_ly_comp_w = 0, s_ly_comp_h = 0;
-@@ -10563,26 +10575,36 @@ int gl_renderer_ws_layers_enabled(void) {
+@@ -10563,26 +10576,36 @@ int gl_renderer_ws_layers_enabled(void) {
          const char *e = getenv("PSX_WS_LAYERS");
          s_ly_on = (e && e[0] == '1') ? 1 : 0;
      }
@@ -111,7 +112,7 @@ index f48e79c3..6c75d990 100644
          static int next = 0;
          s = &s_ly[next];
          next ^= 1;
-@@ -10615,7 +10637,18 @@ void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
+@@ -10615,7 +10638,18 @@ void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
      p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, 0);
      s->valid = 1; s->w = w; s->h = h; s->scale = R;
      s->fy0 = focus_y0; s->fy1 = focus_y1; s->hash = bg_hash;
@@ -131,7 +132,7 @@ index f48e79c3..6c75d990 100644
  }
  
  static const char *LY_FS =
-@@ -11810,7 +11843,7 @@ static uint16_t rth_prim_flags(void) {
+@@ -11810,7 +11844,7 @@ static uint16_t rth_prim_flags(void) {
  static int gl_rth_eligible(void) {
      extern int psx_netplay_active(void);
      return s_raster_ok && s_ctx && !s_cpu_auth_dual && !s_depth24_skip_up &&
@@ -140,7 +141,7 @@ index f48e79c3..6c75d990 100644
             !gpu_display_is_depth24() && !s_interp_enabled && !s_pass_active &&
             !psx_netplay_active() && !psx_openxr_session_active() &&
             gr_backend() == GR_BACKEND_OPENGL;
-@@ -11823,7 +11856,26 @@ static int gl_rth_eligible(void) {
+@@ -11823,7 +11857,26 @@ static int gl_rth_eligible(void) {
   * VRAM: no A0 payload can be streaming (its header takes the context). */
  static void rth_hd_publish_private(void) {
      if (!s_hd_native_authority) return;
@@ -168,7 +169,7 @@ index f48e79c3..6c75d990 100644
  }
  
  static void gl_rth_acquire(const char *reason) {
-@@ -12364,6 +12416,7 @@ static int fg_op_kept(uint16_t op) {
+@@ -12364,6 +12417,7 @@ static int fg_op_kept(uint16_t op) {
      case RTH_TEX_RECT_SCALED: case RTH_LINE: case RTH_SHADED_LINE: case RTH_AREA:
      case RTH_OFFSET: case RTH_WIDE_VIEW: case RTH_WIDE_TARGET: case RTH_WIDE_DISABLE:
      case RTH_WIDE_CLEAR: case RTH_WIDE_CLEAR_MARGINS: case RTH_PROJ_TRI: case RTH_STATE:
@@ -176,7 +177,71 @@ index f48e79c3..6c75d990 100644
          return 1;
      default:
          return 0;
-@@ -12867,6 +12920,11 @@ static void fg_replay(const FgList *a, const FgList *b, double t, GLuint gen_wid
+@@ -12505,8 +12559,63 @@ static void fg_rotate(void) {
+     fg_list_open();
+ }
+ 
++/* Backdrop uploads (Resident Evil 3: every frame starts with one CPU-to-VRAM
++ * upload of the room's pre-rendered image over the whole back buffer, then
++ * draws the models and the mask sprites over it). The lists keep no
++ * transfers, so an in-between frame redrew only the models over the newer
++ * real frame, whose models showed where the in-between ones did not cover.
++ * The surface right after such an upload is copied (at the next record, when
++ * the upload has executed), and the list gets a marker that restores it. */
++#define FG_BD_SLOTS 4
++static GLuint s_fg_bd_tex[FG_BD_SLOTS], s_fg_bd_fbo[FG_BD_SLOTS];
++static int    s_fg_bd_rect[FG_BD_SLOTS][5];   /* x, y, w, h, scale; w = 0: none */
++static int    s_fg_bd_alloc[FG_BD_SLOTS][2];  /* texture size (surface px)          */
++static int    s_fg_bd_pending = -1;
++static void fg_backdrop_capture(int slot) {
++    const int *r = s_fg_bd_rect[slot];
++    const int S = s_hr_scale;
++    flush_line_batch(); flush_flat_batch(); flush_tex_batch(); flush_cpu_upload();
++    if (!s_fg_bd_tex[slot] || s_fg_bd_alloc[slot][0] != r[2] * S || s_fg_bd_alloc[slot][1] != r[3] * S) {
++        if (!s_fg_bd_tex[slot]) { glGenTextures(1, &s_fg_bd_tex[slot]); p_glGenFramebuffers(1, &s_fg_bd_fbo[slot]); }
++        p_glActiveTexture(PSXGL_TEXTURE0);
++        glBindTexture(GL_TEXTURE_2D, s_fg_bd_tex[slot]);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, r[2] * S, r[3] * S, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
++        s_fg_bd_alloc[slot][0] = r[2] * S; s_fg_bd_alloc[slot][1] = r[3] * S;
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s_fg_bd_fbo[slot]);
++        p_glFramebufferTexture2D(PSXGL_FRAMEBUFFER, PSXGL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
++                                 s_fg_bd_tex[slot], 0);
++        p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
++    }
++    s_fg_bd_rect[slot][4] = S;
++    fg_blit2(s_hr_fbo, s_fg_bd_fbo[slot], r[0] * S, r[1] * S, 0, 0, r[2] * S, r[3] * S);
++}
++
+ /* Called for every replayed record (gl_rth_exec), before it executes. */
+ static void fg_capture(const RtCmd *c, const void *payload) {
++    if (s_fg_bd_pending >= 0) {   /* the backdrop upload just executed */
++        fg_backdrop_capture(s_fg_bd_pending);
++        s_fg_bd_pending = -1;
++    }
++    if (c->op == RTH_XFER_IN) {
++        const int32_t *v = (const int32_t *)payload;
++        const int tb = fg_buf_of(v[0], v[1]);
++        /* Over at least half of a buffer: a backdrop, not a texture or CLUT. */
++        if (tb < 0 || tb >= FG_BD_SLOTS || 2 * v[2] * v[3] < s_fg_buf[tb][2] * s_fg_buf[tb][3])
++            return;
++        if (tb != s_fg_cur_buf) {
++            if (s_fg_cur_buf >= 0) fg_rotate();
++            else { fg_list_open(); s_fg_partial = 0; }
++            s_fg_cur_buf = tb;
++        }
++        const int32_t m[5] = { v[0], v[1], v[2], v[3], tb };
++        if (fg_list_append(&s_fg_l[s_fg_cur], RTH_FG_BACKDROP, 0, m, sizeof m) < 0) return;
++        s_fg_bd_rect[tb][0] = v[0]; s_fg_bd_rect[tb][1] = v[1];
++        s_fg_bd_rect[tb][2] = v[2]; s_fg_bd_rect[tb][3] = v[3];
++        s_fg_bd_pending = tb;
++        return;
++    }
+     if (c->op == RTH_FG_SRC) {
+         memcpy(s_fg_src, payload, sizeof s_fg_src);
+         s_fg_src_valid = 1;
+@@ -12867,6 +12976,23 @@ static void fg_replay(const FgList *a, const FgList *b, double t, GLuint gen_wid
              g_wide_cur_base = v[0];
              break;
          case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
@@ -185,10 +250,22 @@ index f48e79c3..6c75d990 100644
 +                ly_snapshot_exec(v[0], v[1], v[2], v[3], v[4], v[5], (uint32_t)v[6]);
 +            break;
 +        case RTH_WS_INVAL: if (!s_fg_replay_objects_only) ly_invalidate_exec(v[0], v[1]); break;
++        case RTH_FG_BACKDROP: {
++            const int k = v[4];
++            const int *bd = (k >= 0 && k < FG_BD_SLOTS) ? s_fg_bd_rect[k] : NULL;
++            if (s_fg_replay_objects_only || !bd || !s_fg_bd_fbo[k] || bd[4] != s_hr_scale ||
++                bd[0] != v[0] || bd[1] != v[1] || bd[2] != v[2] || bd[3] != v[3])
++                break;
++            flush_line_batch(); flush_flat_batch(); flush_tex_batch();
++            const int S = s_hr_scale;
++            fg_blit2(s_fg_bd_fbo[k], s_hr_fbo, 0, 0, v[0] * S, v[1] * S, v[2] * S, v[3] * S);
++            drawn = 1;
++            break;
++        }
          case RTH_WIDE_CLEAR:
              if (v[0] == disp[0] && gen_wide && !s_fg_replay_objects_only) glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]);
              break;
-@@ -12995,6 +13053,30 @@ static void fg_compose(const FgList *b, GLuint wide_fbo, GLuint wide_tex, int li
+@@ -12995,6 +13121,30 @@ static void fg_compose(const FgList *b, GLuint wide_fbo, GLuint wide_tex, int li
                         int force_4_3) {
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -219,7 +296,7 @@ index f48e79c3..6c75d990 100644
      if (b->wide) {
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
          /* A reprojected frame warped the composed wide image itself. */
-@@ -13920,6 +14002,7 @@ static int fg_generate(double t, int swap) {
+@@ -13920,6 +14070,7 @@ static int fg_generate(double t, int swap) {
      hiw_flush_queue();
      pack_flush();
      if (!fg_surfaces_ensure(b->wide)) return 0;
@@ -227,7 +304,7 @@ index f48e79c3..6c75d990 100644
      const int S = s_hr_scale;
      /* Real bookkeeping the generated draws would touch. */
      FgState real;
-@@ -14675,6 +14758,7 @@ static void rtb_init(uint16_t *vram) {
+@@ -14675,6 +14826,7 @@ static void rtb_init(uint16_t *vram) {
      GL_RT_SYNC("init");
      if (s_rth_on) s_rth_vram_pub = vram;
      s_rth_a0_open = 0;   /* a reset abandons an incomplete A0 */
@@ -235,7 +312,7 @@ index f48e79c3..6c75d990 100644
      glb_init(vram);
      if (s_hd_authority_pending) gl_renderer_set_hd_texture_mode(1);
      if (s_rth_on && !rt_held()) rth_rebind_vram(s_rth_vram_priv);
-@@ -14805,13 +14889,16 @@ static void hd_note_exec(int op, int x, int y, int w, int h, int sx, int sy) {
+@@ -14805,13 +14957,16 @@ static void hd_note_exec(int op, int x, int y, int w, int h, int sx, int sy) {
  }
  /* After the upload/draw it follows, in command order, against s_vram. */
  static void rtb_vram_upload_open(int open) {
@@ -254,7 +331,7 @@ index f48e79c3..6c75d990 100644
  }
  static void rtb_hd_texture_note(int op, int x, int y, int w, int h, int sx, int sy) {
      RTH_DIRECT_OR(RTH_REC(RTH_HD_NOTE, 0, op, x, y, w, h, sx, sy)); hd_note_exec(op, x, y, w, h, sx, sy); }
-@@ -15006,6 +15093,8 @@ static void gl_rth_exec(void *user, const RtCmd *c, const void *payload) {
+@@ -15006,6 +15161,8 @@ static void gl_rth_exec(void *user, const RtCmd *c, const void *payload) {
      case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
      case RTH_WIDE_CLEAR: glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]); break;
      case RTH_WIDE_CLEAR_MARGINS: glb_wide_clear_margins(v[0], v[1], v[2], (uint16_t)v[3], v[4]); break;
