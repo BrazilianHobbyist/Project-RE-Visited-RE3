@@ -46,7 +46,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 |---|---|
 | Launcher setup wizard (extracts `SLUS_009.23` from your `.cue`/`.bin`) | Works |
 | Classic (tank) controls | Works (default) |
-| Modern screen-relative stick (`modern_controls`) | Needs testing. Since v2.0.0 the stick follows each camera's fixed screen axes, and the heading kept through a camera cut ends when you release the stick (before, direction drifted and could flip near the camera). Off by default |
+| Modern screen-relative stick (`modern_controls`) | Needs testing. The stick follows each camera's fixed screen axes, like RE HD Remaster's alternate controls. In v2.1.0, through a camera cut the current heading continues until you release the stick or turn it more than 45°; after a cut to a nearly opposite camera only releasing ends it. The heading then glides to the new camera (~0.2 s). The D-pad always drives the tank controls. Off by default |
 | Fast doors (`fast_doors`) | Works. Skips the door animation, and the next room loads at full host speed behind the black screen (the save-room door went from ~3.8 s to ~1 s). Gameplay speed is unchanged |
 | Skipping in-engine cutscenes with Select (Esc/Tab on keyboard) | Works (uses the game's own skip) |
 | FMV skip | Works; some FMVs can only be skipped after a certain point, as in the original game |
@@ -59,9 +59,9 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
 | Sharp font (launcher option) | Works. New in v2.0.0: the first session with the option on extracts the font from your own game, and the launcher then upscales it 4x (EPX). Nothing from the game is shipped |
-| PGXP geometry correction | Needs testing. Stops wobble. After v2.0.0 the model joints (face, neck, armpit) stay closed: PGXP follows the weld the game itself makes between model parts, depth included, and PSXRecomp's seam expansion covers the parts that share no vertex. Off by default |
+| PGXP geometry correction | Needs testing. Stops wobble. New in v2.1.0: the model joints (face, neck, armpit) stay closed: PGXP follows the weld the game itself makes between model parts, depth included, and PSXRecomp's seam expansion covers the parts that share no vertex. Off by default |
 | Intro/story text speed | Reported fixed by the maintainer for v2.0.0; needs testing |
-| Smooth motion (in-between frames, launcher advanced option) | Needs testing. The old interpolator was removed (it was placebo). The new option, after v2.0.0, uses PSXRecomp's Smooth motion: it draws the scene again between two game frames, with the models part of the way along. Game logic and speed do not change. Measured on a 144 Hz monitor: ~72 different images per second, against ~36 without it. Works together with the sharp font and 16:9 Zoomed. Off by default |
+| Smooth motion (in-between frames, launcher advanced option) | Needs testing. The old interpolator was removed (it was placebo). New in v2.1.0, experimental: it uses PSXRecomp's Smooth motion: it draws the scene again between two game frames, with the models part of the way along. Game logic and speed do not change. Measured on a 144 Hz monitor: ~72 different images per second, against ~36 without it. Works together with the sharp font and 16:9 Zoomed. Known issue: some artifacts on zombies. Off by default |
 
 Old DirectInput-only controllers: enable "Old generic controllers (DirectInput)" in the launcher. It is off by default because on some PCs it delays startup by several seconds; Xbox, PlayStation, Switch and most other pads work without it.
 

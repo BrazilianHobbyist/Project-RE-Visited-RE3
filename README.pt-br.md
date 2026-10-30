@@ -46,7 +46,7 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 |---|---|
 | Assistente de instalação do launcher (extrai `SLUS_009.23` do seu `.cue`/`.bin`) | Funciona |
 | Controle clássico (tanque) | Funciona (padrão) |
-| Analógico moderno relativo à tela (`modern_controls`) | Precisa de teste. Desde a v2.0.0 o analógico segue os eixos fixos de cada câmera, e a direção mantida numa troca de câmera termina quando você solta o analógico (antes a direção derivava e podia inverter perto da câmera). Desligado por padrão |
+| Analógico moderno relativo à tela (`modern_controls`) | Precisa de teste. O analógico segue os eixos fixos de cada câmera, como o controle alternativo do RE HD Remaster. Na v2.1.0, numa troca de câmera a direção atual continua até você soltar o analógico ou girá-lo mais de 45°; num corte para uma câmera quase oposta, só soltar encerra. Depois a direção passa à nova câmera suavemente (~0,2 s). O direcional digital usa sempre o controle tanque. Desligado por padrão |
 | Portas rápidas (`fast_doors`) | Funciona. Pula a animação da porta, e a sala seguinte carrega na velocidade máxima do PC atrás da tela preta (a porta da sala do save caiu de ~3,8 s para ~1 s). A velocidade do jogo não muda |
 | Pular cenas em tempo real com Select (Esc/Tab no teclado) | Funciona (usa o pulo do próprio jogo) |
 | Pular FMV | Funciona; alguns FMVs só podem ser pulados depois de certo ponto, como no jogo original |
@@ -59,9 +59,9 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 | Vibração | Precisa de teste |
 | Texturas com correção de perspectiva | Precisa de teste |
 | Fonte nítida (opção do launcher) | Funciona. Novo na v2.0.0: a primeira partida com a opção extrai a fonte do seu próprio jogo, e o launcher a amplia 4x (EPX). Nada do jogo vai no pacote |
-| Correção geométrica PGXP | Precisa de teste. Elimina o tremor. Após a v2.0.0, as juntas dos modelos (rosto, nuca, axila) ficam fechadas: o PGXP acompanha a solda que o próprio jogo faz entre as partes do modelo, inclusive a profundidade, e a expansão de emendas do PSXRecomp cobre as partes sem vértice em comum. Desligada por padrão |
+| Correção geométrica PGXP | Precisa de teste. Elimina o tremor. Novo na v2.1.0: as juntas dos modelos (rosto, nuca, axila) ficam fechadas: o PGXP acompanha a solda que o próprio jogo faz entre as partes do modelo, inclusive a profundidade, e a expansão de emendas do PSXRecomp cobre as partes sem vértice em comum. Desligada por padrão |
 | Velocidade do texto de introdução | Corrigida segundo o mantenedor para a v2.0.0; precisa de teste |
-| Movimento suave (quadros intermediários, opção avançada do launcher) | Precisa de teste. O interpolador antigo foi removido (era placebo). A opção nova, após a v2.0.0, usa o Smooth motion do PSXRecomp: desenha a cena de novo entre dois quadros do jogo, com os modelos a meio caminho. A lógica e a velocidade do jogo não mudam. Medido num monitor de 144 Hz: ~72 imagens diferentes por segundo, contra ~36 sem a opção. Funciona junto com a fonte nítida e o 16:9 Ampliado. Desligado por padrão |
+| Movimento suave (quadros intermediários, opção avançada do launcher) | Precisa de teste. O interpolador antigo foi removido (era placebo). Novo na v2.1.0, experimental: usa o Smooth motion do PSXRecomp: desenha a cena de novo entre dois quadros do jogo, com os modelos a meio caminho. A lógica e a velocidade do jogo não mudam. Medido num monitor de 144 Hz: ~72 imagens diferentes por segundo, contra ~36 sem a opção. Funciona junto com a fonte nítida e o 16:9 Ampliado. Problema conhecido: alguns artefatos em zumbis. Desligado por padrão |
 
 Controles antigos que só funcionam via DirectInput: ative "Controles genéricos antigos (DirectInput)" no launcher. A opção vem desligada porque, em alguns PCs, atrasa a abertura em vários segundos; controles de Xbox, PlayStation, Switch e a maioria dos outros funcionam sem ela.
 

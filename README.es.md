@@ -46,7 +46,7 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 |---|---|
 | Asistente de instalación del launcher (extrae `SLUS_009.23` de tu `.cue`/`.bin`) | Funciona |
 | Control clásico (tanque) | Funciona (por defecto) |
-| Stick moderno relativo a la pantalla (`modern_controls`) | Requiere pruebas. Desde la v2.0.0 el stick sigue los ejes fijos de cada cámara, y la dirección mantenida en un cambio de cámara termina al soltar el stick (antes la dirección derivaba y podía invertirse cerca de la cámara). Desactivado por defecto |
+| Stick moderno relativo a la pantalla (`modern_controls`) | Requiere pruebas. El stick sigue los ejes fijos de cada cámara, como los controles alternativos de RE HD Remaster. En la v2.1.0, en un cambio de cámara la dirección actual continúa hasta soltar el stick o girarlo más de 45°; tras un corte a una cámara casi opuesta solo soltarlo la termina. Luego la dirección pasa a la nueva cámara suavemente (~0,2 s). La cruceta usa siempre los controles tanque. Desactivado por defecto |
 | Puertas rápidas (`fast_doors`) | Funciona. Salta la animación de la puerta, y la sala siguiente carga a la velocidad máxima del PC tras la pantalla negra (la puerta de la sala de guardado pasó de ~3,8 s a ~1 s). La velocidad del juego no cambia |
 | Saltar cinemáticas en tiempo real con Select (Esc/Tab en teclado) | Funciona (usa el salto del propio juego) |
 | Saltar FMV | Funciona; algunos FMV solo se pueden saltar a partir de cierto punto, como en el juego original |
@@ -59,9 +59,9 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Vibración | Requiere pruebas |
 | Texturas con corrección de perspectiva | Requiere pruebas |
 | Fuente nítida (opción del launcher) | Funciona. Nuevo en la v2.0.0: la primera partida con la opción extrae la fuente de tu propio juego, y el launcher la amplía 4x (EPX). Nada del juego va en el paquete |
-| Corrección geométrica PGXP | Necesita prueba. Elimina el temblor. Después de la v2.0.0, las juntas de los modelos (cara, nuca, axila) quedan cerradas: PGXP sigue la soldadura que el propio juego hace entre las partes del modelo, profundidad incluida, y la expansión de costuras de PSXRecomp cubre las partes sin vértice común. Desactivada por defecto |
+| Corrección geométrica PGXP | Necesita prueba. Elimina el temblor. Nuevo en la v2.1.0: las juntas de los modelos (cara, nuca, axila) quedan cerradas: PGXP sigue la soldadura que el propio juego hace entre las partes del modelo, profundidad incluida, y la expansión de costuras de PSXRecomp cubre las partes sin vértice común. Desactivada por defecto |
 | Velocidad del texto de introducción | Corregida según el mantenedor para la v2.0.0; requiere pruebas |
-| Movimiento suave (fotogramas intermedios, opción avanzada del launcher) | Necesita prueba. El interpolador antiguo se eliminó (era placebo). La opción nueva, después de la v2.0.0, usa el Smooth motion de PSXRecomp: dibuja la escena de nuevo entre dos fotogramas del juego, con los modelos a medio camino. La lógica y la velocidad del juego no cambian. Medido en un monitor de 144 Hz: ~72 imágenes distintas por segundo, frente a ~36 sin la opción. Funciona junto con la fuente nítida y el 16:9 Ampliado. Desactivado por defecto |
+| Movimiento suave (fotogramas intermedios, opción avanzada del launcher) | Necesita prueba. El interpolador antiguo se eliminó (era placebo). Nuevo en la v2.1.0, experimental: usa el Smooth motion de PSXRecomp: dibuja la escena de nuevo entre dos fotogramas del juego, con los modelos a medio camino. La lógica y la velocidad del juego no cambian. Medido en un monitor de 144 Hz: ~72 imágenes distintas por segundo, frente a ~36 sin la opción. Funciona junto con la fuente nítida y el 16:9 Ampliado. Problema conocido: algunos artefactos en zombis. Desactivado por defecto |
 
 Mandos antiguos que solo funcionan con DirectInput: activa "Mandos genéricos antiguos (DirectInput)" en el launcher. Viene desactivado porque en algunos PC retrasa el arranque varios segundos; los mandos de Xbox, PlayStation, Switch y la mayoría de los demás funcionan sin él.
 

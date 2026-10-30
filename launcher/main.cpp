@@ -171,7 +171,7 @@ Gdiplus::Bitmap* g_pBannerBmp = NULL;
 int g_screenHz = 60;
 std::wstring g_currentLang = L"en"; // Default is English!
 
-#define LAUNCHER_VERSION L"v2.0.0"
+#define LAUNCHER_VERSION L"v2.1.0"
 
 // Text for the active language: English, Spanish, Portuguese (Brazil).
 static std::wstring L3(const wchar_t* en, const wchar_t* es, const wchar_t* pt) {
