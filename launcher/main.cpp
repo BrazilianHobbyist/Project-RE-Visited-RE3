@@ -1237,9 +1237,9 @@ void ApplyLanguage(const std::wstring& lang) {
     SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP, experimental)",
                                L"Modelos 3D estables (PGXP, experimental)",
                                L"Modelos 3D estáveis (PGXP, experimental)"));
-    SetText(g_hChkSmoothMotion, L3(L"Smooth motion: in-between frames on fast monitors (experimental)",
-                                   L"Movimiento suave: fotogramas intermedios en monitores rápidos (experimental)",
-                                   L"Movimento suave: quadros intermediários em monitores rápidos (experimental)"));
+    SetText(g_hChkSmoothMotion, L3(L"Smooth motion: 60 FPS from in-between frames (experimental)",
+                                   L"Movimiento suave: 60 FPS con fotogramas intermedios (experimental)",
+                                   L"Movimento suave: 60 FPS com quadros intermediários (experimental)"));
     SetText(g_hGrpAudio, L3(L"  Sound and controller  ", L"  Sonido y mando  ", L"  Som e controle  "));
     SetText(g_hChkSpuHq, L3(L"Experimental audio mixing (may sound clipped)", L"Mezcla de audio experimental (puede saturar)",
                             L"Mixagem de áudio experimental (pode estourar)"));
