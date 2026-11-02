@@ -31,6 +31,31 @@ index 648b41bc..55b6badf 100644
  /* The sources of the next triangle's vertices (gte_fg_source_lookup: id,
   * camera-space x/y/z, projection distance H; id 0 = none) and the integer
   * positions it will be drawn at; recorded for frame generation only, never
+diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
+index f760a82b..6a25feac 100644
+--- a/runtime/src/debug_server.c
++++ b/runtime/src/debug_server.c
+@@ -5393,7 +5393,11 @@ static void handle_geom_correction(int id, const char *json)
+      * triangles that reach the predicate. */
+     uint64_t tc_att = 0, tc_arm = 0, tc_off = 0, tc_nosrc = 0, tc_noz = 0;
+     gpu_texture_correction_stats(&tc_att, &tc_arm, &tc_off, &tc_nosrc, &tc_noz);
++    extern void gte_prec_stats(uint64_t *hits, uint64_t *miss, uint64_t *nr, uint64_t *nt);
++    uint64_t pr_hit = 0, pr_miss = 0, pr_nr = 0, pr_nt = 0;
++    gte_prec_stats(&pr_hit, &pr_miss, &pr_nr, &pr_nt);
+     send_fmt("{\"id\":%d,\"ok\":true,"
++             "\"precise_matrices\":{\"rtp_hits\":%llu,\"rtp_miss\":%llu,\"rotations\":%llu,\"translations\":%llu},"
+              "\"geometry_correction\":%d,\"texture_correction\":%d,"
+              "\"geometry_vertex_hits\":%u,"
+              "\"perspective_triangles\":%u,"
+@@ -5415,6 +5419,8 @@ static void handle_geom_correction(int id, const char *json)
+              "\"word\":{\"lookups\":%llu,\"hit\":%llu,\"untracked\":%llu,"
+              "\"mismatch\":%llu,\"partial\":%llu,\"no_z\":%llu}}}",
+              id,
++             (unsigned long long)pr_hit, (unsigned long long)pr_miss,
++             (unsigned long long)pr_nr, (unsigned long long)pr_nt,
+              gte_geometry_correction_enabled(),
+              gpu_texture_correction_enabled(),
+              (unsigned)hits,
 diff --git a/runtime/src/frame_gen.c b/runtime/src/frame_gen.c
 index db265d36..c4674cfb 100644
 --- a/runtime/src/frame_gen.c
@@ -715,20 +740,322 @@ index aa32d3d7..23c6fe02 100644
          (unsigned long long)st.releases, (unsigned long long)st.oversize,
          (unsigned long long)st.backpressure_waits, st.backpressure_ns / 1e6,
          (unsigned long long)st.ring_full_waits, st.ring_full_ns / 1e6,
+diff --git a/runtime/src/gte.cpp b/runtime/src/gte.cpp
+index 06a0b31c..8c2fbf9c 100644
+--- a/runtime/src/gte.cpp
++++ b/runtime/src/gte.cpp
+@@ -13,6 +13,7 @@
+ #include <cstdlib>
+ #include <cstdio>
+ #include <cstring>
++#include <unordered_map>
+ extern "C" int psx_netplay_active(void);
+ 
+ extern "C" uint32_t psx_read_word(uint32_t addr);
+@@ -749,7 +750,11 @@ struct GteRtpRec {
+     int32_t  SXY0, SXY1, SXY2;
+     uint16_t SZ1, SZ2, SZ3;
+     uint32_t FLAG;
++    int32_t  P[3][2];   /* PGXP shadow positions pushed (16.16), oldest first */
+ };
++/* The last three PGXP shadow positions pushed by RTPS/RTPT (for the ring). */
++static int32_t s_rtp_px[3][2];
++static uint32_t s_rtp_pi = 0;
+ #define GTE_RTP_RING_CAP (1u << 18)   /* 256K raw entries (~a few seconds) */
+ static GteRtpRec* s_gte_rtp_ring = nullptr;
+ static uint64_t   s_gte_rtp_seq  = 0;
+@@ -816,6 +821,10 @@ static void gte_rtp_record(const GTEState* g, uint32_t cmd) {
+     e->SXY0=g->SXY[0]; e->SXY1=g->SXY[1]; e->SXY2=g->SXY[2];
+     e->SZ1=g->SZ[1]; e->SZ2=g->SZ[2]; e->SZ3=g->SZ[3];
+     e->FLAG=g->FLAG;
++    for (int i = 0; i < 3; i++) {
++        const uint32_t k = (s_rtp_pi + i) % 3;   /* oldest first */
++        e->P[i][0] = s_rtp_px[k][0]; e->P[i][1] = s_rtp_px[k][1];
++    }
+     s_gte_rtp_seq++;
+ 
+     /* classify */
+@@ -1025,13 +1034,14 @@ extern "C" int gte_rtp_ring_dump_json(char* out, int outsz, int max_count,
+             "\"RT\":[%d,%d,%d,%d,%d,%d,%d,%d,%d],\"TR\":[%d,%d,%d],"
+             "\"H\":%u,\"Hs\":%u,\"OFX\":%d,\"OFY\":%d,\"render_view\":%u,"
+             "\"S0\":[%d,%d],\"S1\":[%d,%d],\"S2\":[%d,%d],"
+-            "\"SZ\":[%u,%u,%u],\"FLAG\":\"0x%08X\"}",
++            "\"SZ\":[%u,%u,%u],\"FLAG\":\"0x%08X\",\"P\":[%d,%d,%d,%d,%d,%d]}",
+             emitted?",":"", e->seq, e->frame, e->caller_ra, e->cmd,
+             e->V0[0],e->V0[1],e->V0[2], e->V1[0],e->V1[1],e->V1[2], e->V2[0],e->V2[1],e->V2[2],
+             e->RT[0],e->RT[1],e->RT[2],e->RT[3],e->RT[4],e->RT[5],e->RT[6],e->RT[7],e->RT[8],
+             e->TR[0],e->TR[1],e->TR[2], (unsigned)e->H, (unsigned)e->Hs, e->OFX, e->OFY, e->render_view,
+             sxx(e->SXY0),syy(e->SXY0), sxx(e->SXY1),syy(e->SXY1), sxx(e->SXY2),syy(e->SXY2),
+-            (unsigned)e->SZ1,(unsigned)e->SZ2,(unsigned)e->SZ3, e->FLAG);
++            (unsigned)e->SZ1,(unsigned)e->SZ2,(unsigned)e->SZ3, e->FLAG,
++            e->P[0][0],e->P[0][1],e->P[1][0],e->P[1][1],e->P[2][0],e->P[2][1]);
+         emitted++;
+     }
+     out[pos] = 0;
+@@ -1087,6 +1097,117 @@ static int32_t gte_h_scaled(const GTEState* gte) {
+     return (int32_t)h;
+ }
+ 
++// ---------------------------------------------------------------------------
++// Precise matrix shadows (bone chains). A game builds a character's matrices
++// with integer rotations (a 12-bit sine table) and composes them bone by bone,
++// truncating every product to 4.12: from one frame to the next the rounding
++// of each bone falls differently and the limbs shimmer by a fraction of a
++// native pixel, which a high internal resolution shows. A title shim (func
++// overrides on its matrix functions) computes the same matrices in floating
++// point and notes them here against the integer matrix the game stored. The
++// GTE then uses the noted values, when RT/TR hold exactly those integers, for
++// the PGXP shadow of its projections and of MVMVA translations. Host-only:
++// the guest registers, MAC/IR/SXY and memory are the integer results.
++// ---------------------------------------------------------------------------
++namespace {
++struct PrecR { int16_t r[9]; double f[9]; uint32_t frame; };
++struct PrecT { int16_t r[9]; int32_t t[3]; double f[3]; uint32_t frame; };
++std::unordered_map<uint64_t, PrecR> s_prec_r;
++std::unordered_map<uint64_t, PrecT> s_prec_t;
++int s_prec_on = 0;
++uint64_t s_prec_rtp_hits = 0, s_prec_rtp_miss = 0, s_prec_rtp_partial = 0, s_prec_vhits = 0;
++uint64_t prec_hash(const int16_t r[9], const int32_t *t) {
++    uint64_t h = 1469598103934665603ull;
++    for (int i = 0; i < 9; i++) h = (h ^ (uint16_t)r[i]) * 1099511628211ull;
++    if (t) for (int i = 0; i < 3; i++) h = (h ^ (uint32_t)t[i]) * 1099511628211ull;
++    return h;
++}
++uint32_t prec_frame() { return (uint32_t)s_frame_count; }
++}
++
++extern "C" void gte_prec_set_enabled(int on) { s_prec_on = on ? 1 : 0; }
++extern "C" int  gte_prec_enabled(void) { return s_prec_on; }
++extern "C" void gte_prec_stats(uint64_t *hits, uint64_t *miss, uint64_t *nr, uint64_t *nt) {
++    if (hits) *hits = s_prec_rtp_hits;
++    if (miss) *miss = s_prec_rtp_miss;
++    if (nr) *nr = s_prec_rtp_partial;
++    if (nt) *nt = s_prec_vhits;
++}
++/* Note the exact values of an integer matrix (rf may be NULL: translation only). */
++extern "C" void gte_prec_note(const int16_t r[9], const int32_t t[3],
++                              const double rf[9], const double tf[3]) {
++    if (!s_prec_on) return;
++    if (s_prec_r.size() > 16384) s_prec_r.clear();
++    if (s_prec_t.size() > 16384) s_prec_t.clear();
++    const uint32_t f = prec_frame();
++    if (rf) {
++        PrecR &e = s_prec_r[prec_hash(r, nullptr)];
++        std::memcpy(e.r, r, sizeof e.r); std::memcpy(e.f, rf, sizeof e.f); e.frame = f;
++    }
++    if (tf) {
++        PrecT &e = s_prec_t[prec_hash(r, t)];
++        std::memcpy(e.r, r, sizeof e.r); std::memcpy(e.t, t, sizeof e.t);
++        std::memcpy(e.f, tf, sizeof e.f); e.frame = f;
++    }
++}
++/* The exact values noted for an integer matrix, else the integers themselves.
++ * Returns 1 if the rotation was found, 2 if the translation was, 3 both. */
++extern "C" int gte_prec_get(const int16_t r[9], const int32_t t[3], double rf[9], double tf[3]) {
++    int found = 0;
++    for (int i = 0; i < 9; i++) rf[i] = r[i];
++    for (int i = 0; i < 3; i++) tf[i] = t[i];
++    if (!s_prec_on) return 0;
++    const uint32_t f = prec_frame();
++    auto ir = s_prec_r.find(prec_hash(r, nullptr));
++    if (ir != s_prec_r.end() && f - ir->second.frame < 3 &&
++        std::memcmp(ir->second.r, r, sizeof ir->second.r) == 0) {
++        std::memcpy(rf, ir->second.f, sizeof ir->second.f);
++        found |= 1;
++    }
++    auto it = s_prec_t.find(prec_hash(r, t));
++    if (it != s_prec_t.end() && f - it->second.frame < 3 &&
++        std::memcmp(it->second.r, r, sizeof it->second.r) == 0 &&
++        std::memcmp(it->second.t, t, sizeof it->second.t) == 0) {
++        std::memcpy(tf, it->second.f, sizeof it->second.f);
++        found |= 2;
++    }
++    return found;
++}
++/* Vertices a game transformed with the GTE and stored as int16 (skinned
++ * joints, attached weapons) before projecting them with another matrix: the
++ * exact value of each, keyed by its integers, for this frame only. */
++namespace {
++struct PrecV { int16_t v[3]; double f[3]; uint32_t frame; };
++std::unordered_map<uint64_t, PrecV> s_prec_v;
++uint64_t prec_vhash(const int16_t v[3]) {
++    return ((uint64_t)(uint16_t)v[0] << 32) | ((uint64_t)(uint16_t)v[1] << 16) | (uint16_t)v[2];
++}
++}
++static void prec_note_vertex(const int16_t v[3], const double f[3]) {
++    if (s_prec_v.size() > 65536) s_prec_v.clear();
++    for (int i = 0; i < 3; i++) if (std::fabs(f[i] - v[i]) > 2.0) return;   /* saturated */
++    PrecV &e = s_prec_v[prec_vhash(v)];
++    std::memcpy(e.v, v, sizeof e.v); std::memcpy(e.f, f, sizeof e.f);
++    e.frame = prec_frame();
++}
++static bool prec_vertex(const int16_t *v, double f[3]) {
++    for (int i = 0; i < 3; i++) f[i] = v[i];
++    /* Experimental (PSX_PRECISE_SKIN=1): on RE3's blended weapon vertices it
++     * measured more frame-to-frame tremor, not less (2026-11-02). */
++    static int s_skin = -1;
++    if (s_skin < 0) { const char *e = std::getenv("PSX_PRECISE_SKIN"); s_skin = e && *e == '1'; }
++    if (!s_skin) return false;
++    auto it = s_prec_v.find(prec_vhash(v));
++    if (it == s_prec_v.end() || it->second.frame != prec_frame()) return false;
++    std::memcpy(f, it->second.f, sizeof it->second.f);
++    return true;
++}
++static int prec_rt(const GTEState *g, double rf[9], double tf[3]) {
++    int16_t r[9];
++    for (int i = 0; i < 9; i++) r[i] = g->RT[i / 3][i % 3];
++    return gte_prec_get(r, g->TR, rf, tf);
++}
++
+ // ---------------------------------------------------------------------------
+ // RTPS — Perspective Transformation (internal, operates on given vertex V)
+ //
+@@ -1282,6 +1403,30 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
+             const int precise = pgxp_project_precise(mac1, mac2, mac3, shift,
+                                      gte->IR1, gte->IR2, gte->SZ[3], gte_h_scaled(gte),
+                                      gte->OFX, gte->OFY, x_num, x_den, &ex16, &ey16);
++            /* With exact values noted for RT/TR (precise matrix shadows), a
++             * vertex that qualifies on the guest's integers is projected from
++             * the exact camera-space point instead. */
++            if (precise && s_prec_on && !s_render_rotate && !render_projective) {
++                double rf[9], tf[3], vf[3];
++                const int found = prec_rt(gte, rf, tf);
++                const bool vfound = prec_vertex(V, vf);
++                if (vfound) s_prec_vhits++;
++                if (found != 3) s_prec_rtp_partial++;
++                if (found || vfound) {
++                    double c[3];
++                    for (int row = 0; row < 3; row++)
++                        c[row] = (tf[row] + s_render_view[row]) * 4096.0 +
++                                 rf[row * 3] * vf[0] + rf[row * 3 + 1] * vf[1] + rf[row * 3 + 2] * vf[2];
++                    if (c[2] > 0.0 && (double)gte_h_scaled(gte) * 4096.0 < 2.0 * c[2]) {
++                        const double k = (double)gte_h_scaled(gte) * 65536.0 / c[2];
++                        ex16 = (int32_t)std::floor((double)gte->OFX + c[0] * k * (double)x_num / (double)x_den);
++                        ey16 = (int32_t)std::floor((double)gte->OFY + c[1] * k);
++                        s_prec_rtp_hits++;
++                    }
++                } else {
++                    s_prec_rtp_miss++;
++                }
++            }
+             if (precise == 2 || (precise == 1 &&
+                 pgxp_ppp_accept(ex16, ey16, (uint32_t)gte->SXY[2]))) {
+                 unclamped_projection = precise == 2;
+@@ -1290,6 +1435,8 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
+             }
+         }
+         pgxp_gte_push_sxy(px16, py16, gte->SZ[3], (uint32_t)gte->SXY[2]);
++        s_rtp_px[s_rtp_pi % 3][0] = px16; s_rtp_px[s_rtp_pi % 3][1] = py16;
++        s_rtp_pi++;
+         if (unclamped_projection) pgxp_gte_mark_unclamped((uint32_t)(mac3 >> 12));
+         if (!proj_override && pgxp_projection_tracking() && shift == 12 && !lm) {
+             const double z = (double)(mac3 >> 12);
+@@ -1909,6 +2056,28 @@ void gte_mvmva(GTEState* gte, uint32_t instr) {
+ 
+     gte->set_error_flag();
+ 
++    /* Precise matrix shadows: RT*V + TR, from the exact RT/TR/V when noted
++     * and without the 4.12 truncation in any case, noted against its integer
++     * result: as a translation (a bone's offset carried into its world
++     * translation, loaded back as TR) and as a vertex (int16 IR1..3: a
++     * skinned or attached vertex the game then projects with another
++     * matrix, as RE3 does for weapons). */
++    if (s_prec_on && !s_gte_replay_sandbox && mx == 0 && tv == 0 && vv < 3 && shift == 12) {
++        double rf[9], tf[3], vf[3];
++        prec_rt(gte, rf, tf);
++        prec_vertex(V, vf);
++        int16_t r[9];
++        for (int i = 0; i < 9; i++) r[i] = gte->RT[i / 3][i % 3];
++        const int32_t out[3] = { gte->MAC1, gte->MAC2, gte->MAC3 };
++        double of[3];
++        for (int row = 0; row < 3; row++)
++            of[row] = tf[row] + (rf[row * 3] * vf[0] + rf[row * 3 + 1] * vf[1] +
++                                 rf[row * 3 + 2] * vf[2]) / 4096.0;
++        gte_prec_note(r, out, nullptr, of);
++        const int16_t iv[3] = { gte->IR1, gte->IR2, gte->IR3 };
++        prec_note_vertex(iv, of);
++    }
++
+     /* PGXP scalar tier: MVMVA used as a multiplier on tracked vertex halves
+      * (CTC2'd matrix rows) - hand the engine the operands as used and the
+      * results, so MFC2 of MAC / IR can carry the precise weighted sum. */
+@@ -1982,9 +2151,36 @@ void gte_sqr(GTEState* gte, uint32_t instr) {
+ // ---------------------------------------------------------------------------
+ // GPF (0x3D) — General Purpose Interpolation (IR0 * IR)
+ // ---------------------------------------------------------------------------
++/* Precise matrix shadows through GPF/GPL: a blend of two transformed copies
++ * of a vertex (RE3's skinned weapon/hand vertices: out = a*(1-w) + b*w, each
++ * term truncated) carries the exact value of its inputs and notes the exact
++ * blend against its integer result. */
++static double  s_gp_mac[3];
++static int32_t s_gp_mac_int[3];
++static bool    s_gp_valid = false;
++static void prec_gp(GTEState *gte, int sf, bool accumulate) {
++    if (!s_prec_on || s_gte_replay_sandbox || !sf) { s_gp_valid = false; return; }
++    const int16_t iv[3] = { gte->IR1, gte->IR2, gte->IR3 };
++    double vf[3];
++    prec_vertex(iv, vf);
++    const int32_t cur[3] = { gte->MAC1, gte->MAC2, gte->MAC3 };
++    const bool chain = accumulate && s_gp_valid && std::memcmp(cur, s_gp_mac_int, sizeof cur) == 0;
++    for (int i = 0; i < 3; i++)
++        s_gp_mac[i] = (accumulate ? (chain ? s_gp_mac[i] : (double)cur[i]) : 0.0) +
++                      vf[i] * gte->IR0 / 4096.0;
++}
++static void prec_gp_done(GTEState *gte) {
++    if (!s_prec_on || s_gte_replay_sandbox) return;
++    s_gp_mac_int[0] = gte->MAC1; s_gp_mac_int[1] = gte->MAC2; s_gp_mac_int[2] = gte->MAC3;
++    s_gp_valid = true;
++    const int16_t iv[3] = { gte->IR1, gte->IR2, gte->IR3 };
++    prec_note_vertex(iv, s_gp_mac);
++}
++
+ void gte_gpf(GTEState* gte, uint32_t instr) {
+     gte->FLAG = 0;
+     int sf = (instr >> 19) & 1;
++    prec_gp(gte, sf, false);
+ 
+     int64_t mac1 = (int64_t)gte->IR0 * gte->IR1;
+     int64_t mac2 = (int64_t)gte->IR0 * gte->IR2;
+@@ -2007,6 +2203,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
+         gte->saturate_color(gte->MAC3 >> 4, 2));
+ 
+     gte->set_error_flag();
++    if (sf) prec_gp_done(gte);
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -2015,6 +2212,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
+ void gte_gpl(GTEState* gte, uint32_t instr) {
+     gte->FLAG = 0;
+     int sf = (instr >> 19) & 1;
++    prec_gp(gte, sf, true);
+ 
+     int64_t mac1 = (sf ? (int64_t)gte->MAC1 * 4096 : (int64_t)gte->MAC1) + (int64_t)gte->IR0 * gte->IR1;
+     int64_t mac2 = (sf ? (int64_t)gte->MAC2 * 4096 : (int64_t)gte->MAC2) + (int64_t)gte->IR0 * gte->IR2;
+@@ -2037,6 +2235,7 @@ void gte_gpl(GTEState* gte, uint32_t instr) {
+         gte->saturate_color(gte->MAC3 >> 4, 2));
+ 
+     gte->set_error_flag();
++    if (sf) prec_gp_done(gte);
+ }
+ 
+ // ---------------------------------------------------------------------------
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 174e20fa..a66892ad 100644
+index 174e20fa..4a80b3e5 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -1602,6 +1602,8 @@ static bool          g_launcher_quick_controls = false;  /* game.toml [launcher]
+@@ -1602,6 +1602,10 @@ static bool          g_launcher_quick_controls = false;  /* game.toml [launcher]
  static int           g_render_thread_frames = 2;
  /* [video] frame_generation (docs/FRAME_GENERATION.md), with the render thread. */
  static int           g_frame_generation = 0;
 +static int           g_present_once = 0;      /* [video] present_once */
 +static int           g_image_interp = 0;      /* [video] image_interpolation */
++static int           g_re3_precise_culling = 0;   /* geometry_correction: exact NCLIP sign */
++static void          re3_precise_bones_install(void);   /* geometry_correction: exact bone matrices */
  static int           g_frame_generation_method = 0;   /* [video] frame_generation_method: 0 redraw, 1 reprojection */
  /* [video] present_thread (docs/RENDER_THREAD.md), with the render thread. */
  static int           g_present_thread = 0;
-@@ -4240,6 +4242,11 @@ static const char* netplay_start_failure(int nrc, const PsxNetplayConfig& cfg) {
+@@ -4240,6 +4244,11 @@ static const char* netplay_start_failure(int nrc, const PsxNetplayConfig& cfg) {
  }
  
  static void shutdown_runtime(void) {
@@ -740,7 +1067,13 @@ index 174e20fa..a66892ad 100644
      psx_local_mouse_clear();
      /* (sljit removed 2026-07-15: overlay_compile_worker_stop joined the
       * off-thread JIT worker here; the worker no longer exists.) */
-@@ -6521,9 +6528,22 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6517,13 +6526,28 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+                 g_video_pgxp_cpu_mode = 1;
+                 g_video_pgxp_depth_buffer = 1;
+                 g_video_pgxp_seam = 1;
++                g_re3_precise_culling = 1;
++                re3_precise_bones_install();
+             }
          }
          else if (key == "perspective_texturing") g_video_perspective_texturing = (val == "true" || val == "1") ? 1 : 0;
          else if (key == "smooth_motion") {
@@ -766,7 +1099,7 @@ index 174e20fa..a66892ad 100644
          }
          else if (key == "internal_resolution") {
              int ir = 0;
-@@ -6572,7 +6592,10 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
+@@ -6572,7 +6596,10 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
      extern CPUState *debug_cpu_ptr;
      if (!g_psx_ram || !debug_cpu_ptr || !fntrace_is_game_started()) return 0;
      const uint8_t *pl = g_psx_ram + 0x000CCBC4;
@@ -778,7 +1111,139 @@ index 174e20fa..a66892ad 100644
      const int16_t *R = (const int16_t *)(g_psx_ram + 0x00098990);
      const int32_t *T = (const int32_t *)(g_psx_ram + 0x00098990 + 0x14);
      const double H = (double)(debug_cpu_ptr->gte_ctrl[26] & 0xFFFFu);
-@@ -6608,7 +6631,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+@@ -6595,6 +6622,131 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
+ }
+ static const bool s_re3_ws_focus_installed = (g_ws_layers_focus = re3_ws_focus, true);
+ 
++/* Precise bone matrices (geometry correction). RE3 builds each bone's local
++ * rotation with RotMatrix (0x8008A0E4: R = Rx*Ry*Rz from three angles, 4096
++ * per turn, through a 12-bit sine table) and composes the skeleton with
++ * CompMatrix (0x8002D4B0: out = parent * local, every product truncated to
++ * 4.12). The animation's angles move smoothly, but the truncations fall
++ * differently every frame and Jill's limbs shimmered by up to a native pixel
++ * (measured 2026-11-02 on save 3: frame-to-frame vertex acceleration as large
++ * as the idle motion itself). Both functions still run unchanged; these
++ * wraps compute the same matrices in double precision and note them in the
++ * GTE (gte_prec_note), whose PGXP shadows then project from them. */
++extern "C" void gte_prec_note(const int16_t r[9], const int32_t t[3],
++                              const double rf[9], const double tf[3]);
++extern "C" int  gte_prec_get(const int16_t r[9], const int32_t t[3], double rf[9], double tf[3]);
++extern "C" void gte_prec_set_enabled(int on);
++extern "C" uint8_t *memory_get_scratchpad_ptr(void);
++static const uint8_t *re3_guest_ptr(uint32_t addr, uint32_t len) {
++    if ((addr & 0xFFFFFC00u) == 0x1F800000u && (addr & 0x3FFu) + len <= 0x400u)
++        return memory_get_scratchpad_ptr() + (addr & 0x3FFu);
++    const uint32_t phys = addr & 0x1FFFFFFFu;
++    if (g_psx_ram && phys + len <= 0x200000u) return g_psx_ram + phys;
++    return nullptr;
++}
++/* A matrix in guest memory: 3x3 int16 rotation, then int32 x3 at +20. */
++static bool re3_read_matrix(uint32_t addr, int16_t r[9], int32_t t[3]) {
++    const uint8_t *p = re3_guest_ptr(addr, 32);
++    if (!p) return false;
++    std::memcpy(r, p, 18);
++    std::memcpy(t, p + 20, 12);
++    return true;
++}
++/* Rx * Ry * Rz of angles in 4096ths of a turn (RotMatrix's convention, fitted
++ * to its integer output: max error 2.7/4096), times 4096. */
++static void re3_rot_xyz(const double ang[3], double rf[9]) {
++    const double k = 2.0 * 3.14159265358979323846 / 4096.0;
++    const double cx = std::cos(ang[0] * k), sx = std::sin(ang[0] * k);
++    const double cy = std::cos(ang[1] * k), sy = std::sin(ang[1] * k);
++    const double cz = std::cos(ang[2] * k), sz = std::sin(ang[2] * k);
++    const double m[9] = {
++        cy * cz,                 -cy * sz,                 sy,
++        sx * sy * cz + cx * sz,  -sx * sy * sz + cx * cz,  -sx * cy,
++        -cx * sy * cz + sx * sz,  cx * sy * sz + sx * cz,  cx * cy,
++    };
++    for (int i = 0; i < 9; i++) rf[i] = m[i] * 4096.0;
++}
++/* The animation's angles are whole 4096ths of a turn: a slow limb holds one
++ * value for a few frames and then steps (48, 48, 48, 49, 49, 50...), and each
++ * step moved the limb at once (measured 2026-11-02 on save 3, after exact
++ * matrices: the remaining shimmer). Each bone's angles glide instead, never
++ * more than one step from the game's value, so a fast move is not delayed. */
++struct Re3AngleGlide { double e[3]; uint64_t frame; };
++static std::unordered_map<uint32_t, Re3AngleGlide> s_re3_glide;
++static void re3_angle_glide(uint32_t key, const int16_t ang[3], double out[3]) {
++    extern uint64_t s_frame_count;
++    if (s_re3_glide.size() > 4096) s_re3_glide.clear();
++    Re3AngleGlide &g = s_re3_glide[key];
++    const bool fresh = g.frame == 0 || s_frame_count - g.frame > 8;
++    for (int i = 0; i < 3; i++) {
++        if (fresh) { g.e[i] = ang[i]; continue; }
++        double d = std::remainder((double)ang[i] - g.e[i], 4096.0);
++        if (d > 1.0) { g.e[i] = ang[i] - 1.0; d = 1.0; }
++        else if (d < -1.0) { g.e[i] = ang[i] + 1.0; d = -1.0; }
++        g.e[i] += d * 0.5;
++    }
++    g.frame = s_frame_count;
++    for (int i = 0; i < 3; i++) out[i] = g.e[i];
++}
++static int re3_rotmatrix_wrap(CPUState *cpu) {
++    const uint32_t a_ang = cpu->gpr[4], a_out = cpu->gpr[5];
++    func_override_call_original(cpu);
++    const uint8_t *pa = re3_guest_ptr(a_ang, 6);
++    int16_t r[9]; int32_t t[3];
++    if (!pa || !re3_read_matrix(a_out, r, t)) return 1;
++    int16_t ang[3];
++    std::memcpy(ang, pa, 6);
++    double exact[3] = { (double)ang[0], (double)ang[1], (double)ang[2] }, rf[9];
++    re3_rot_xyz(exact, rf);
++    for (int i = 0; i < 9; i++)
++        if (std::fabs(rf[i] - r[i]) > 8.0) return 1;   /* not the rotation we model */
++    static int s_glide = -1;
++    if (s_glide < 0) { const char *e = std::getenv("PSX_PRECISE_GLIDE"); s_glide = !(e && *e == '0'); }
++    if (s_glide) {
++        double glide[3];
++        re3_angle_glide(a_out, ang, glide);
++        re3_rot_xyz(glide, rf);
++    }
++    const double tf[3] = { (double)t[0], (double)t[1], (double)t[2] };
++    gte_prec_note(r, t, rf, tf);
++    return 1;
++}
++static int re3_compmatrix_wrap(CPUState *cpu) {
++    const uint32_t a_p = cpu->gpr[4], a_l = cpu->gpr[5], a_o = cpu->gpr[6];
++    int16_t pr[9], lr[9]; int32_t pt[3], lt[3];
++    const bool have = re3_read_matrix(a_p, pr, pt) && re3_read_matrix(a_l, lr, lt);
++    func_override_call_original(cpu);
++    int16_t orr[9]; int32_t ot[3];
++    if (!have || !re3_read_matrix(a_o, orr, ot)) return 1;
++    double pf[9], ptf[3], lf[9], ltf[3];
++    gte_prec_get(pr, pt, pf, ptf);
++    gte_prec_get(lr, lt, lf, ltf);
++    /* The local translation enters as three int16 (VX0/VY0/VZ0). */
++    const double lv[3] = { (double)(int16_t)lt[0], (double)(int16_t)lt[1], (double)(int16_t)lt[2] };
++    double rf[9], tf[3];
++    for (int i = 0; i < 3; i++) {
++        for (int j = 0; j < 3; j++) {
++            double s = 0.0;
++            for (int c = 0; c < 3; c++) s += pf[i * 3 + c] * lf[c * 3 + j];
++            rf[i * 3 + j] = s / 4096.0;
++            if (std::fabs(rf[i * 3 + j] - orr[i * 3 + j]) > 64.0) return 1;   /* sanity: the glide stays within a few steps */
++        }
++        tf[i] = ptf[i] + (pf[i * 3] * lv[0] + pf[i * 3 + 1] * lv[1] + pf[i * 3 + 2] * lv[2]) / 4096.0;
++        if (std::fabs(tf[i] - ot[i]) > 32.0) return 1;
++    }
++    gte_prec_note(orr, ot, rf, tf);
++    return 1;
++}
++static void re3_precise_bones_install(void) {
++    static bool done = false;
++    if (done) return;
++    done = true;
++    if (const char *e = std::getenv("PSX_PRECISE_BONES")) if (*e == '0') return;   /* A/B */
++    func_override_add("re3_rotmatrix_precise", 0x8008A0E4u, re3_rotmatrix_wrap, FO_CREDIT_SELF);
++    func_override_add("re3_compmatrix_precise", 0x8002D4B0u, re3_compmatrix_wrap, FO_CREDIT_SELF);
++    gte_prec_set_enabled(1);
++}
++
+ /* re3_settings (debug server): the RE3 options as this process applied them,
+  * so a test can check settings.toml -> game end to end. */
+ extern "C" int gte_geometry_correction_enabled(void);
+@@ -6608,7 +6760,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
          g_fullscreen, g_fast_doors, g_modern_controls ? 1 : 0, g_modern_turn_speed,
          g_directinput_joysticks ? 1 : 0, (double)g_rumble_intensity, g_audio_spu_hq ? 1 : 0,
          g_auto_skip_fmv, g_skip_cutscenes ? 1 : 0, gl_renderer_ws_layers_enabled(),
@@ -788,7 +1253,7 @@ index 174e20fa..a66892ad 100644
          g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
          g_all_weapons_box ? 1 : 0, g_unlock_mercenaries ? 1 : 0, g_unlock_boutique ? 1 : 0,
          g_unlock_epilogues ? 1 : 0);
-@@ -6635,8 +6659,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+@@ -6635,8 +6788,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
   * is turned toward the target at a capped rate and the game is fed "forward"
   * (+ Square to run on a full tilt), so walking/running animations stay
   * native. Holding the stick through a camera cut keeps the previous world
@@ -799,7 +1264,7 @@ index 174e20fa..a66892ad 100644
   * to the new reference over ~0.2 s. The physical D-pad always drives the tank
   * controls. Design follows the alternate
   * controls idea in Fusion-Fix (PC build); no code from it is used. */
-@@ -6718,7 +6742,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6718,7 +6871,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      s_last_clear = 0;
  
      uint8_t* ram = g_psx_ram;
@@ -813,7 +1278,7 @@ index 174e20fa..a66892ad 100644
      uint8_t* pl = ram + 0x000CCBC4;
      const uint8_t mode = pl[0x04], routine = pl[0x05];
      /* Native animation states driven by forward input only: pushing (9) and
-@@ -6788,7 +6817,7 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6788,7 +6946,7 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
              s_hold_stick = stick_deg;
              /* A cut to a camera facing the other way (forward axes more
               * than 120 deg apart) turns the same stick into the opposite
@@ -822,7 +1287,7 @@ index 174e20fa..a66892ad 100644
              s_hold_firm = fx * s_prev_fx + fz * s_prev_fz < -0.5;
              s_blend_left = 0;
              tr.cut = 1;
-@@ -6799,7 +6828,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6799,7 +6957,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      if (s_hold) {
          double dd = std::fabs(stick_deg - s_hold_stick);
          if (dd > 180.0) dd = 360.0 - dd;
@@ -836,7 +1301,7 @@ index 174e20fa..a66892ad 100644
              /* A deliberate new direction ends the hold; the heading glides
               * to the new camera's reference over ~0.2 s instead of jumping. */
              s_hold = false;
-@@ -6835,17 +6869,27 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6835,17 +6998,27 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      /* Turn toward the target, capped so direction changes read as turns.
       * settings.toml [controller] modern_turn_speed, in 1/4096-turn units
       * per frame (default 90, ~8 deg: a half turn in ~0.4 s). */
@@ -868,7 +1333,7 @@ index 174e20fa..a66892ad 100644
          clear |= 0x0010u;                 /* UP: forward */
          if (s_running) clear |= 0x8000u;  /* Square: run */
      }
-@@ -6977,6 +7021,28 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -6977,6 +7150,28 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              if (moving_forward && !is_aiming && mag > 0.82) {
                  buttons &= (uint16_t)~0x8000u; // Square (Run button in RE3)
              }
@@ -897,7 +1362,7 @@ index 174e20fa..a66892ad 100644
          }
      }
  
-@@ -11325,6 +11391,12 @@ static void render_thread_vblank(void) {
+@@ -11325,6 +11520,12 @@ static void render_thread_vblank(void) {
      if (!g_render_thread) return;
      if (!s_render_thread_tried) {
          s_render_thread_tried = 1;
@@ -910,7 +1375,7 @@ index 174e20fa..a66892ad 100644
          gl_renderer_set_present_thread(g_present_thread, g_present_thread_slots);
          if (g_gl_active && gr_backend() == GR_BACKEND_OPENGL &&
              gl_renderer_render_thread_start(g_render_thread_frames)) {
-@@ -11339,6 +11411,14 @@ static void render_thread_vblank(void) {
+@@ -11339,6 +11540,14 @@ static void render_thread_vblank(void) {
                  gl_renderer_set_frame_generation(1);
                  std::fprintf(stdout, "psxrecomp: Smooth motion (frame generation) on (render thread, "
                               "from surplus only)\n");
@@ -925,3 +1390,21 @@ index 174e20fa..a66892ad 100644
              }
          } else {
              std::fprintf(stdout, "psxrecomp: render thread requested but not started "
+@@ -21500,7 +21709,16 @@ session_reboot:
+      * netplay plan may carry the PGXP mod, so the arming holds it off. */
+     pgxp_cfg.netplay = net_cfg.enabled ? 1 : 0;
+     PSXPgxpSessionInputs pgxp_in{};
+-    const PSXPgxpSessionArm pgxp_arm = psx_pgxp_session_arm(&pgxp_cfg, &pgxp_in);
++    PSXPgxpSessionArm pgxp_arm = psx_pgxp_session_arm(&pgxp_cfg, &pgxp_in);
++    /* RE3 with geometry correction: the game's face culling takes the exact
++     * winding. With the integer one, about 1 in 10 NCLIPs disagreed with the
++     * drawn triangle (measured 2026-11-02 in the save room): thin and
++     * near-edge-on faces vanished or flickered. PSX_PGXP_CULLING=0 overrides. */
++    if (g_re3_precise_culling && pgxp_arm.geometry && !pgxp_cfg.netplay &&
++        pgxp_in.env_culling < 0) {
++        pgxp_set_culling(1);
++        pgxp_arm.culling = 1;
++    }
+     if (pgxp_in.env_geometry >= 0) g_video_geometry_correction = pgxp_in.env_geometry;
+     if (pgxp_in.env_texture >= 0) g_video_perspective_texturing = pgxp_in.env_texture;
+     if (pgxp_in.env_cpu_mode >= 0) g_video_pgxp_cpu_mode = pgxp_in.env_cpu_mode;
