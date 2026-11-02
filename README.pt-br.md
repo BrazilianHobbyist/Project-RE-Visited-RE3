@@ -30,7 +30,7 @@
 
 As releases anteriores (até a v1.6.0) saíram sem o cache de overlays e sem o kit, então o código das salas rodava interpretado na máquina dos jogadores. A v1.6.1 corrigiu isso com um cache das sessões de jogo do mantenedor. A v1.7.0 o substitui por um cache gerado a partir do disco.
 
-Não é uma descompilação: o código do jogo é traduzido automaticamente, não reescrito, e o hardware é emulado. Por isso características do PS1, como o tremido dos polígonos, continuam: a matemática de ponto fixo do GTE é reproduzida fielmente.
+Não é uma descompilação: o código do jogo é traduzido automaticamente, não reescrito, e o hardware é emulado. A matemática de ponto fixo do GTE é reproduzida fielmente, então o tremido dos polígonos do PS1 continua lá por baixo; a correção geométrica PGXP (ligada por padrão desde a v2.2.2) desenha os modelos a partir de valores exatos por cima disso, sem mudar os cálculos do próprio jogo.
 
 ## Nota legal
 
@@ -46,7 +46,7 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 |---|---|
 | Assistente de instalação do launcher (extrai `SLUS_009.23` do seu `.cue`/`.bin`) | Funciona |
 | Controle clássico (tanque) | Funciona (padrão) |
-| Analógico moderno relativo à tela (`modern_controls`) | Precisa de teste. O analógico segue os eixos fixos de cada câmera, como o controle alternativo do RE HD Remaster. Numa troca de câmera a direção atual continua até você soltar o analógico ou girá-lo mais de 30° (60° num corte para uma câmera quase oposta), e depois passa à nova câmera suavemente (~0,2 s). O giro acelera e desacelera (meia-volta em ~0,25 s), e na mira o giro fica ~1,8x mais rápido com o analógico todo de lado. Corrigido na v2.2.0: depois de abrir o inventário, o analógico voltava ao controle tanque até a próxima sala. O direcional digital sempre usa o controle tanque. Desligado por padrão |
+| Analógico moderno relativo à tela (`modern_controls`) | Funciona nas sessões do mantenedor. O analógico segue os eixos fixos de cada câmera, como o controle alternativo do RE HD Remaster. Numa troca de câmera a direção atual continua até você soltar o analógico ou girá-lo mais de 30° (60° num corte para uma câmera quase oposta), e depois passa à nova câmera suavemente (~0,2 s). O giro acelera e desacelera (meia-volta em ~0,25 s), e na mira o giro fica ~1,8x mais rápido com o analógico todo de lado. Corrigido na v2.2.0: depois de abrir o inventário, o analógico voltava ao controle tanque até a próxima sala. O direcional digital sempre usa o controle tanque. Desligado por padrão |
 | Portas rápidas (`fast_doors`) | Funciona. Pula a animação da porta, e a sala seguinte carrega na velocidade máxima do PC atrás da tela preta (a porta da sala do save caiu de ~3,8 s para ~1 s). A velocidade do jogo não muda |
 | Pular cenas em tempo real com Select (Esc/Tab no teclado) | Funciona (usa o pulo do próprio jogo) |
 | Pular FMV | Funciona; alguns FMVs só podem ser pulados depois de certo ponto, como no jogo original |
@@ -59,9 +59,9 @@ Legenda: **Funciona** = confirmado · **Precisa de teste** = implementado, não 
 | Vibração | Precisa de teste |
 | Texturas com correção de perspectiva | Precisa de teste |
 | Fonte nítida (opção do launcher) | Funciona. Novo na v2.0.0: a primeira partida com a opção extrai a fonte do seu próprio jogo, e o launcher a amplia 4x (EPX). Nada do jogo vai no pacote |
-| Correção geométrica PGXP | Precisa de teste. Elimina o tremor. Novo na v2.1.0: as juntas dos modelos (rosto, nuca, axila) ficam fechadas: o PGXP acompanha a solda que o próprio jogo faz entre as partes do modelo, inclusive a profundidade, e a expansão de emendas do PSXRecomp cobre as partes sem vértice em comum. Novo na v2.2.2: o esqueleto dos personagens é calculado com precisão total (o jogo arredonda a rotação de cada osso e a composição com o osso pai, o que fazia os membros tremerem em alta resolução; cerca de 27% menos tremor medido na Jill), e o descarte de faces do jogo usa a orientação exata, então faces finas não somem nem piscam mais. As juntas com skinning e as armas na mão também ficam exatas (cerca de 70% menos tremor na M4). Ligada por padrão desde a v2.2.2 |
+| Correção geométrica PGXP | Funciona nas sessões do mantenedor. Elimina o tremor. Novo na v2.1.0: as juntas dos modelos (rosto, nuca, axila) ficam fechadas: o PGXP acompanha a solda que o próprio jogo faz entre as partes do modelo, inclusive a profundidade, e a expansão de emendas do PSXRecomp cobre as partes sem vértice em comum. Novo na v2.2.2: o esqueleto dos personagens é calculado com precisão total (o jogo arredonda a rotação de cada osso e a composição com o osso pai, o que fazia os membros tremerem em alta resolução; cerca de 27% menos tremor medido na Jill), e o descarte de faces do jogo usa a orientação exata, então faces finas não somem nem piscam mais. As juntas com skinning e as armas na mão também ficam exatas (cerca de 70% menos tremor na M4). Ligada por padrão desde a v2.2.2 |
 | Velocidade do texto de introdução | Corrigida segundo o mantenedor para a v2.0.0; precisa de teste |
-| Movimento suave (quadros intermediários, opção avançada do launcher) | Precisa de teste. Experimental. Desde a v2.2.0 interpola a partir das imagens prontas, como as ferramentas de geração de quadros: os 30 quadros por segundo do jogo viram tantos quanto o monitor mostra (60 a 60 Hz, cerca de 140 a 144 Hz), cada quadro intermediário feito deslocando a imagem anterior e a seguinte até a metade do movimento estimado entre elas na GPU (cerca de 2 ms por quadro numa RTX 2070). Nada é redesenhado, então os modelos não se esticam; onde a estimativa falha, a imagem borra levemente. Nas trocas de câmera aparece direto a cena nova. Os quadros chegam à tela até um quadro do jogo depois (cerca de 17 ms a 60 Hz, 27 ms a 144 Hz). A lógica e a velocidade do jogo não mudam. O método da v2.1.0 (redesenhar a cena) distorcia os zumbis e foi substituído. Desligado por padrão |
+| Movimento suave (quadros intermediários, opção avançada do launcher) | Funciona nas sessões do mantenedor. Experimental. Desde a v2.2.0 interpola a partir das imagens prontas, como as ferramentas de geração de quadros: os 30 quadros por segundo do jogo viram tantos quanto o monitor mostra (60 a 60 Hz, cerca de 140 a 144 Hz), cada quadro intermediário feito deslocando a imagem anterior e a seguinte até a metade do movimento estimado entre elas na GPU (cerca de 2 ms por quadro numa RTX 2070). Nada é redesenhado, então os modelos não se esticam; onde a estimativa falha, a imagem borra levemente. Nas trocas de câmera aparece direto a cena nova. Os quadros chegam à tela até um quadro do jogo depois (cerca de 17 ms a 60 Hz, 27 ms a 144 Hz). A lógica e a velocidade do jogo não mudam. O método da v2.1.0 (redesenhar a cena) distorcia os zumbis e foi substituído. Desligado por padrão |
 
 Controles antigos que só funcionam via DirectInput: ative "Controles genéricos antigos (DirectInput)" no launcher. A opção vem desligada porque, em alguns PCs, atrasa a abertura em vários segundos; controles de Xbox, PlayStation, Switch e a maioria dos outros funcionam sem ela.
 
@@ -79,7 +79,7 @@ Relatos de bugs são bem-vindos. Inclua o `psx_last_run_report.json` da pasta do
 ## Controles
 
 **Controle:** Analógico esquerdo / D-Pad = movimento (tanque por padrão; analógico relativo à tela no modo moderno) · A = ação · X = correr · Y = inventário · LB/RB = mirar/atirar · Back = mapa · Start = pausa
-**Teclado:** Setas = mover · X = ação · Z = correr · A = inventário · Enter = start · Alt+Enter/F11 = tela cheia · F6/F7/F8 = cheats
+**Teclado:** Setas = mover · X = ação · Z = correr · A = inventário · Enter = start · Alt+Enter ou Ctrl+F = tela cheia · F6/F7/F8 = cheats
 
 ---
 

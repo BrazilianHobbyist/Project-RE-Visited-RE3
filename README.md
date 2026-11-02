@@ -30,7 +30,7 @@
 
 Earlier releases (up to v1.6.0) shipped without the overlay cache and toolchain, so the room code ran interpreted on players' machines. v1.6.1 fixed that with a cache from the maintainer's play sessions. v1.7.0 replaces it with one built from the disc.
 
-This is not a decompilation: the game code is machine-translated, not rewritten, and the hardware is emulated. That is also why PS1 traits like polygon wobble remain: the GTE's fixed-point math is reproduced faithfully.
+This is not a decompilation: the game code is machine-translated, not rewritten, and the hardware is emulated. The GTE's fixed-point math is reproduced faithfully, so the PS1's polygon wobble is there underneath; the PGXP geometry correction (on by default since v2.2.2) draws the models from exact values on top of it, without changing the game's own calculations.
 
 ## Legal note
 
@@ -46,7 +46,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 |---|---|
 | Launcher setup wizard (extracts `SLUS_009.23` from your `.cue`/`.bin`) | Works |
 | Classic (tank) controls | Works (default) |
-| Modern screen-relative stick (`modern_controls`) | Needs testing. The stick follows each camera's fixed screen axes, like RE HD Remaster's alternate controls. Through a camera cut the current heading continues until you release the stick or turn it more than 30° (60° after a cut to a nearly opposite camera), then glides to the new camera (~0.2 s). Turning eases in and out (a half turn in ~0.25 s), and aiming turns ~1.8x faster at full sideways tilt. Fixed in v2.2.0: after the inventory had been opened, the stick fell back to tank controls until the next room. The D-pad always drives the tank controls. Off by default |
+| Modern screen-relative stick (`modern_controls`) | Works in the maintainer's play sessions. The stick follows each camera's fixed screen axes, like RE HD Remaster's alternate controls. Through a camera cut the current heading continues until you release the stick or turn it more than 30° (60° after a cut to a nearly opposite camera), then glides to the new camera (~0.2 s). Turning eases in and out (a half turn in ~0.25 s), and aiming turns ~1.8x faster at full sideways tilt. Fixed in v2.2.0: after the inventory had been opened, the stick fell back to tank controls until the next room. The D-pad always drives the tank controls. Off by default |
 | Fast doors (`fast_doors`) | Works. Skips the door animation, and the next room loads at full host speed behind the black screen (the save-room door went from ~3.8 s to ~1 s). Gameplay speed is unchanged |
 | Skipping in-engine cutscenes with Select (Esc/Tab on keyboard) | Works (uses the game's own skip) |
 | FMV skip | Works; some FMVs can only be skipped after a certain point, as in the original game |
@@ -59,9 +59,9 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Rumble | Needs testing |
 | Perspective-correct texturing | Needs testing |
 | Sharp font (launcher option) | Works. New in v2.0.0: the first session with the option on extracts the font from your own game, and the launcher then upscales it 4x (EPX). Nothing from the game is shipped |
-| PGXP geometry correction | Needs testing. Stops wobble. New in v2.1.0: the model joints (face, neck, armpit) stay closed: PGXP follows the weld the game itself makes between model parts, depth included, and PSXRecomp's seam expansion covers the parts that share no vertex. New in v2.2.2: character skeletons are computed in full precision (the game rounds every bone's rotation and its composition with the parent, which made limbs shimmer at high resolution; about 27% less frame-to-frame tremor measured on Jill), and the game's face culling uses the exact winding, so thin faces no longer vanish or flicker. Skinned joints and held weapons are exact too (about 70% less tremor on the M4). On by default since v2.2.2 |
+| PGXP geometry correction | Works in the maintainer's play sessions. Stops wobble. New in v2.1.0: the model joints (face, neck, armpit) stay closed: PGXP follows the weld the game itself makes between model parts, depth included, and PSXRecomp's seam expansion covers the parts that share no vertex. New in v2.2.2: character skeletons are computed in full precision (the game rounds every bone's rotation and its composition with the parent, which made limbs shimmer at high resolution; about 27% less frame-to-frame tremor measured on Jill), and the game's face culling uses the exact winding, so thin faces no longer vanish or flicker. Skinned joints and held weapons are exact too (about 70% less tremor on the M4). On by default since v2.2.2 |
 | Intro/story text speed | Reported fixed by the maintainer for v2.0.0; needs testing |
-| Smooth motion (in-between frames, launcher advanced option) | Needs testing. Experimental. Since v2.2.0 it interpolates from the finished pictures, like frame generation tools do: the game's 30 frames per second become as many as the monitor shows (60 at 60 Hz, about 140 at 144 Hz), each in-between frame made by moving the previous and next pictures halfway along the motion estimated between them on the GPU (about 2 ms per frame on an RTX 2070). Nothing is redrawn, so models cannot tear; where the estimate fails, the picture blurs slightly. Camera cuts show the new shot directly. Frames reach the screen up to one game frame later (about 17 ms at 60 Hz, 27 ms at 144 Hz). Game logic and speed do not change. The v2.1.0 method (redrawing the scene) distorted zombies and was replaced. Off by default |
+| Smooth motion (in-between frames, launcher advanced option) | Works in the maintainer's play sessions. Experimental. Since v2.2.0 it interpolates from the finished pictures, like frame generation tools do: the game's 30 frames per second become as many as the monitor shows (60 at 60 Hz, about 140 at 144 Hz), each in-between frame made by moving the previous and next pictures halfway along the motion estimated between them on the GPU (about 2 ms per frame on an RTX 2070). Nothing is redrawn, so models cannot tear; where the estimate fails, the picture blurs slightly. Camera cuts show the new shot directly. Frames reach the screen up to one game frame later (about 17 ms at 60 Hz, 27 ms at 144 Hz). Game logic and speed do not change. The v2.1.0 method (redrawing the scene) distorted zombies and was replaced. Off by default |
 
 Old DirectInput-only controllers: enable "Old generic controllers (DirectInput)" in the launcher. It is off by default because on some PCs it delays startup by several seconds; Xbox, PlayStation, Switch and most other pads work without it.
 
@@ -79,7 +79,7 @@ Bug reports are welcome. Please include `psx_last_run_report.json` from the game
 ## Controls
 
 **Gamepad:** Left stick / D-Pad = movement (tank by default; screen-relative stick in modern mode) · A = action · X = run · Y = inventory · LB/RB = aim/fire · Back = map · Start = pause
-**Keyboard:** Arrows = move · X = action · Z = run · A = inventory · Enter = start · Alt+Enter/F11 = fullscreen · F6/F7/F8 = cheats
+**Keyboard:** Arrows = move · X = action · Z = run · A = inventory · Enter = start · Alt+Enter or Ctrl+F = fullscreen · F6/F7/F8 = cheats
 
 ---
 

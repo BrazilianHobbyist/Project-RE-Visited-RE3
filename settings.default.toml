@@ -20,7 +20,6 @@ low_latency_input   = true
 aspect_stretch      = true
 
 [audio]
-frequency = 48000
 spu_hq = false
 
 [controller]
