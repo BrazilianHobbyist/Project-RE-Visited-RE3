@@ -904,7 +904,7 @@ struct GameConfig {
     std::wstring internal_resolution = L"1080p";
     bool modern_controls = false;  // original tank controls until modern mode is refined
     int modern_turn_speed = 90;   // not in the UI; kept so saving does not drop it
-    bool geometry_correction = false;
+    bool geometry_correction = true;
     bool smooth_motion = false;    // in-between frames (render thread), experimental
     bool perspective_texturing = true;
     bool antialiasing = true;
@@ -1234,9 +1234,9 @@ void ApplyLanguage(const std::wstring& lang) {
                               L"Texturas sin deformación (corrección de perspectiva)",
                               L"Texturas sem deformação (correção de perspectiva)"));
     SetText(g_hChkAntialiasing, L3(L"Smooth edges (FXAA)", L"Bordes suaves (FXAA)", L"Bordas suaves (FXAA)"));
-    SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP, experimental)",
-                               L"Modelos 3D estables (PGXP, experimental)",
-                               L"Modelos 3D estáveis (PGXP, experimental)"));
+    SetText(g_hChkPgxpGeom, L3(L"Steady 3D models (PGXP)",
+                               L"Modelos 3D estables (PGXP)",
+                               L"Modelos 3D estáveis (PGXP)"));
     SetText(g_hChkSmoothMotion, L3(L"Smooth motion: in-between frames up to your monitor's refresh (experimental)",
                                    L"Movimiento suave: fotogramas intermedios hasta la frecuencia del monitor (experimental)",
                                    L"Movimento suave: quadros intermediários até a frequência do monitor (experimental)"));
