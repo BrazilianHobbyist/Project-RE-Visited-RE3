@@ -75,7 +75,8 @@ enum ControlID {
     ID_BTN_ADV_OK = 1041,
     ID_BTN_ADV_CANCEL = 1042,
     ID_BTN_ADV_RESTORE = 1043,
-    ID_CHK_SMOOTH_MOTION = 1044
+    ID_CHK_SMOOTH_MOTION = 1044,
+    ID_BTN_MERCENARIES = 1045
 };
 
 // Global handles
@@ -149,6 +150,7 @@ HWND g_hChkDinput = NULL;
 HWND g_hBtnInput = NULL;
 HWND g_hBtnSaves = NULL;
 HWND g_hBtnLaunch = NULL;
+HWND g_hBtnMercenaries = NULL;
 HWND g_hBtnSave = NULL;
 HWND g_hBtnAdvanced = NULL;
 HWND g_hWndAdvanced = NULL;
@@ -1220,6 +1222,7 @@ void ApplyLanguage(const std::wstring& lang) {
     SetText(g_hBtnAdvanced, L3(L"Advanced options...", L"Opciones avanzadas...", L"Opções avançadas..."));
     UpdateCheatsButtonText();
     SetText(g_hBtnLaunch, L3(L"PLAY", L"JUGAR", L"JOGAR"));
+    SetText(g_hBtnMercenaries, L"THE MERCENARIES");
     SetText(g_hBtnCredits, L3(L"Credits && legal", L"Créditos y aviso legal", L"Créditos e aviso legal"));
     SetText(g_hLblLegalNote, L3(L"Non-commercial fan project. Requires your own copy of Resident Evil 3 (USA).",
                                 L"Proyecto fan no comercial. Requiere tu propia copia de Resident Evil 3 (USA).",
@@ -1251,7 +1254,7 @@ void ApplyLanguage(const std::wstring& lang) {
     SetText(g_hBtnSaves, L3(L"Open saves folder", L"Abrir carpeta de partidas", L"Abrir pasta dos saves"));
 }
 
-void LaunchGame() {
+void LaunchGame(bool mercenaries) {
     InstallStatus st = CheckInstallationStatus();
     if (!st.isFullyInstalled) {
         std::wstring msg;
@@ -1304,6 +1307,9 @@ void LaunchGame() {
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi = {};
+
+    // Read once by the runtime (patch 05): open the Mercenaries menu at the title.
+    SetEnvironmentVariableW(L"RE3_START_MERCENARIES", mercenaries ? L"1" : NULL);
 
     std::vector<wchar_t> cmdBuffer(cmdLine.begin(), cmdLine.end());
     cmdBuffer.push_back(0);
@@ -2580,7 +2586,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         g_hBtnAdvanced = button(34, y, 232, 30, ID_BTN_ADVANCED, g_hFontBody, BS_PUSHBUTTON);
         g_hBtnOpenCheats = button(278, y, 232, 30, ID_BTN_OPEN_CHEATS, g_hFontBody, BS_PUSHBUTTON);
 
-        g_hBtnLaunch = button(18, 506, 508, 54, ID_BTN_LAUNCH, g_hFontTitle, BS_DEFPUSHBUTTON);
+        g_hBtnLaunch = button(18, 506, 340, 54, ID_BTN_LAUNCH, g_hFontTitle, BS_DEFPUSHBUTTON);
+        // The Mercenaries straight away: no cleared save needed (the runtime
+        // switches the title to the game's own Mercenaries menu).
+        g_hBtnMercenaries = button(366, 506, 160, 54, ID_BTN_MERCENARIES, g_hFontBold, BS_PUSHBUTTON);
         g_hBtnCredits = button(18, 572, 200, 28, ID_BTN_CREDITS, g_hFontBody, BS_PUSHBUTTON);
         g_hLblLegalNote = CreateWindowW(L"STATIC", L"", WS_VISIBLE | WS_CHILD | SS_RIGHT, 226, 570, 300, 32, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblLegalNote, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
@@ -2676,7 +2685,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         } else if (id == ID_BTN_ADVANCED) {
             ShowAdvancedDialog(hWnd);
         } else if (id == ID_BTN_LAUNCH) {
-            LaunchGame();
+            LaunchGame(false);
+        } else if (id == ID_BTN_MERCENARIES) {
+            LaunchGame(true);
         } else if (id == ID_BTN_SAVES_DIR) {
             std::wstring savesDir = GetBuildDir() + L"\\saves";
             ShellExecuteW(hWnd, L"open", savesDir.c_str(), NULL, NULL, SW_SHOWNORMAL);

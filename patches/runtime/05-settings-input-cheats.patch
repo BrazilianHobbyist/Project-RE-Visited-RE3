@@ -1,5 +1,5 @@
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index b0a340e1..5ffdcd67 100644
+index b0a340e1..804bc1ac 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
 @@ -1421,6 +1421,19 @@ static int           g_video_internal_res_env = PSX_IR_UNSET;
@@ -100,7 +100,7 @@ index b0a340e1..5ffdcd67 100644
      return boot_mode;
  }
  
-@@ -6208,11 +6245,729 @@ static bool source_is_stick_axis(const ControllerSource& s) {
+@@ -6208,11 +6245,748 @@ static bool source_is_stick_axis(const ControllerSource& s) {
             s.id == SDL_CONTROLLER_AXIS_RIGHTX || s.id == SDL_CONTROLLER_AXIS_RIGHTY;
  }
  
@@ -349,6 +349,25 @@ index b0a340e1..5ffdcd67 100644
 +
 +    if (g_unlock_epilogues) {
 +        ram[0x000D1F3E] = 8; // All 8 epilogues unlocked in gallery
++    }
++
++    // "Play The Mercenaries" from the launcher (RE3_START_MERCENARIES=1): once,
++    // as soon as the game status word 0x800CC858 shows the title phase
++    // (bit 0x20000000, set from the Capcom logo on), switch it to the
++    // Mercenaries menu: low half 0x00A0, high half 0x00FF, the same writes as
++    // the community "warp to Mercenaries" code. No cleared save is needed; it
++    // opens the game's own Mercenaries menu (GAME START / RESULT / CONFIG / EXIT).
++    {
++        static int s_merc = -1;
++        if (s_merc < 0) {
++            const char* e = getenv("RE3_START_MERCENARIES");
++            s_merc = (e && e[0] == '1') ? 1 : 0;
++        }
++        uint32_t* status = (uint32_t*)(ram + 0x000CC858);
++        if (s_merc == 1 && (*status & 0x20000000u)) {
++            *status = 0x00FF00A0u;
++            s_merc = 2;
++        }
 +    }
 +
 +    // Active gameplay cheats (when player entity is active: inventory size 8 or 10)
@@ -830,7 +849,7 @@ index b0a340e1..5ffdcd67 100644
  static uint16_t controller_pad_buttons(const ControllerMap& map,
                                         SDL_GameController* h,
                                         bool suppress_stick_axes,
-@@ -6230,6 +6985,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -6230,6 +7004,10 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
                  source.id >= 0 && source.id < 32 &&
                  (claimed_buttons & (1u << source.id)))
                  continue;
@@ -841,7 +860,7 @@ index b0a340e1..5ffdcd67 100644
              if (!controller_source_pressed_h(h, source, deadzone_raw)) continue;
              if (entry.bit)
                  buttons &= (uint16_t)~entry.bit;
-@@ -6238,6 +6997,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -6238,6 +7016,74 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              break;
          }
      }
@@ -916,7 +935,7 @@ index b0a340e1..5ffdcd67 100644
      return buttons;
  }
  
-@@ -6360,6 +7187,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
+@@ -6360,6 +7206,10 @@ static void pad_sticks_for(const PlayerInput& p, int player, uint8_t out[4]) {
              apply_discrete_stick("rs_up", "rs_down", "rs_left", "rs_right",
                                   &out[2], &out[3]);
          }
@@ -927,7 +946,7 @@ index b0a340e1..5ffdcd67 100644
      }
  }
  
-@@ -6710,14 +7541,14 @@ static void apply_input_override_to_sio(int override_word) {
+@@ -6710,14 +7560,14 @@ static void apply_input_override_to_sio(int override_word) {
          s_debug_profile_injected[0] = true;
  #endif
      PlayerInput& p = g_players[0];
@@ -945,7 +964,7 @@ index b0a340e1..5ffdcd67 100644
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
      const bool dpad_live  = ((uint16_t)~w & 0x00F0u) != 0;   /* up/right/down/left */
-@@ -6996,6 +7827,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
+@@ -6996,6 +7846,19 @@ static int capture_pad_slot_view(int s, PsxNetPad* out, bool guarded,
      if (!eff_analog && !p.steering_wheel && !host_view) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -965,7 +984,7 @@ index b0a340e1..5ffdcd67 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -7064,6 +7908,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -7064,6 +7927,19 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
      if (!eff_analog && !p.steering_wheel) {
          st[0] = st[1] = st[2] = st[3] = 0x80;
      }
@@ -985,7 +1004,7 @@ index b0a340e1..5ffdcd67 100644
  
      out->buttons = btn;
      out->lx = st[0]; out->ly = st[1]; out->rx = st[2]; out->ry = st[3];
-@@ -7073,10 +7930,18 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
+@@ -7073,10 +7949,18 @@ static int capture_pad_slot_exclusive(int s, PsxNetPad* out, int present_sio_slo
  }
  
  static void apply_pad_slot_to_sio(int s, const PsxNetPad& pad) {
@@ -1007,7 +1026,7 @@ index b0a340e1..5ffdcd67 100644
                             pad.analog);
  }
  
-@@ -7169,11 +8034,12 @@ static void capture_local_human_pad(PsxNetPad* out) {
+@@ -7169,11 +8053,12 @@ static void capture_local_human_pad(PsxNetPad* out) {
  /* Build a netplay pad blob from a debug-server override without writing SIO. */
  static void capture_override_pad(int override_word, PsxNetPad* out) {
      PlayerInput& p = g_players[0];
@@ -1021,7 +1040,7 @@ index b0a340e1..5ffdcd67 100644
  #endif
      const bool stick_live = axes != 0 && (st[0] != 0x80 || st[1] != 0x80 ||
                                            st[2] != 0x80 || st[3] != 0x80);
-@@ -10784,6 +11650,7 @@ static void host_look_apply_live(void) {
+@@ -10784,6 +11669,7 @@ static void host_look_apply_live(void) {
  static void session_internal_resolution(void) {
      PsxHostEnhRequests req;
      psx_host_enh_requests(&req);
@@ -1029,7 +1048,7 @@ index b0a340e1..5ffdcd67 100644
      const PsxHostResolution r = psx_host_enh_resolve_resolution(&g_title_resolution, &req);
      g_video_mod_supersample_chosen = req.resolution && req.resolution_supersample > 0;
      g_video_internal_res = r.internal_resolution;
-@@ -10992,6 +11859,7 @@ static int host_resolution_apply_live(void) {
+@@ -10992,6 +11878,7 @@ static int host_resolution_apply_live(void) {
      if (!g_video_res_live_capable.load()) return 0;
      PsxHostEnhRequests req;
      psx_host_enh_requests(&req);
@@ -1037,7 +1056,7 @@ index b0a340e1..5ffdcd67 100644
      const PsxHostResolution r = psx_host_enh_resolve_resolution(&g_title_resolution, &req);
      g_video_mod_supersample_chosen = req.resolution && req.resolution_supersample > 0;
      g_video_dynres_min = r.dynamic_resolution_min;
-@@ -18082,11 +18950,7 @@ int main(int argc, char** argv) {
+@@ -18082,11 +18969,7 @@ int main(int argc, char** argv) {
      int  player_deadzone[PSX_MAX_PLAYERS];
      int  ctrl_locked_mode[PSX_MAX_PLAYERS];
      for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
@@ -1049,7 +1068,7 @@ index b0a340e1..5ffdcd67 100644
          player_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
          player_deadzone[i] = kDefaultDeadzoneRaw;
          ctrl_locked_mode[i] = PSXRecompV4::PAD_MODE_ANALOG;
-@@ -18941,6 +19805,7 @@ int main(int argc, char** argv) {
+@@ -18941,6 +19824,7 @@ int main(int argc, char** argv) {
                  "DEPRECATED and ignored; enable the \"Fast Loading (host "
                  "pacing)\" mod instead. The stale key is dropped on the next "
                  "settings save.\n");
@@ -1057,7 +1076,7 @@ index b0a340e1..5ffdcd67 100644
          if (us.has_fast_boot)      fast_boot = us.fast_boot;
          if (us.has_bios_hle)       bios_hle  = us.bios_hle;
          if (us.has_fullscreen)     g_fullscreen      = us.fullscreen;
-@@ -19044,6 +19909,38 @@ int main(int argc, char** argv) {
+@@ -19044,6 +19928,38 @@ int main(int argc, char** argv) {
              g_frame_interpolation = us.frame_interpolation ? 1 : 0;
          if (us.has_frame_interpolation_fps)
              g_frame_interpolation_fps = us.frame_interpolation_fps;
@@ -1096,7 +1115,7 @@ index b0a340e1..5ffdcd67 100644
      }
  
      /* lock_mode: the game supports exactly ONE pad type (e.g. X4 / Tomba 2 are
-@@ -19075,14 +19972,9 @@ int main(int argc, char** argv) {
+@@ -19075,14 +19991,9 @@ int main(int argc, char** argv) {
  #endif
          }
      }
@@ -1113,7 +1132,7 @@ index b0a340e1..5ffdcd67 100644
      }
      /* Load acceleration is mod-owned on PSX, unconditionally. Nothing upstream
       * of this point is allowed to have enabled it (the game.toml and
-@@ -19118,20 +20010,9 @@ int main(int argc, char** argv) {
+@@ -19118,20 +20029,9 @@ int main(int argc, char** argv) {
          g_video_aspect_den = ws_offered ? 9 : 3;
      }
  
@@ -1135,7 +1154,7 @@ index b0a340e1..5ffdcd67 100644
  
      /* Apply writable-state isolation before game-options and launcher setup,
       * not with the later renderer/port overrides. Explicit slot paths from a
-@@ -19509,6 +20390,7 @@ int main(int argc, char** argv) {
+@@ -19509,6 +20409,7 @@ int main(int argc, char** argv) {
  #ifdef SDL_HINT_WINDOWS_DPI_SCALING
      SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "0");
  #endif
@@ -1143,7 +1162,7 @@ index b0a340e1..5ffdcd67 100644
          if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) == 0) {
              launcher_boot_timing_mark("host:after_sdl_init");
              recomp_launcher_set_preserve_sdl(1);
-@@ -20529,6 +21411,9 @@ int main(int argc, char** argv) {
+@@ -20529,6 +21430,9 @@ int main(int argc, char** argv) {
              (void)psx_mod_set_fixed_display_aspect(index == 2 ? 21u : index == 1 ? 16u : 4u,
                                                   index ? 9u : 3u);
          }
@@ -1153,7 +1172,7 @@ index b0a340e1..5ffdcd67 100644
          apply_netplay_local_viewport_aspect(netplay);
          for (int i = 0; i < PSX_MAX_PLAYERS; ++i) {
              if (g_mod_controller_mode_override[i] >= 0)
-@@ -20563,6 +21448,7 @@ int main(int argc, char** argv) {
+@@ -20563,6 +21467,7 @@ int main(int argc, char** argv) {
          return 1;
      }
  
@@ -1161,7 +1180,7 @@ index b0a340e1..5ffdcd67 100644
      /* Re-apply the resolved language to the translation layer. text_xlate_init
       * (at config load) only saw the game.toml default; this folds in the
       * settings.toml override and the launcher's choice. No-op when unchanged. */
-@@ -21267,21 +22153,20 @@ session_reboot:
+@@ -21267,21 +22172,20 @@ session_reboot:
       * window is resized; nearest preserves crisp pixels otherwise. */
      SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_video_aa ? "1" : "0");
      SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
