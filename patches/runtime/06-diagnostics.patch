@@ -1,8 +1,8 @@
 diff --git a/runtime/include/debug_server.h b/runtime/include/debug_server.h
-index d3033f79..e7945f3f 100644
+index 789446d8..31a56a37 100644
 --- a/runtime/include/debug_server.h
 +++ b/runtime/include/debug_server.h
-@@ -108,6 +108,11 @@ uint32_t debug_server_get_tcp_drops(void);
+@@ -117,6 +117,11 @@ uint32_t debug_server_get_tcp_drops(void);
  /* Record the current frame's state into the ring buffer.
   * Call after vblank processing. */
  void debug_server_record_frame(void);
@@ -81,10 +81,10 @@ index 96d52cd8..df5e0475 100644
       * when the native stack guard tripped, plus the recent recompiled-function-
       * entry ring — for a runaway, recent_fn's tail repeats the recursing func, so
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index 32ee500c..ea59e101 100644
+index 66e1a27d..404c83fb 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -355,6 +355,16 @@ static uint64_t        s_history_count = 0;
+@@ -363,6 +363,16 @@ static uint64_t        s_history_count = 0;
  static uint32_t s_snapshot_addrs[RAM_SNAPSHOT_REGIONS];
  static int      s_snapshot_active[RAM_SNAPSHOT_REGIONS];
  
@@ -101,7 +101,25 @@ index 32ee500c..ea59e101 100644
  /* ---- Watchpoints ---- */
  #define MAX_WATCHPOINTS 8
  typedef struct {
-@@ -10272,6 +10282,53 @@ static void handle_set_snapshot(int id, const char *json)
+@@ -5342,6 +5352,17 @@ static void handle_read_ram(int id, const char *json)
+  * the socket send buffer filled, the main-thread-pumped server blocked, and
+  * the freeze watchdog killed the process.  One request, one response. */
+ 
++/* pad_rumble — the motor bytes the game last sent to the pad in slot N
++ * (default 0): {"cmd":"pad_rumble","slot":N} -> small (0/1), large (0..255).
++ * Sample it while the game should rumble (firing, taking damage). */
++static void handle_pad_rumble(int id, const char *json)
++{
++    extern void sio_get_pad_rumble(int slot, uint8_t *small, uint8_t *large);
++    uint8_t sm = 0, lg = 0;
++    sio_get_pad_rumble(json_get_int(json, "slot", 0), &sm, &lg);
++    send_fmt("{\"id\":%d,\"ok\":true,\"small\":%u,\"large\":%u}", id, sm, lg);
++}
++
+ static void handle_write_ram(int id, const char *json)
+ {
+     char addr_str[32], val_str[32];
+@@ -10361,6 +10382,53 @@ static void handle_set_snapshot(int id, const char *json)
      send_fmt("{\"id\":%d,\"ok\":true,\"slot\":%d,\"addr\":\"0x%08X\"}", id, slot, addr);
  }
  
@@ -155,7 +173,15 @@ index 32ee500c..ea59e101 100644
  static void handle_get_snapshots(int id, const char *json)
  {
      (void)json;
-@@ -16670,6 +16727,7 @@ static const CmdEntry s_commands[] = {
+@@ -16530,6 +16598,7 @@ static const CmdEntry s_commands[] = {
+     { "read_ram",          handle_read_ram },
+     { "dump_ram",          handle_read_ram },   /* alias: one request, one response */
+     { "write_ram",         handle_write_ram },
++    { "pad_rumble",        handle_pad_rumble },
+     { "write_bulk",        handle_write_bulk },
+     { "gpu_state",         handle_gpu_state },
+     { "geom_correction",   handle_geom_correction },
+@@ -16801,6 +16870,7 @@ static const CmdEntry s_commands[] = {
      { "read_frame_ram",    handle_read_frame_ram },
      { "set_snapshot",      handle_set_snapshot },
      { "get_snapshots",     handle_get_snapshots },
@@ -163,7 +189,7 @@ index 32ee500c..ea59e101 100644
      { "screenshot",        handle_present_screenshot },
      { "screenshot_file",   handle_screenshot_file },
      { "screenshot_hires",  handle_screenshot_hires },
-@@ -17563,8 +17621,9 @@ void debug_server_record_frame(void)
+@@ -17705,8 +17775,9 @@ void debug_server_record_frame(void)
          }
      }
  
@@ -251,10 +277,10 @@ index f3fb810e..69fcd794 100644
  
      if (!s_wedge_classification_paused &&
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 82e73ec5..208da627 100644
+index 5ffdcd67..97f5c0b5 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -9862,6 +9862,43 @@ static bool drain_host_events() {
+@@ -10112,6 +10112,43 @@ static bool drain_host_events() {
                  host_osd_push(rc == PSX_DISC_TRAY_OK ? "CD reinsert" :
                                "Disc changes are unavailable in this game mode.", 1500);
              }
@@ -296,5 +322,5 @@ index 82e73ec5..208da627 100644
 +                }
 +            }
              else if (!key_repeat &&
-                      host_keymap_match_event(HOST_KEYMAP_TURBO_TOGGLE,
-                                              (int)key, (int)scancode,
+                      (host_keymap_match_event(HOST_KEYMAP_QUICK_SAVE,
+                                               (int)key, (int)scancode, (int)mod) ||

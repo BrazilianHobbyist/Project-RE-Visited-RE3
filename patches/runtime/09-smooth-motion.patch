@@ -1,8 +1,8 @@
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index f2879973..d58df448 100644
+index 39b1a8ea..50dbfc6e 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
-@@ -6669,6 +6669,13 @@ int gpu_get_a0_src(int index, uint32_t *s2, uint32_t *a0, uint32_t *a1, uint32_t
+@@ -6746,6 +6746,13 @@ int gpu_get_a0_src(int index, uint32_t *s2, uint32_t *a0, uint32_t *a1, uint32_t
      return 1;
  }
  
@@ -17,10 +17,10 @@ index f2879973..d58df448 100644
      /* 0xA0 — CPU→VRAM Copy (header: 3 words)
       * Word 0: command
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index f48e79c3..aa32d3d7 100644
+index edbda354..a6e18afa 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -473,7 +473,9 @@ enum {
+@@ -474,7 +474,9 @@ enum {
      RTH_WIDE_DISABLE, RTH_WIDE_CLEAR, RTH_WIDE_CLEAR_MARGINS, RTH_PROJ_TRI,
      RTH_WIDE_RECOVERY, RTH_INTERP_SUSPENDED, RTH_PRESENT_VRAM,
      RTH_PRESENT_WIDE, RTH_STATE, RTH_PEEK, RTH_RING_CAPTURE, RTH_DYN_STEP,
@@ -31,7 +31,7 @@ index f48e79c3..aa32d3d7 100644
  };
  /* GP0(A0) whose payload gpu.c is still streaming into its array (the
   * facade's vram_upload_open, emulation thread), tracked whatever the HD
-@@ -482,6 +484,12 @@ enum {
+@@ -483,6 +485,12 @@ enum {
   * (even a full-VRAM TRACK_UPLOAD) never ends it; only the commit, GP1(01h),
   * a reset or a savestate restored outside A0 do. */
  static int s_rth_a0_open = 0;
@@ -44,7 +44,7 @@ index f48e79c3..aa32d3d7 100644
  /* HD authority requested while an A0 streams under GPU authority: its
   * received words exist only in gpu.c's array (the FBO gets the whole rect at
   * the commit), so ensure_cpu's readback would overwrite them. The switch
-@@ -10533,8 +10541,11 @@ static float present_alloc_extent(int units, int scale) {
+@@ -10760,8 +10768,11 @@ static float present_alloc_extent(int units, int scale) {
   * models in view, and over it, inside the centred 4:3 rect, every pixel where
   * the final image differs from the copy (the UI) at 1:1. A buffer last drawn
   * as a full 2D screen has no copy and presents 4:3 pillarboxed. Only the plain
@@ -58,7 +58,7 @@ index f48e79c3..aa32d3d7 100644
  typedef struct {
      int    used, valid, x, y, w, h, scale;
      int    fy0, fy1;
-@@ -10543,6 +10554,8 @@ typedef struct {
+@@ -10770,6 +10781,8 @@ typedef struct {
      int    tw, th;
  } LySlot;
  static LySlot   s_ly[2];
@@ -67,7 +67,7 @@ index f48e79c3..aa32d3d7 100644
  static int      s_ly_on = -1;
  static GLuint   s_ly_comp_tex = 0, s_ly_comp_fbo = 0;
  static int      s_ly_comp_w = 0, s_ly_comp_h = 0;
-@@ -10563,26 +10576,36 @@ int gl_renderer_ws_layers_enabled(void) {
+@@ -10790,26 +10803,36 @@ int gl_renderer_ws_layers_enabled(void) {
          const char *e = getenv("PSX_WS_LAYERS");
          s_ly_on = (e && e[0] == '1') ? 1 : 0;
      }
@@ -112,7 +112,7 @@ index f48e79c3..aa32d3d7 100644
          static int next = 0;
          s = &s_ly[next];
          next ^= 1;
-@@ -10615,7 +10638,18 @@ void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
+@@ -10842,7 +10865,18 @@ void gl_renderer_ws_layer_snapshot(int x, int y, int w, int h,
      p_glBindFramebuffer(PSXGL_DRAW_FRAMEBUFFER, 0);
      s->valid = 1; s->w = w; s->h = h; s->scale = R;
      s->fy0 = focus_y0; s->fy1 = focus_y1; s->hash = bg_hash;
@@ -132,7 +132,7 @@ index f48e79c3..aa32d3d7 100644
  }
  
  static const char *LY_FS =
-@@ -11810,7 +11844,7 @@ static uint16_t rth_prim_flags(void) {
+@@ -12043,7 +12077,7 @@ static uint16_t rth_prim_flags(void) {
  static int gl_rth_eligible(void) {
      extern int psx_netplay_active(void);
      return s_raster_ok && s_ctx && !s_cpu_auth_dual && !s_depth24_skip_up &&
@@ -141,7 +141,7 @@ index f48e79c3..aa32d3d7 100644
             !gpu_display_is_depth24() && !s_interp_enabled && !s_pass_active &&
             !psx_netplay_active() && !psx_openxr_session_active() &&
             gr_backend() == GR_BACKEND_OPENGL;
-@@ -11823,7 +11857,26 @@ static int gl_rth_eligible(void) {
+@@ -12056,7 +12090,26 @@ static int gl_rth_eligible(void) {
   * VRAM: no A0 payload can be streaming (its header takes the context). */
  static void rth_hd_publish_private(void) {
      if (!s_hd_native_authority) return;
@@ -169,7 +169,7 @@ index f48e79c3..aa32d3d7 100644
  }
  
  static void gl_rth_acquire(const char *reason) {
-@@ -12364,6 +12417,7 @@ static int fg_op_kept(uint16_t op) {
+@@ -12597,6 +12650,7 @@ static int fg_op_kept(uint16_t op) {
      case RTH_TEX_RECT_SCALED: case RTH_LINE: case RTH_SHADED_LINE: case RTH_AREA:
      case RTH_OFFSET: case RTH_WIDE_VIEW: case RTH_WIDE_TARGET: case RTH_WIDE_DISABLE:
      case RTH_WIDE_CLEAR: case RTH_WIDE_CLEAR_MARGINS: case RTH_PROJ_TRI: case RTH_STATE:
@@ -177,7 +177,7 @@ index f48e79c3..aa32d3d7 100644
          return 1;
      default:
          return 0;
-@@ -12505,8 +12559,63 @@ static void fg_rotate(void) {
+@@ -12738,8 +12792,63 @@ static void fg_rotate(void) {
      fg_list_open();
  }
  
@@ -241,7 +241,7 @@ index f48e79c3..aa32d3d7 100644
      if (c->op == RTH_FG_SRC) {
          memcpy(s_fg_src, payload, sizeof s_fg_src);
          s_fg_src_valid = 1;
-@@ -12867,6 +12976,23 @@ static void fg_replay(const FgList *a, const FgList *b, double t, GLuint gen_wid
+@@ -13100,6 +13209,23 @@ static void fg_replay(const FgList *a, const FgList *b, double t, GLuint gen_wid
              g_wide_cur_base = v[0];
              break;
          case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
@@ -265,7 +265,7 @@ index f48e79c3..aa32d3d7 100644
          case RTH_WIDE_CLEAR:
              if (v[0] == disp[0] && gen_wide && !s_fg_replay_objects_only) glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]);
              break;
-@@ -12995,6 +13121,30 @@ static void fg_compose(const FgList *b, GLuint wide_fbo, GLuint wide_tex, int li
+@@ -13228,6 +13354,30 @@ static void fg_compose(const FgList *b, GLuint wide_fbo, GLuint wide_tex, int li
                         int force_4_3) {
      int ww = 0, wh = 0; SDL_GL_GetDrawableSize(s_win, &ww, &wh);
      int lx, ly, lw, lh;
@@ -296,7 +296,7 @@ index f48e79c3..aa32d3d7 100644
      if (b->wide) {
          letterbox_rect(ww, wh, &lx, &ly, &lw, &lh);
          /* A reprojected frame warped the composed wide image itself. */
-@@ -13920,6 +14070,7 @@ static int fg_generate(double t, int swap) {
+@@ -14153,6 +14303,7 @@ static int fg_generate(double t, int swap) {
      hiw_flush_queue();
      pack_flush();
      if (!fg_surfaces_ensure(b->wide)) return 0;
@@ -304,7 +304,7 @@ index f48e79c3..aa32d3d7 100644
      const int S = s_hr_scale;
      /* Real bookkeeping the generated draws would touch. */
      FgState real;
-@@ -14675,6 +14826,7 @@ static void rtb_init(uint16_t *vram) {
+@@ -14908,6 +15059,7 @@ static void rtb_init(uint16_t *vram) {
      GL_RT_SYNC("init");
      if (s_rth_on) s_rth_vram_pub = vram;
      s_rth_a0_open = 0;   /* a reset abandons an incomplete A0 */
@@ -312,7 +312,7 @@ index f48e79c3..aa32d3d7 100644
      glb_init(vram);
      if (s_hd_authority_pending) gl_renderer_set_hd_texture_mode(1);
      if (s_rth_on && !rt_held()) rth_rebind_vram(s_rth_vram_priv);
-@@ -14805,13 +14957,16 @@ static void hd_note_exec(int op, int x, int y, int w, int h, int sx, int sy) {
+@@ -15038,13 +15190,16 @@ static void hd_note_exec(int op, int x, int y, int w, int h, int sx, int sy) {
  }
  /* After the upload/draw it follows, in command order, against s_vram. */
  static void rtb_vram_upload_open(int open) {
@@ -331,7 +331,7 @@ index f48e79c3..aa32d3d7 100644
  }
  static void rtb_hd_texture_note(int op, int x, int y, int w, int h, int sx, int sy) {
      RTH_DIRECT_OR(RTH_REC(RTH_HD_NOTE, 0, op, x, y, w, h, sx, sy)); hd_note_exec(op, x, y, w, h, sx, sy); }
-@@ -15006,6 +15161,8 @@ static void gl_rth_exec(void *user, const RtCmd *c, const void *payload) {
+@@ -15239,6 +15394,8 @@ static void gl_rth_exec(void *user, const RtCmd *c, const void *payload) {
      case RTH_WIDE_DISABLE: glb_wide_disable_target(); break;
      case RTH_WIDE_CLEAR: glb_wide_clear(v[0], v[1], v[2], (uint16_t)v[3]); break;
      case RTH_WIDE_CLEAR_MARGINS: glb_wide_clear_margins(v[0], v[1], v[2], (uint16_t)v[3], v[4]); break;
@@ -341,10 +341,10 @@ index f48e79c3..aa32d3d7 100644
          glb_wide_feedback_rect(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9],
                                 v[10], v[11]);
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 270876eb..88095dde 100644
+index 0a8d7393..2b84dd7a 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -6520,6 +6520,11 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6657,6 +6657,11 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
              }
          }
          else if (key == "perspective_texturing") g_video_perspective_texturing = (val == "true" || val == "1") ? 1 : 0;
@@ -356,7 +356,7 @@ index 270876eb..88095dde 100644
          else if (key == "internal_resolution") {
              int ir = 0;
              if (psx_ir_parse(val.c_str(), &ir)) {
-@@ -6597,13 +6602,13 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+@@ -6734,13 +6739,13 @@ extern "C" int re3_settings_json(char* buf, int cap) {
      return std::snprintf(buf, (size_t)cap,
          "\"fullscreen\":%d,\"fast_doors\":%d,\"modern_controls\":%d,\"modern_turn_speed\":%d,"
          "\"directinput_joysticks\":%d,\"rumble_intensity\":%.2f,\"spu_hq\":%d,\"auto_skip_fmv\":%d,"

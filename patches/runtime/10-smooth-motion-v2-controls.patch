@@ -12,10 +12,10 @@ index b987e7ee..db50e55a 100644
      uint32_t guessed;        /* fg_cam_place: vertices without a projection placed by a triangle
                                * mean over a motion that varies by more than 1 px */
 diff --git a/runtime/include/gpu_gl_renderer.h b/runtime/include/gpu_gl_renderer.h
-index 648b41bc..55b6badf 100644
+index 68b85c88..75c76627 100644
 --- a/runtime/include/gpu_gl_renderer.h
 +++ b/runtime/include/gpu_gl_renderer.h
-@@ -440,6 +440,15 @@ void gl_renderer_dynres_stats(GlDynresStats *out);
+@@ -445,6 +445,15 @@ void gl_renderer_dynres_stats(GlDynresStats *out);
   * (not a breaker trip), e.g. while dynamic resolution is over budget.
   * json: the debug server's {"cmd":"frame_gen"} fields (no sync point). */
  void gl_renderer_set_frame_generation(int on);
@@ -32,10 +32,10 @@ index 648b41bc..55b6badf 100644
   * camera-space x/y/z, projection distance H; id 0 = none) and the integer
   * positions it will be drawn at; recorded for frame generation only, never
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index f760a82b..6a25feac 100644
+index 1dade2cc..6915efb0 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -5393,7 +5393,11 @@ static void handle_geom_correction(int id, const char *json)
+@@ -5409,7 +5409,11 @@ static void handle_geom_correction(int id, const char *json)
       * triangles that reach the predicate. */
      uint64_t tc_att = 0, tc_arm = 0, tc_off = 0, tc_nosrc = 0, tc_noz = 0;
      gpu_texture_correction_stats(&tc_att, &tc_arm, &tc_off, &tc_nosrc, &tc_noz);
@@ -47,7 +47,7 @@ index f760a82b..6a25feac 100644
               "\"geometry_correction\":%d,\"texture_correction\":%d,"
               "\"geometry_vertex_hits\":%u,"
               "\"perspective_triangles\":%u,"
-@@ -5415,6 +5419,8 @@ static void handle_geom_correction(int id, const char *json)
+@@ -5431,6 +5435,8 @@ static void handle_geom_correction(int id, const char *json)
               "\"word\":{\"lookups\":%llu,\"hit\":%llu,\"untracked\":%llu,"
               "\"mismatch\":%llu,\"partial\":%llu,\"no_z\":%llu}}}",
               id,
@@ -165,10 +165,10 @@ index db265d36..c4674cfb 100644
      fit->clamped = clamped;
      fit->guessed = guessed;
 diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
-index aa32d3d7..23c6fe02 100644
+index a6e18afa..46c32d2a 100644
 --- a/runtime/src/gpu_gl_renderer.c
 +++ b/runtime/src/gpu_gl_renderer.c
-@@ -10001,6 +10001,7 @@ static void gl_window_swap(void) {
+@@ -10227,6 +10227,7 @@ static void gl_window_swap(void) {
      }
  }
  
@@ -176,7 +176,7 @@ index aa32d3d7..23c6fe02 100644
  static void *pt_cb_present(void *user, int slot, void *ready) {
      (void)user;
      if (s_ptp_interval_gen != s_pt_interval_gen) {
-@@ -10019,6 +10020,8 @@ static void *pt_cb_present(void *user, int slot, void *ready) {
+@@ -10245,6 +10246,8 @@ static void *pt_cb_present(void *user, int slot, void *ready) {
      const int sw = s_pts_w[slot], sh = s_pts_h[slot];
      int ww = 0, wh = 0;
      SDL_GL_GetDrawableSize(s_win, &ww, &wh);
@@ -185,7 +185,7 @@ index aa32d3d7..23c6fe02 100644
      p_glBindFramebuffer_raw(PSXGL_READ_FRAMEBUFFER, s_ptp_fbo[slot]);
      p_glBindFramebuffer_raw(PSXGL_DRAW_FRAMEBUFFER, 0);
      glDisable(GL_SCISSOR_TEST);
-@@ -10110,8 +10113,446 @@ static void pt_end(void) {
+@@ -10336,8 +10339,446 @@ static void pt_end(void) {
      p_glBindFramebuffer(PSXGL_FRAMEBUFFER, 0);
  }
  
@@ -632,7 +632,7 @@ index aa32d3d7..23c6fe02 100644
      if (!s_pt_on) { gl_window_swap(); return; }
      (void)pt_target_fbo();   /* a frame that never bound 0 still has its slot */
      void *ready = p_glFenceSync(PT_SYNC_GPU_COMMANDS_COMPLETE, 0);
-@@ -10865,7 +11306,8 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
+@@ -11092,7 +11533,8 @@ static void present_vram_impl(int disp_x, int disp_y, int w, int h, int linear,
          !present_dirty_test(disp_x, disp_y, disp_x + w - 1, disp_y + h - 1) &&
          !ov_needs_present() &&
          !psx_present_vsync_owns_cadence() &&
@@ -642,7 +642,7 @@ index aa32d3d7..23c6fe02 100644
          s_probe_skip++;
          gpu_timeline_note(GTL_PRESENT_SKIP, GTL_PATH_VRAM_FBO,
                            (uint32_t)disp_x | ((uint32_t)disp_y << 16));
-@@ -11083,7 +11525,8 @@ static int present_wide_fbo_impl(int disp_x, int disp_y, int disp_h, int linear)
+@@ -11313,7 +11755,8 @@ static int present_wide_fbo_impl(int disp_x, int disp_y, int disp_h, int linear)
          !present_dirty_test(0, disp_y, VRAM_W - 1, disp_y + disp_h - 1) &&
          !ov_needs_present() &&
          !psx_present_vsync_owns_cadence() &&
@@ -652,7 +652,7 @@ index aa32d3d7..23c6fe02 100644
          s_probe_skip++;
          gpu_timeline_note(GTL_PRESENT_SKIP, GTL_PATH_WIDE_FBO,
                            (uint32_t)disp_x | ((uint32_t)disp_y << 16));
-@@ -11949,12 +12392,51 @@ static int rth_record_present(uint16_t op, int n, const int32_t *v) {
+@@ -12182,12 +12625,51 @@ static int rth_record_present(uint16_t op, int n, const int32_t *v) {
      return 1;
  }
  
@@ -704,7 +704,7 @@ index aa32d3d7..23c6fe02 100644
      if (stale) {
          /* Two later frames are already recorded, so the emulation thread is
           * at (or near) the in-flight bound waiting on us. Showing this frame
-@@ -14784,7 +15266,7 @@ int gl_renderer_frame_gen_json(char *out, int cap) {
+@@ -15017,7 +15499,7 @@ int gl_renderer_frame_gen_json(char *out, int cap) {
          "\"real_cpu_ms\":%.3f,\"real_gpu_ms\":%.3f,\"ceiling\":%d,"
          "\"trips_late\":%u,\"trips_backed_up\":%u,\"trips_behind\":%u,"
          "\"place_camera\":%u,\"place_object\":%u,\"place_neighbour\":%u,"
@@ -713,7 +713,7 @@ index aa32d3d7..23c6fe02 100644
          "\"clamped\":%u,\"guessed\":%u,\"verdict_ok\":%d,\"rejected\":%llu,\"reject_why\":\"%s\",\"noplan_why\":\"%s\",\"rp_ms\":[%.3f,%.3f,%.3f],\"rp_zn\":%u,\"reprojected\":%llu,\"reproject_fallback\":%llu,\"reproject\":%d,\"np\":[%llu,%llu,%llu,%llu],\"end_ahead\":%llu,\"end_bp\":%llu,\"end_phase\":%llu",
          s_fg_on, s_fg_on && s_rth_on && open, s_fg_force,
          (unsigned long long)s_fg_generated, (unsigned long long)s_fg_real_presents,
-@@ -14804,7 +15286,7 @@ int gl_renderer_frame_gen_json(char *out, int cap) {
+@@ -15037,7 +15519,7 @@ int gl_renderer_frame_gen_json(char *out, int cap) {
          (unsigned long long)s_fg_ignored_late, (unsigned long long)s_fg_ignored_bp,
          s_fg_real_ema * 1e3, s_fg_real_gpu_ema * 1e3, fg_ceil()->cap,
          s_fg_trip_late, s_fg_trip_bp, s_fg_trip_behind,
@@ -722,7 +722,7 @@ index aa32d3d7..23c6fe02 100644
          (unsigned long long)s_fg_skip_unplaced, (unsigned long long)s_rp_older_frames, (double)s_rp_pzs_last,
          2.0 * acos(fmin(1.0, fabs(s_fg_fit.v[0].q[0]))) * 57.29578,
          sqrt(s_fg_fit.v[0].t[0] * s_fg_fit.v[0].t[0] + s_fg_fit.v[0].t[1] * s_fg_fit.v[0].t[1] +
-@@ -15311,14 +15793,15 @@ int gl_renderer_render_thread_json(char *out, size_t cap) {
+@@ -15544,14 +16026,15 @@ int gl_renderer_render_thread_json(char *out, size_t cap) {
      int k = snprintf(out, cap,
          "\"active\":%d,\"held\":%d,\"max_frames\":%d,\"records\":%llu,\"bytes\":%llu,"
          "\"frames_produced\":%llu,\"frames_consumed\":%llu,\"presents\":%llu,"
@@ -741,10 +741,10 @@ index aa32d3d7..23c6fe02 100644
          (unsigned long long)st.backpressure_waits, st.backpressure_ns / 1e6,
          (unsigned long long)st.ring_full_waits, st.ring_full_ns / 1e6,
 diff --git a/runtime/src/gte.cpp b/runtime/src/gte.cpp
-index 06a0b31c..10f43a96 100644
+index 8dfd090d..87228957 100644
 --- a/runtime/src/gte.cpp
 +++ b/runtime/src/gte.cpp
-@@ -13,6 +13,7 @@
+@@ -14,6 +14,7 @@
  #include <cstdlib>
  #include <cstdio>
  #include <cstring>
@@ -752,7 +752,7 @@ index 06a0b31c..10f43a96 100644
  extern "C" int psx_netplay_active(void);
  
  extern "C" uint32_t psx_read_word(uint32_t addr);
-@@ -749,7 +750,14 @@ struct GteRtpRec {
+@@ -750,7 +751,14 @@ struct GteRtpRec {
      int32_t  SXY0, SXY1, SXY2;
      uint16_t SZ1, SZ2, SZ3;
      uint32_t FLAG;
@@ -767,7 +767,7 @@ index 06a0b31c..10f43a96 100644
  #define GTE_RTP_RING_CAP (1u << 18)   /* 256K raw entries (~a few seconds) */
  static GteRtpRec* s_gte_rtp_ring = nullptr;
  static uint64_t   s_gte_rtp_seq  = 0;
-@@ -816,6 +824,13 @@ static void gte_rtp_record(const GTEState* g, uint32_t cmd) {
+@@ -817,6 +825,13 @@ static void gte_rtp_record(const GTEState* g, uint32_t cmd) {
      e->SXY0=g->SXY[0]; e->SXY1=g->SXY[1]; e->SXY2=g->SXY[2];
      e->SZ1=g->SZ[1]; e->SZ2=g->SZ[2]; e->SZ3=g->SZ[3];
      e->FLAG=g->FLAG;
@@ -781,7 +781,7 @@ index 06a0b31c..10f43a96 100644
      s_gte_rtp_seq++;
  
      /* classify */
-@@ -1025,13 +1040,14 @@ extern "C" int gte_rtp_ring_dump_json(char* out, int outsz, int max_count,
+@@ -1026,13 +1041,14 @@ extern "C" int gte_rtp_ring_dump_json(char* out, int outsz, int max_count,
              "\"RT\":[%d,%d,%d,%d,%d,%d,%d,%d,%d],\"TR\":[%d,%d,%d],"
              "\"H\":%u,\"Hs\":%u,\"OFX\":%d,\"OFY\":%d,\"render_view\":%u,"
              "\"S0\":[%d,%d],\"S1\":[%d,%d],\"S2\":[%d,%d],"
@@ -798,7 +798,7 @@ index 06a0b31c..10f43a96 100644
          emitted++;
      }
      out[pos] = 0;
-@@ -1087,6 +1103,122 @@ static int32_t gte_h_scaled(const GTEState* gte) {
+@@ -1088,6 +1104,122 @@ static int32_t gte_h_scaled(const GTEState* gte) {
      return (int32_t)h;
  }
  
@@ -921,7 +921,7 @@ index 06a0b31c..10f43a96 100644
  // ---------------------------------------------------------------------------
  // RTPS — Perspective Transformation (internal, operates on given vertex V)
  //
-@@ -1282,6 +1414,32 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
+@@ -1283,6 +1415,32 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
              const int precise = pgxp_project_precise(mac1, mac2, mac3, shift,
                                       gte->IR1, gte->IR2, gte->SZ[3], gte_h_scaled(gte),
                                       gte->OFX, gte->OFY, x_num, x_den, &ex16, &ey16);
@@ -954,7 +954,7 @@ index 06a0b31c..10f43a96 100644
              if (precise == 2 || (precise == 1 &&
                  pgxp_ppp_accept(ex16, ey16, (uint32_t)gte->SXY[2]))) {
                  unclamped_projection = precise == 2;
-@@ -1290,6 +1448,8 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
+@@ -1291,6 +1449,8 @@ void gte_rtps_internal(GTEState* gte, int16_t* V, bool setMac0, uint32_t instr)
              }
          }
          pgxp_gte_push_sxy(px16, py16, gte->SZ[3], (uint32_t)gte->SXY[2]);
@@ -963,7 +963,7 @@ index 06a0b31c..10f43a96 100644
          if (unclamped_projection) pgxp_gte_mark_unclamped((uint32_t)(mac3 >> 12));
          if (!proj_override && pgxp_projection_tracking() && shift == 12 && !lm) {
              const double z = (double)(mac3 >> 12);
-@@ -1909,6 +2069,28 @@ void gte_mvmva(GTEState* gte, uint32_t instr) {
+@@ -1924,6 +2084,28 @@ void gte_mvmva(GTEState* gte, uint32_t instr) {
  
      gte->set_error_flag();
  
@@ -992,7 +992,7 @@ index 06a0b31c..10f43a96 100644
      /* PGXP scalar tier: MVMVA used as a multiplier on tracked vertex halves
       * (CTC2'd matrix rows) - hand the engine the operands as used and the
       * results, so MFC2 of MAC / IR can carry the precise weighted sum. */
-@@ -1982,9 +2164,36 @@ void gte_sqr(GTEState* gte, uint32_t instr) {
+@@ -1997,9 +2179,36 @@ void gte_sqr(GTEState* gte, uint32_t instr) {
  // ---------------------------------------------------------------------------
  // GPF (0x3D) — General Purpose Interpolation (IR0 * IR)
  // ---------------------------------------------------------------------------
@@ -1029,7 +1029,7 @@ index 06a0b31c..10f43a96 100644
  
      int64_t mac1 = (int64_t)gte->IR0 * gte->IR1;
      int64_t mac2 = (int64_t)gte->IR0 * gte->IR2;
-@@ -2007,6 +2216,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
+@@ -2022,6 +2231,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
          gte->saturate_color(gte->MAC3 >> 4, 2));
  
      gte->set_error_flag();
@@ -1037,7 +1037,7 @@ index 06a0b31c..10f43a96 100644
  }
  
  // ---------------------------------------------------------------------------
-@@ -2015,6 +2225,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
+@@ -2030,6 +2240,7 @@ void gte_gpf(GTEState* gte, uint32_t instr) {
  void gte_gpl(GTEState* gte, uint32_t instr) {
      gte->FLAG = 0;
      int sf = (instr >> 19) & 1;
@@ -1045,7 +1045,7 @@ index 06a0b31c..10f43a96 100644
  
      int64_t mac1 = (sf ? (int64_t)gte->MAC1 * 4096 : (int64_t)gte->MAC1) + (int64_t)gte->IR0 * gte->IR1;
      int64_t mac2 = (sf ? (int64_t)gte->MAC2 * 4096 : (int64_t)gte->MAC2) + (int64_t)gte->IR0 * gte->IR2;
-@@ -2037,6 +2248,7 @@ void gte_gpl(GTEState* gte, uint32_t instr) {
+@@ -2052,6 +2263,7 @@ void gte_gpl(GTEState* gte, uint32_t instr) {
          gte->saturate_color(gte->MAC3 >> 4, 2));
  
      gte->set_error_flag();
@@ -1054,10 +1054,10 @@ index 06a0b31c..10f43a96 100644
  
  // ---------------------------------------------------------------------------
 diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
-index 174e20fa..9764dbbc 100644
+index 2b84dd7a..fa9724ef 100644
 --- a/runtime/src/main.cpp
 +++ b/runtime/src/main.cpp
-@@ -1602,6 +1602,10 @@ static bool          g_launcher_quick_controls = false;  /* game.toml [launcher]
+@@ -1635,6 +1635,10 @@ static bool          g_launcher_quick_controls = false;  /* game.toml [launcher]
  static int           g_render_thread_frames = 2;
  /* [video] frame_generation (docs/FRAME_GENERATION.md), with the render thread. */
  static int           g_frame_generation = 0;
@@ -1068,7 +1068,7 @@ index 174e20fa..9764dbbc 100644
  static int           g_frame_generation_method = 0;   /* [video] frame_generation_method: 0 redraw, 1 reprojection */
  /* [video] present_thread (docs/RENDER_THREAD.md), with the render thread. */
  static int           g_present_thread = 0;
-@@ -4240,6 +4244,11 @@ static const char* netplay_start_failure(int nrc, const PsxNetplayConfig& cfg) {
+@@ -4301,6 +4305,11 @@ static const char* netplay_start_failure(int nrc, const PsxNetplayConfig& cfg) {
  }
  
  static void shutdown_runtime(void) {
@@ -1080,7 +1080,7 @@ index 174e20fa..9764dbbc 100644
      psx_local_mouse_clear();
      /* (sljit removed 2026-07-15: overlay_compile_worker_stop joined the
       * off-thread JIT worker here; the worker no longer exists.) */
-@@ -6517,13 +6526,28 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+@@ -6654,13 +6663,28 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
                  g_video_pgxp_cpu_mode = 1;
                  g_video_pgxp_depth_buffer = 1;
                  g_video_pgxp_seam = 1;
@@ -1112,7 +1112,7 @@ index 174e20fa..9764dbbc 100644
          }
          else if (key == "internal_resolution") {
              int ir = 0;
-@@ -6572,7 +6596,10 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
+@@ -6709,7 +6733,10 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
      extern CPUState *debug_cpu_ptr;
      if (!g_psx_ram || !debug_cpu_ptr || !fntrace_is_game_started()) return 0;
      const uint8_t *pl = g_psx_ram + 0x000CCBC4;
@@ -1124,7 +1124,7 @@ index 174e20fa..9764dbbc 100644
      const int16_t *R = (const int16_t *)(g_psx_ram + 0x00098990);
      const int32_t *T = (const int32_t *)(g_psx_ram + 0x00098990 + 0x14);
      const double H = (double)(debug_cpu_ptr->gte_ctrl[26] & 0xFFFFu);
-@@ -6595,6 +6622,135 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
+@@ -6732,6 +6759,135 @@ static int re3_ws_focus(int area_h, int *y0, int *y1) {
  }
  static const bool s_re3_ws_focus_installed = (g_ws_layers_focus = re3_ws_focus, true);
  
@@ -1260,7 +1260,7 @@ index 174e20fa..9764dbbc 100644
  /* re3_settings (debug server): the RE3 options as this process applied them,
   * so a test can check settings.toml -> game end to end. */
  extern "C" int gte_geometry_correction_enabled(void);
-@@ -6608,7 +6764,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+@@ -6745,7 +6901,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
          g_fullscreen, g_fast_doors, g_modern_controls ? 1 : 0, g_modern_turn_speed,
          g_directinput_joysticks ? 1 : 0, (double)g_rumble_intensity, g_audio_spu_hq ? 1 : 0,
          g_auto_skip_fmv, g_skip_cutscenes ? 1 : 0, gl_renderer_ws_layers_enabled(),
@@ -1270,7 +1270,7 @@ index 174e20fa..9764dbbc 100644
          g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
          g_all_weapons_box ? 1 : 0, g_unlock_mercenaries ? 1 : 0, g_unlock_boutique ? 1 : 0,
          g_unlock_epilogues ? 1 : 0);
-@@ -6635,8 +6792,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+@@ -6772,8 +6929,8 @@ extern "C" int re3_settings_json(char* buf, int cap) {
   * is turned toward the target at a capped rate and the game is fed "forward"
   * (+ Square to run on a full tilt), so walking/running animations stay
   * native. Holding the stick through a camera cut keeps the previous world
@@ -1281,7 +1281,7 @@ index 174e20fa..9764dbbc 100644
   * to the new reference over ~0.2 s. The physical D-pad always drives the tank
   * controls. Design follows the alternate
   * controls idea in Fusion-Fix (PC build); no code from it is used. */
-@@ -6718,7 +6875,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6855,7 +7012,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      s_last_clear = 0;
  
      uint8_t* ram = g_psx_ram;
@@ -1295,7 +1295,7 @@ index 174e20fa..9764dbbc 100644
      uint8_t* pl = ram + 0x000CCBC4;
      const uint8_t mode = pl[0x04], routine = pl[0x05];
      /* Native animation states driven by forward input only: pushing (9) and
-@@ -6788,7 +6950,7 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6925,7 +7087,7 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
              s_hold_stick = stick_deg;
              /* A cut to a camera facing the other way (forward axes more
               * than 120 deg apart) turns the same stick into the opposite
@@ -1304,7 +1304,7 @@ index 174e20fa..9764dbbc 100644
              s_hold_firm = fx * s_prev_fx + fz * s_prev_fz < -0.5;
              s_blend_left = 0;
              tr.cut = 1;
-@@ -6799,7 +6961,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6936,7 +7098,12 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      if (s_hold) {
          double dd = std::fabs(stick_deg - s_hold_stick);
          if (dd > 180.0) dd = 360.0 - dd;
@@ -1318,7 +1318,7 @@ index 174e20fa..9764dbbc 100644
              /* A deliberate new direction ends the hold; the heading glides
               * to the new camera's reference over ~0.2 s instead of jumping. */
              s_hold = false;
-@@ -6835,17 +7002,27 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+@@ -6972,17 +7139,27 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
      /* Turn toward the target, capped so direction changes read as turns.
       * settings.toml [controller] modern_turn_speed, in 1/4096-turn units
       * per frame (default 90, ~8 deg: a half turn in ~0.4 s). */
@@ -1350,7 +1350,7 @@ index 174e20fa..9764dbbc 100644
          clear |= 0x0010u;                 /* UP: forward */
          if (s_running) clear |= 0x8000u;  /* Square: run */
      }
-@@ -6977,6 +7154,28 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
+@@ -7114,6 +7291,28 @@ static uint16_t controller_pad_buttons(const ControllerMap& map,
              if (moving_forward && !is_aiming && mag > 0.82) {
                  buttons &= (uint16_t)~0x8000u; // Square (Run button in RE3)
              }
@@ -1379,7 +1379,7 @@ index 174e20fa..9764dbbc 100644
          }
      }
  
-@@ -11325,6 +11524,12 @@ static void render_thread_vblank(void) {
+@@ -11567,6 +11766,12 @@ static void render_thread_vblank(void) {
      if (!g_render_thread) return;
      if (!s_render_thread_tried) {
          s_render_thread_tried = 1;
@@ -1392,7 +1392,7 @@ index 174e20fa..9764dbbc 100644
          gl_renderer_set_present_thread(g_present_thread, g_present_thread_slots);
          if (g_gl_active && gr_backend() == GR_BACKEND_OPENGL &&
              gl_renderer_render_thread_start(g_render_thread_frames)) {
-@@ -11339,6 +11544,14 @@ static void render_thread_vblank(void) {
+@@ -11581,6 +11786,14 @@ static void render_thread_vblank(void) {
                  gl_renderer_set_frame_generation(1);
                  std::fprintf(stdout, "psxrecomp: Smooth motion (frame generation) on (render thread, "
                               "from surplus only)\n");
@@ -1407,7 +1407,7 @@ index 174e20fa..9764dbbc 100644
              }
          } else {
              std::fprintf(stdout, "psxrecomp: render thread requested but not started "
-@@ -21500,7 +21713,16 @@ session_reboot:
+@@ -21843,7 +22056,16 @@ session_reboot:
       * netplay plan may carry the PGXP mod, so the arming holds it off. */
      pgxp_cfg.netplay = net_cfg.enabled ? 1 : 0;
      PSXPgxpSessionInputs pgxp_in{};

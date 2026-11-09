@@ -1,8 +1,8 @@
 diff --git a/runtime/CMakeLists.txt b/runtime/CMakeLists.txt
-index 775e3075..17c3ea01 100644
+index 529b86fd..fce5943a 100644
 --- a/runtime/CMakeLists.txt
 +++ b/runtime/CMakeLists.txt
-@@ -1167,8 +1167,11 @@ if(BUILD_TESTING)
+@@ -1397,8 +1397,11 @@ if(BUILD_TESTING)
          src/ws_ui_group.c
          src/psx_video_timing.c
          src/gpu_timeline.c)
@@ -15,7 +15,7 @@ index 775e3075..17c3ea01 100644
          target_include_directories(${_anchor_test}_test PRIVATE include src)
          if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
              target_compile_options(${_anchor_test}_test PRIVATE -ffunction-sections -fdata-sections)
-@@ -1184,6 +1187,7 @@ if(BUILD_TESTING)
+@@ -1414,6 +1417,7 @@ if(BUILD_TESTING)
      add_test(NAME ws_view_anchor_gpu_test COMMAND ws_view_anchor_gpu_test)
      add_test(NAME native_wide_projection_test COMMAND native_wide_projection_test)
      add_test(NAME gpu_render_pass_provenance_test COMMAND gpu_render_pass_provenance_test)
@@ -49,10 +49,10 @@ index 680703ba..d6a433d3 100644
  uint64_t pgxp_tri_ring(const PGXPTriRecord **ring, uint32_t *cap);
  
 diff --git a/runtime/src/debug_server.c b/runtime/src/debug_server.c
-index d601c9fd..32ee500c 100644
+index d562c46d..66e1a27d 100644
 --- a/runtime/src/debug_server.c
 +++ b/runtime/src/debug_server.c
-@@ -5741,7 +5741,7 @@ static void handle_pgxp_tri_ring(int id, const char *json)
+@@ -5757,7 +5757,7 @@ static void handle_pgxp_tri_ring(int id, const char *json)
              p += (size_t)snprintf(buf + p, sz - p,
                  "%s[%u,\"0x%08X\",%d,%d,%d,%d,%u,%u]", i ? "," : "", r->vidx[i], r->word[i],
                  r->raw_x[i], r->raw_y[i], r->x16[i], r->y16[i], r->src[i], r->z[i]);
@@ -61,7 +61,7 @@ index d601c9fd..32ee500c 100644
      }
      snprintf(buf + p, sz - p, "]}");
      debug_server_send_line(buf);
-@@ -5835,6 +5835,11 @@ static void handle_pgxp(int id, const char *json)
+@@ -5851,6 +5851,11 @@ static void handle_pgxp(int id, const char *json)
      int cu = json_get_int(json, "culling", -1);
      if (cu >= 0)
          pgxp_set_culling(cu != 0);
@@ -74,10 +74,10 @@ index d601c9fd..32ee500c 100644
       * would truncate 0.5 to 0. */
      const char *p = strstr(json, "\"tolerance\"");
 diff --git a/runtime/src/gpu.c b/runtime/src/gpu.c
-index 2d3ef4a7..87963879 100644
+index 829ae838..c16313d3 100644
 --- a/runtime/src/gpu.c
 +++ b/runtime/src/gpu.c
-@@ -56,6 +56,7 @@
+@@ -57,6 +57,7 @@
  #include <stdlib.h>
  #include <string.h>
  #include "gpu_timeline.h"
@@ -85,7 +85,7 @@ index 2d3ef4a7..87963879 100644
  
  /* Packet identity of a primitive/OT address: main RAM through the live
   * geometry (retail: the DMAC's 0x1FFFFC fold), the enhancement aperture by its
-@@ -4955,7 +4956,7 @@ void psx_mod_set_native_wide_near_clip(int enabled) {
+@@ -4994,7 +4995,7 @@ void psx_mod_set_native_wide_near_clip(int enabled) {
  static int native_wide_projection_x(uint32_t addr, uint32_t word,
                                      int32_t raw_x, int32_t raw_y,
                                      int32_t *x16) {
@@ -94,7 +94,7 @@ index 2d3ef4a7..87963879 100644
          (raw_x != -1024 && raw_x != 1023) || addr == UINT32_MAX)
          return 0;
      int32_t px, py;
-@@ -4980,7 +4981,7 @@ static int native_wide_projection_x(uint32_t addr, uint32_t word,
+@@ -5019,7 +5020,7 @@ static int native_wide_projection_x(uint32_t addr, uint32_t word,
  static int gpu_triangle_rejected(const int32_t* x, const int32_t* y,
                                   int a, int b, int c) {
      if (!psx_gpu_triangle_oversize(x, y, a, b, c)) return 0;
@@ -103,7 +103,7 @@ index 2d3ef4a7..87963879 100644
          ws_nw_extra() <= 0 || gr_backend() != GR_BACKEND_OPENGL ||
          gp0_cmd_source_addr == UINT32_MAX) return 1;
      const uint32_t op = gp0_cmd_buf[0] >> 24;
-@@ -5029,14 +5030,64 @@ uint32_t gpu_texture_correction_hits(void) {
+@@ -5068,14 +5069,64 @@ uint32_t gpu_texture_correction_hits(void) {
   * is the G1.1 crack the tri_mixed counter measures. The integer delta folds
   * in draw offsets and any widescreen adjustment already applied by the
   * caller. */
@@ -169,7 +169,7 @@ index 2d3ef4a7..87963879 100644
              ws_native_wide_active() &&
              psx_gpu_triangle_oversize(raw_x,raw_y,0,1,2));
      }
-@@ -5078,8 +5129,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+@@ -5117,8 +5168,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
       * feature is on: with them off no depth command is sent per triangle. */
      const int want_depth = gl_renderer_pgxp_render_wanted();
      if (want_depth) gr_set_depth_triangle(0, 0.0f, 0.0f, 0.0f);
@@ -180,7 +180,7 @@ index 2d3ef4a7..87963879 100644
          gr_set_precise_triangle(0, 0,0, 0,0, 0,0);
          return;
      }
-@@ -5102,8 +5153,10 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+@@ -5141,8 +5192,10 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
          px = raw_x * 65536;
          py = raw_y * 65536;
          sz = 0;
@@ -192,7 +192,7 @@ index 2d3ef4a7..87963879 100644
          if (src != PGXP_SRC_NATIVE) {
              any_precise = 1;
              n_precise++;
-@@ -5163,6 +5216,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
+@@ -5202,6 +5255,8 @@ static void prepare_precise_triangle(int i0, int i1, int i2,
   * CPU-built sprite with one corner copied from SXY) would otherwise become
   * mixed triangles, so it keeps the shortcut and counts as rect_partial. */
  static int textured_quad_precise_vertices(const int idx[4]) {
@@ -201,7 +201,7 @@ index 2d3ef4a7..87963879 100644
      if (!gte_geometry_correction_enabled() && !s_texture_correction_enabled)
          return 0;
      if (gp0_cmd_source_addr == 0xFFFFFFFFu) return 0;
-@@ -5205,23 +5260,82 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
+@@ -5244,23 +5299,82 @@ void gpu_texture_correction_stats(uint64_t *attempts, uint64_t *armed,
      if (no_depth)      *no_depth      = s_texcorr.no_depth;
  }
  
@@ -293,7 +293,7 @@ index 2d3ef4a7..87963879 100644
          }
          depth[i] = z[i];
          if (z[i] == 65535u) {
-@@ -5229,12 +5343,28 @@ static void prepare_texture_triangle(int i0, int i1, int i2) {
+@@ -5268,12 +5382,28 @@ static void prepare_texture_triangle(int i0, int i1, int i2) {
              if (full > 0.0f) depth[i] = full;
          }
      }
@@ -323,7 +323,7 @@ index 2d3ef4a7..87963879 100644
      gr_set_perspective_triangle(1, q[0] / qmax, q[1] / qmax, q[2] / qmax);
  }
  
-@@ -5845,7 +5975,7 @@ static void gp0_exec_textured_quad(void) {
+@@ -5921,7 +6051,7 @@ static void gp0_exec_textured_quad(void) {
          int32_t tx[3] = { vx[0], vx[1], vx[2] };
          int32_t ty[3] = { vy[0], vy[1], vy[2] };
          prepare_precise_triangle(1, 3, 5, tx, ty);
@@ -332,7 +332,7 @@ index 2d3ef4a7..87963879 100644
          gr_draw_textured_triangle(vx[0], vy[0], u[0], v[0],
                                    vx[1], vy[1], u[1], v[1],
                                    vx[2], vy[2], u[2], v[2],
-@@ -5855,7 +5985,7 @@ static void gp0_exec_textured_quad(void) {
+@@ -5931,7 +6061,7 @@ static void gp0_exec_textured_quad(void) {
          int32_t tx[3] = { vx[2], vx[1], vx[3] };
          int32_t ty[3] = { vy[2], vy[1], vy[3] };
          prepare_precise_triangle(5, 3, 7, tx, ty);
@@ -341,7 +341,7 @@ index 2d3ef4a7..87963879 100644
          gr_draw_textured_triangle(vx[2], vy[2], u[2], v[2],
                                    vx[1], vy[1], u[1], v[1],
                                    vx[3], vy[3], u[3], v[3],
-@@ -5974,7 +6104,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+@@ -6050,7 +6180,7 @@ static void gp0_exec_shaded_textured_quad(void) {
          int32_t tx[3] = { vx[0], vx[1], vx[2] };
          int32_t ty[3] = { vy[0], vy[1], vy[2] };
          prepare_precise_triangle(1, 4, 7, tx, ty);
@@ -350,7 +350,7 @@ index 2d3ef4a7..87963879 100644
          gr_draw_shaded_textured_triangle(vx[0], vy[0], u[0], v[0], c[0],
                                           vx[1], vy[1], u[1], v[1], c[1],
                                           vx[2], vy[2], u[2], v[2], c[2],
-@@ -5984,7 +6114,7 @@ static void gp0_exec_shaded_textured_quad(void) {
+@@ -6060,7 +6190,7 @@ static void gp0_exec_shaded_textured_quad(void) {
          int32_t tx[3] = { vx[2], vx[1], vx[3] };
          int32_t ty[3] = { vy[2], vy[1], vy[3] };
          prepare_precise_triangle(7, 4, 10, tx, ty);
@@ -696,7 +696,7 @@ index 6eb0abeb..fd119737 100644
              dst->flags |= PGXP_F_VX;
          }
 diff --git a/runtime/tests/gpu_exec_stubs.inc b/runtime/tests/gpu_exec_stubs.inc
-index c30f2e7a..83a8fb2f 100644
+index d697f9cd..f01adfe9 100644
 --- a/runtime/tests/gpu_exec_stubs.inc
 +++ b/runtime/tests/gpu_exec_stubs.inc
 @@ -195,6 +195,9 @@ int pgxp_probe_precise_vertex(uint32_t addr, uint32_t packet_word,

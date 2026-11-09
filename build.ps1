@@ -104,17 +104,12 @@ if ($Regen) {
     Write-Host "[OK] Código C gerado em: $ProjectRoot\generated" -ForegroundColor Green
 }
 
-# Patches do código gerado (pulo de portas e silêncio de áudio nas portas), em ordem.
-# O segundo depende do contexto do primeiro: se o último já está aplicado, a cadeia toda está.
+# Edições do código gerado (portas rápidas e áudio das portas). O script acha
+# cada instrução pelo endereço MIPS, não pelo número da linha, então vale para
+# qualquer regeneração do mesmo disco; rodar de novo não muda nada.
 if (Test-Path "$ProjectRoot\generated\SLUS_009.23_full_01.c") {
-    $last = "$ProjectRoot\patches\re3_door_audio_mute.patch"
-    & git -C $ProjectRoot apply --check -R --ignore-whitespace "$last" 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[PATCH] Patches do código gerado já aplicados." -ForegroundColor DarkGray
-    } else {
-        Apply-Patch $ProjectRoot "$ProjectRoot\patches\re3_door_fade_speedup.patch" -IgnoreWhitespace
-        Apply-Patch $ProjectRoot $last -IgnoreWhitespace
-    }
+    & python "$ProjectRoot\tools\patch_generated.py" "$ProjectRoot\generated"
+    if ($LASTEXITCODE -ne 0) { Write-Host "[X] Edições do código gerado não aplicam." -ForegroundColor Red; exit 1 }
 }
 
 # ---- Configurar CMake ----

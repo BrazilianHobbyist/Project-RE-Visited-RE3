@@ -1,8 +1,8 @@
 diff --git a/recompiler/src/function_analysis.cpp b/recompiler/src/function_analysis.cpp
-index 82ca9bba..d7c61c79 100644
+index 27d22535..a8dbf37d 100644
 --- a/recompiler/src/function_analysis.cpp
 +++ b/recompiler/src/function_analysis.cpp
-@@ -898,13 +898,18 @@ bool resolve_exact_bounded_jump_table(
+@@ -1138,13 +1138,18 @@ bool resolve_exact_bounded_jump_table(
  
      // Exact guards: sltiu; beq; nop; sll, or sltiu; beq; lui; addiu; sll.
      // The latter schedules the table's LUI in the bounds branch's delay slot.
@@ -22,7 +22,7 @@ index 82ca9bba..d7c61c79 100644
      if (scheduled_base) {
          // R3000 JR would see the old target register without this load delay.
          if (lw_pc != jr_pc - 8u) return false;
-@@ -922,6 +927,22 @@ bool resolve_exact_bounded_jump_table(
+@@ -1162,6 +1167,22 @@ bool resolve_exact_bounded_jump_table(
              upper_reg == index_reg || base_reg == index_reg) {
              return false;
          }
@@ -45,7 +45,7 @@ index 82ca9bba..d7c61c79 100644
      }
      auto guard_word_opt = read(guard_pc);
      auto bound_word = read(bound_pc);
-@@ -999,7 +1020,8 @@ bool resolve_exact_bounded_jump_table(
+@@ -1239,7 +1260,8 @@ bool resolve_exact_bounded_jump_table(
              break;
          }
      }
@@ -56,10 +56,10 @@ index 82ca9bba..d7c61c79 100644
      if (lui_pc == 0u || (in_delay_slot(lui_pc) && !scheduled_base) ||
          (low_pc != 0u && in_delay_slot(low_pc)) ||
 diff --git a/recompiler/tests/reachable_discovery_test.cpp b/recompiler/tests/reachable_discovery_test.cpp
-index 3dfe2aa7..61a9dad8 100644
+index 4355f106..04658f8f 100644
 --- a/recompiler/tests/reachable_discovery_test.cpp
 +++ b/recompiler/tests/reachable_discovery_test.cpp
-@@ -187,10 +187,62 @@ void check_scheduled_switch() {
+@@ -187,6 +187,57 @@ void check_scheduled_switch() {
      }
  }
  
@@ -117,6 +117,9 @@ index 3dfe2aa7..61a9dad8 100644
  } // namespace
  
  int main() {
+@@ -393,6 +444,7 @@ int main() {
+     }
+ 
      check_scheduled_switch();
 +    check_hoisted_delay_switch();
      auto image = make_exe_buffer(0x2000);

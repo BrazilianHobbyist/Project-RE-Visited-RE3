@@ -16,6 +16,13 @@ set(PSX_RECOMP_UI OFF CACHE BOOL
 set(PSX_REWIND OFF CACHE BOOL
     "Disable rewind engine" FORCE)
 
+# OpenGL textured batching: keep the reference tier (every semi-transparent
+# primitive drawn alone). Upstream made HLE the default for fresh build
+# directories; the RE3 depth buffer, Smooth motion and every release so far
+# were built and tested with LLE, and a build on the player's machine is
+# always a fresh directory.
+set(PSX_GL_BATCH_IMPL "LLE" CACHE STRING "OpenGL textured batching: LLE or HLE")
+
 include("${PSXRECOMP_ROOT}/runtime/runtime.cmake")
 
 set(PSX_PRELOADED_MODS "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded")
