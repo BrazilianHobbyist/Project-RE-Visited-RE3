@@ -64,8 +64,6 @@ enum ControlID {
     ID_CHK_CHEAT_HEALTH = 1030,
     ID_CHK_CHEAT_AMMO = 1031,
     ID_CHK_CHEAT_RIBBONS = 1032,
-    ID_CHK_CHEAT_WEAPONS = 1033,
-    ID_CHK_CHEAT_EPILOGUES = 1036,
     ID_CHK_FAST_DOORS = 1037,
     ID_CHK_DINPUT = 1038,
     ID_CHK_SHARP_FONT = 1039,
@@ -92,8 +90,6 @@ HWND g_hGrpCheatsList = NULL;
 HWND g_hChkCheatHealth = NULL;
 HWND g_hChkCheatAmmo = NULL;
 HWND g_hChkCheatRibbons = NULL;
-HWND g_hChkCheatWeapons = NULL;
-HWND g_hChkCheatEpilogues = NULL;
 HWND g_hLblCheatsHotkeys = NULL;
 HWND g_hBtnCheatsSave = NULL;
 HWND g_hBtnCheatsReset = NULL;
@@ -913,8 +909,6 @@ struct GameConfig {
     bool infinite_health = false;
     bool infinite_ammo = false;
     bool infinite_ink_ribbons = false;
-    bool all_weapons_box = false;
-    bool unlock_epilogues = false;
     bool sharp_font = false;  // em mods/state.toml, nao no settings.toml
 };
 
@@ -988,8 +982,6 @@ GameConfig LoadConfig() {
         else if (key == L"infinite_health") cfg.infinite_health = (val == L"true" || val == L"1");
         else if (key == L"infinite_ammo") cfg.infinite_ammo = (val == L"true" || val == L"1");
         else if (key == L"infinite_ink_ribbons") cfg.infinite_ink_ribbons = (val == L"true" || val == L"1");
-        else if (key == L"all_weapons_box") cfg.all_weapons_box = (val == L"true" || val == L"1");
-        else if (key == L"unlock_epilogues") cfg.unlock_epilogues = (val == L"true" || val == L"1");
     }
     return cfg;
 }
@@ -1003,7 +995,10 @@ bool SaveConfig(const GameConfig& cfg) {
     else if (cfg.internal_resolution == L"4k") supersampling = 4;
 
     std::wstring settingsPath = GetSettingsTomlPath();
-    std::wofstream sFile(settingsPath.c_str());
+    // Temporary file + swap (as for state.toml): a launcher killed mid-write
+    // never leaves a truncated settings.toml.
+    std::wstring settingsTmp = settingsPath + L".tmp";
+    std::wofstream sFile(settingsTmp.c_str());
     if (!sFile.is_open()) return false;
     {
         sFile << L"# PSXRecomp Runtime User Settings\n";
@@ -1041,22 +1036,29 @@ bool SaveConfig(const GameConfig& cfg) {
         sFile << L"infinite_health       = " << (cfg.infinite_health ? L"true" : L"false") << L"\n";
         sFile << L"infinite_ammo         = " << (cfg.infinite_ammo ? L"true" : L"false") << L"\n";
         sFile << L"infinite_ink_ribbons  = " << (cfg.infinite_ink_ribbons ? L"true" : L"false") << L"\n";
-        sFile << L"all_weapons_box       = " << (cfg.all_weapons_box ? L"true" : L"false") << L"\n";
-        sFile << L"unlock_epilogues      = " << (cfg.unlock_epilogues ? L"true" : L"false") << L"\n";
         sFile.close();
-        if (sFile.fail()) return false;
+        if (sFile.fail()) { DeleteFileW(settingsTmp.c_str()); return false; }
+    }
+    if (!MoveFileExW(settingsTmp.c_str(), settingsPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(settingsTmp.c_str());
+        return false;
     }
 
     std::wstring tomlPath = GetTomlPath();
     std::wifstream inFile(tomlPath.c_str());
     std::vector<std::wstring> lines;
+    bool tomlRead = false;
     if (inFile.is_open()) {
         std::wstring line;
         while (std::getline(inFile, line)) {
             lines.push_back(line);
         }
+        // A read that stops before the end (a character the stream cannot
+        // convert) must not be written back: it would cut the file short.
+        tomlRead = inFile.eof();
         inFile.close();
     }
+    const std::vector<std::wstring> originalLines = lines;
 
     bool inVideoSection = false;
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -1087,12 +1089,21 @@ bool SaveConfig(const GameConfig& cfg) {
         }
     }
 
-    std::wofstream outFile(tomlPath.c_str());
-    if (outFile.is_open()) {
-        for (const auto& l : lines) {
-            outFile << l << L"\n";
+    // game.toml is needed to boot: rewrite it only when a line changed, and
+    // through a temporary file, never in place.
+    if (tomlRead && !lines.empty() && lines != originalLines) {
+        std::wstring tomlTmp = tomlPath + L".tmp";
+        std::wofstream outFile(tomlTmp.c_str());
+        bool ok = outFile.is_open();
+        if (ok) {
+            for (const auto& l : lines) {
+                outFile << l << L"\n";
+            }
+            outFile.close();
+            ok = !outFile.fail();
         }
-        outFile.close();
+        if (ok) ok = MoveFileExW(tomlTmp.c_str(), tomlPath.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+        if (!ok) DeleteFileW(tomlTmp.c_str());
     }
 
     return SaveSharpFont(cfg.sharp_font && HdPackageInstalled());
@@ -1706,9 +1717,7 @@ void ShowCreditsDialog(HWND hWndParent) {
 }
 
 bool HasAnyCheatActive(const GameConfig& cfg) {
-    return cfg.infinite_health || cfg.infinite_ammo || cfg.infinite_ink_ribbons ||
-           cfg.all_weapons_box ||
-           cfg.unlock_epilogues;
+    return cfg.infinite_health || cfg.infinite_ammo || cfg.infinite_ink_ribbons;
 }
 
 void UpdateCheatsButtonText() {
@@ -1729,7 +1738,7 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
     switch (msg) {
     case WM_CREATE: {
         std::wstring titleText, subText, grpText;
-        std::wstring chkHealth, chkAmmo, chkRibbons, chkWeapons, chkEpilogues;
+        std::wstring chkHealth, chkAmmo, chkRibbons;
         std::wstring hotkeysText, btnReset, btnSave, btnClose;
 
         if (g_currentLang == L"es") {
@@ -1739,8 +1748,6 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             chkHealth = L"Salud infinita (la salud se restaura continuamente; cura veneno)";
             chkAmmo = L"Munición infinita (armas y munición se recargan continuamente)";
             chkRibbons = L"Cintas de Tinta Infinitas (Guarda la partida tantas veces como quieras)";
-            chkWeapons = L"Todas las Armas en el Baúl (Baúl inicial con armas pesadas: Rocket, Gatling, M4A1)";
-            chkEpilogues = L"Desbloquear Todos los Epílogos (Galería completa con los 8 epílogos)";
             hotkeysText = L"Atajos en juego: [F6] Alternar God Mode  |  [F7] Munición Infinita  |  [F8] Munición Máxima";
             btnReset = L"Desactivar Todo";
             btnSave = L"Guardar y Aplicar";
@@ -1752,8 +1759,6 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             chkHealth = L"Vida infinita (vida restaurada continuamente; cura veneno)";
             chkAmmo = L"Munição infinita (armas e munição recarregadas continuamente)";
             chkRibbons = L"Fitas de Salvamento Infinitas (Salve o jogo quantas vezes quiser)";
-            chkWeapons = L"Todas as Armas no Baú (Baú inicial com armas pesadas: Rocket, Gatling, M4A1)";
-            chkEpilogues = L"Desbloquear Todos os Epílogos (Galeria completa com todos os 8 epílogos)";
             hotkeysText = L"Atalhos no jogo: [F6] Alternar God Mode  |  [F7] Munição Infinita  |  [F8] Munição Máxima";
             btnReset = L"Desativar Tudo";
             btnSave = L"Salvar && Aplicar";
@@ -1765,8 +1770,6 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             chkHealth = L"Infinite health (health is refilled continuously; cures poison)";
             chkAmmo = L"Infinite ammo (weapons and ammo are refilled continuously)";
             chkRibbons = L"Infinite Ink Ribbons (Save your game as many times as you want)";
-            chkWeapons = L"All Weapons in Item Box (Chest stocked with heavy weapons: Rocket, Gatling, M4A1)";
-            chkEpilogues = L"Unlock All Epilogues (Complete gallery with all 8 character epilogues)";
             hotkeysText = L"In-game shortcuts: [F6] Toggle God Mode  |  [F7] Infinite Ammo  |  [F8] Max Ammo";
             btnReset = L"Reset All (Off)";
             btnSave = L"Save && Apply";
@@ -1779,7 +1782,7 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_hLblCheatsSub = CreateWindowW(L"STATIC", subText.c_str(), WS_VISIBLE | WS_CHILD | SS_LEFT, 20, 36, 526, 34, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCheatsSub, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
-        g_hGrpCheatsList = CreateWindowW(L"BUTTON", grpText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 76, 528, 208, hWnd, NULL, g_hInst, NULL);
+        g_hGrpCheatsList = CreateWindowW(L"BUTTON", grpText.c_str(), WS_VISIBLE | WS_CHILD | BS_GROUPBOX, 18, 76, 528, 140, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hGrpCheatsList, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
         g_hChkCheatHealth = CreateWindowW(L"BUTTON", chkHealth.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 102, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_HEALTH, g_hInst, NULL);
@@ -1791,31 +1794,22 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
         g_hChkCheatRibbons = CreateWindowW(L"BUTTON", chkRibbons.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 170, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_RIBBONS, g_hInst, NULL);
         SendMessageW(g_hChkCheatRibbons, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hChkCheatWeapons = CreateWindowW(L"BUTTON", chkWeapons.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 204, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_WEAPONS, g_hInst, NULL);
-        SendMessageW(g_hChkCheatWeapons, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-
-        g_hChkCheatEpilogues = CreateWindowW(L"BUTTON", chkEpilogues.c_str(), WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX | WS_TABSTOP, 32, 238, 500, 24, hWnd, (HMENU)ID_CHK_CHEAT_EPILOGUES, g_hInst, NULL);
-        SendMessageW(g_hChkCheatEpilogues, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
-
-        g_hLblCheatsHotkeys = CreateWindowW(L"STATIC", hotkeysText.c_str(), WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 292, 528, 20, hWnd, NULL, g_hInst, NULL);
+        g_hLblCheatsHotkeys = CreateWindowW(L"STATIC", hotkeysText.c_str(), WS_VISIBLE | WS_CHILD | SS_CENTER, 18, 224, 528, 20, hWnd, NULL, g_hInst, NULL);
         SendMessageW(g_hLblCheatsHotkeys, WM_SETFONT, (WPARAM)g_hFontSmall, TRUE);
 
-        g_hBtnCheatsReset = CreateWindowW(L"BUTTON", btnReset.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 324, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_RESET, g_hInst, NULL);
+        g_hBtnCheatsReset = CreateWindowW(L"BUTTON", btnReset.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 18, 256, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_RESET, g_hInst, NULL);
         SendMessageW(g_hBtnCheatsReset, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
-        g_hBtnCheatsSave = CreateWindowW(L"BUTTON", btnSave.c_str(), WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 190, 324, 184, 36, hWnd, (HMENU)ID_BTN_CHEATS_SAVE, g_hInst, NULL);
+        g_hBtnCheatsSave = CreateWindowW(L"BUTTON", btnSave.c_str(), WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON | WS_TABSTOP, 190, 256, 184, 36, hWnd, (HMENU)ID_BTN_CHEATS_SAVE, g_hInst, NULL);
         SendMessageW(g_hBtnCheatsSave, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
 
-        g_hBtnCheatsClose = CreateWindowW(L"BUTTON", btnClose.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 386, 324, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_CLOSE, g_hInst, NULL);
+        g_hBtnCheatsClose = CreateWindowW(L"BUTTON", btnClose.c_str(), WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON | WS_TABSTOP, 386, 256, 160, 36, hWnd, (HMENU)ID_BTN_CHEATS_CLOSE, g_hInst, NULL);
         SendMessageW(g_hBtnCheatsClose, WM_SETFONT, (WPARAM)g_hFontBody, TRUE);
 
         // Populate checkboxes
         SendMessageW(g_hChkCheatHealth, BM_SETCHECK, g_cachedConfig.infinite_health ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkCheatAmmo, BM_SETCHECK, g_cachedConfig.infinite_ammo ? BST_CHECKED : BST_UNCHECKED, 0);
         SendMessageW(g_hChkCheatRibbons, BM_SETCHECK, g_cachedConfig.infinite_ink_ribbons ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkCheatWeapons, BM_SETCHECK, g_cachedConfig.all_weapons_box ? BST_CHECKED : BST_UNCHECKED, 0);
-        SendMessageW(g_hChkCheatEpilogues, BM_SETCHECK, g_cachedConfig.unlock_epilogues ? BST_CHECKED : BST_UNCHECKED, 0);
 
         break;
     }
@@ -1825,14 +1819,10 @@ LRESULT CALLBACK CheatsWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam
             SendMessageW(g_hChkCheatHealth, BM_SETCHECK, BST_UNCHECKED, 0);
             SendMessageW(g_hChkCheatAmmo, BM_SETCHECK, BST_UNCHECKED, 0);
             SendMessageW(g_hChkCheatRibbons, BM_SETCHECK, BST_UNCHECKED, 0);
-            SendMessageW(g_hChkCheatWeapons, BM_SETCHECK, BST_UNCHECKED, 0);
-            SendMessageW(g_hChkCheatEpilogues, BM_SETCHECK, BST_UNCHECKED, 0);
         } else if (id == ID_BTN_CHEATS_SAVE) {
             g_cachedConfig.infinite_health = (SendMessageW(g_hChkCheatHealth, BM_GETCHECK, 0, 0) == BST_CHECKED);
             g_cachedConfig.infinite_ammo = (SendMessageW(g_hChkCheatAmmo, BM_GETCHECK, 0, 0) == BST_CHECKED);
             g_cachedConfig.infinite_ink_ribbons = (SendMessageW(g_hChkCheatRibbons, BM_GETCHECK, 0, 0) == BST_CHECKED);
-            g_cachedConfig.all_weapons_box = (SendMessageW(g_hChkCheatWeapons, BM_GETCHECK, 0, 0) == BST_CHECKED);
-            g_cachedConfig.unlock_epilogues = (SendMessageW(g_hChkCheatEpilogues, BM_GETCHECK, 0, 0) == BST_CHECKED);
 
             GameConfig fullCfg = GetGuiConfig();
             SaveConfig(fullCfg);
@@ -1882,7 +1872,7 @@ void ShowCheatsDialog(HWND hWndParent) {
 
     DWORD dwStyle = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
     DWORD dwExStyle = WS_EX_DLGMODALFRAME;
-    RECT rcCheats = { 0, 0, 564, 378 };
+    RECT rcCheats = { 0, 0, 564, 310 };
     AdjustWindowRectEx(&rcCheats, dwStyle, FALSE, dwExStyle);
     int width = rcCheats.right - rcCheats.left;
     int height = rcCheats.bottom - rcCheats.top;

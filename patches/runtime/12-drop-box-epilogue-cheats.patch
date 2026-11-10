@@ -1,0 +1,74 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 2aa14d24..28d24251 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -6262,8 +6262,6 @@ extern "C" int g_fast_doors = 1;
+ static bool g_infinite_ink_ribbons = false;
+ static bool g_infinite_health = false;
+ static bool g_infinite_ammo = false;
+-static bool g_all_weapons_box = false;
+-static bool g_unlock_epilogues = false;
+ static bool g_skip_cutscenes = true;
+ static int s_re3_fmv_skip_frames = 0;
+ static int s_re3_cutscene_skip_frames = 0;
+@@ -6488,18 +6486,6 @@ static void re3_maintain_qol_per_frame(void) {
+         }
+     }
+ 
+-    // Capcom native Secret Mode / Clear Mode flag (0x800D1F32):
+-    // Bitmask 0xFFE0 populates item box with special weapons (Rocket Launcher, Gatling, M4A1, etc.),
+-    // and infinite ink ribbons. (The old Boutique/Mercenaries toggles set the
+-    // same bits and were dropped: Mercenaries has its own launcher button.)
+-    if (g_all_weapons_box) {
+-        *(uint16_t*)(ram + 0x000D1F32) |= 0xFFE0;
+-    }
+-
+-    if (g_unlock_epilogues) {
+-        ram[0x000D1F3E] = 8; // All 8 epilogues unlocked in gallery
+-    }
+-
+     // "Play The Mercenaries" from the launcher (RE3_START_MERCENARIES=1): once,
+     // as soon as the game status word 0x800CC858 shows the title phase
+     // (bit 0x20000000, set from the Capcom logo on), switch it to the
+@@ -6668,8 +6654,6 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+         else if (key == "infinite_health") g_infinite_health = (val == "true" || val == "1");
+         else if (key == "infinite_ammo") g_infinite_ammo = (val == "true" || val == "1");
+         else if (key == "infinite_ink_ribbons") g_infinite_ink_ribbons = (val == "true" || val == "1");
+-        else if (key == "all_weapons_box") g_all_weapons_box = (val == "true" || val == "1");
+-        else if (key == "unlock_epilogues") g_unlock_epilogues = (val == "true" || val == "1");
+         /* The launcher's video and audio rows. Upstream reads these from the
+          * title's game.toml only (the player's switch became a built-in
+          * mod), so they set the title baseline the session resolves over. */
+@@ -6744,11 +6728,9 @@ static void load_re3_qol_settings(const std::filesystem::path& path) {
+         if (ws_layers) gl_renderer_set_aspect_stretch(0);
+     }
+ 
+-    if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons ||
+-        g_all_weapons_box || g_unlock_epilogues) {
+-        std::fprintf(stdout, "psxrecomp: [Cheats] Modifiers active from settings.toml (Health:%d, Ammo:%d, Ribbons:%d, Weapons:%d, Epilogues:%d)\n",
+-                     g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
+-                     g_all_weapons_box ? 1 : 0, g_unlock_epilogues ? 1 : 0);
++    if (g_infinite_health || g_infinite_ammo || g_infinite_ink_ribbons) {
++        std::fprintf(stdout, "psxrecomp: [Cheats] Modifiers active from settings.toml (Health:%d, Ammo:%d, Ribbons:%d)\n",
++                     g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0);
+     }
+ }
+ 
+@@ -6926,15 +6908,13 @@ extern "C" int re3_settings_json(char* buf, int cap) {
+         "\"fullscreen\":%d,\"fast_doors\":%d,\"modern_controls\":%d,\"modern_turn_speed\":%d,"
+         "\"directinput_joysticks\":%d,\"rumble_intensity\":%.2f,\"spu_hq\":%d,\"auto_skip_fmv\":%d,"
+         "\"skip_cutscenes\":%d,\"ws_layers\":%d,\"geometry_correction\":%d,\"smooth_motion\":%d,"
+-        "\"cheats\":{\"health\":%d,\"ammo\":%d,\"ribbons\":%d,\"weapons\":%d,"
+-        "\"epilogues\":%d}",
++        "\"cheats\":{\"health\":%d,\"ammo\":%d,\"ribbons\":%d}",
+         g_fullscreen, g_fast_doors, g_modern_controls ? 1 : 0, g_modern_turn_speed,
+         g_directinput_joysticks ? 1 : 0, (double)g_rumble_intensity, g_audio_spu_hq ? 1 : 0,
+         g_auto_skip_fmv, g_skip_cutscenes ? 1 : 0, gl_renderer_ws_layers_enabled(),
+         gte_geometry_correction_enabled(),
+         (g_render_thread && (gl_renderer_frame_generation() || g_image_interp)) ? 1 : 0,
+-        g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0,
+-        g_all_weapons_box ? 1 : 0, g_unlock_epilogues ? 1 : 0);
++        g_infinite_health ? 1 : 0, g_infinite_ammo ? 1 : 0, g_infinite_ink_ribbons ? 1 : 0);
+ }
+ 
+ /* Build the active-low PSX button word from a controller's input.ini map. When

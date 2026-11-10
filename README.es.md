@@ -53,7 +53,7 @@ Leyenda: **Funciona** = confirmado · **Requiere pruebas** = implementado, no re
 | Arranque rápido (animación de la BIOS omitida, huella del disco guardada) | Funciona |
 | Guardado en memory card (`saves/*.mcd`, formato estándar de PS1) | Funciona |
 | Audio | Funciona; la mezcla experimental (`spu_hq`) puede sonar saturada y viene desactivada |
-| Trucos (opciones del launcher + F6/F7/F8) | Salud, munición y cintas infinitas medidas en la RAM el 08/11/2026. Las opciones de desbloqueo (caja de armas, epílogos) no se han verificado jugando |
+| Trucos (opciones del launcher + F6/F7/F8) | Salud, munición y cintas infinitas medidas en la RAM el 08/11/2026. Las opciones de caja de armas y epílogos se eliminaron: medida el 09/11/2026, la de la caja de armas no ponía nada en el baúl, y la de los epílogos nunca se verificó |
 | Botón **THE MERCENARIES** (launcher) | Abre el menú de Mercenaries del propio juego justo después del aviso inicial, sin necesitar una partida terminada. Probado con la tarjeta de memoria vacía: menú, selección de personaje e inicio de la partida |
 | Resolución interna / supersampling, 16:9 estirado o 4:3 | Requiere pruebas |
 | 16:9 Ampliado (`ws_layers`, opción Imagen del launcher) | Funciona en las sesiones del mantenedor. Nuevo en la v2.0.0: la escena 3D llena el 16:9 sin distorsión. Un paneo vertical suave sigue a Jill: queda quieto mientras ella está en la franja central, acelera y frena con suavidad y ya empieza encuadrado en cada cambio de cámara. Textos, avisos y la pausa mantienen su tamaño original. Las pantallas 2D (inventario, mapa, archivos, menús), los FMV y LIVE SELECTION quedan en 4:3. Algunas salas pierden un poco del techo o del suelo. Desactivado por defecto |
