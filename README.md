@@ -53,7 +53,7 @@ Status key: **Works** = confirmed working · **Needs testing** = implemented, no
 | Fast startup (BIOS animation skipped, disc fingerprint cached) | Works |
 | Memory card saves (`saves/*.mcd`, standard PS1 format) | Works |
 | Audio | Works; the experimental mix (`spu_hq`) can sound clipped and is off by default |
-| Cheats (launcher toggles + F6/F7/F8) | Infinite health, ammo and ink ribbons measured in RAM on 2026-11-08. The unlock toggles (weapons box, Boutique, epilogues) are not verified in play |
+| Cheats (launcher toggles + F6/F7/F8) | Infinite health, ammo and ink ribbons measured in RAM on 2026-11-08. The unlock toggles (weapons box, epilogues) are not verified in play |
 | **THE MERCENARIES** button (launcher) | Opens the game's own Mercenaries menu right after the boot warning, with no cleared save. Tested with an empty memory card: menu, player select and the start of a round |
 | Internal resolution / supersampling, 16:9 stretch or 4:3 | Needs testing |
 | 16:9 Zoomed (`ws_layers`, launcher Picture option) | Works in the maintainer's play sessions. New in v2.0.0: the 3D scene fills 16:9 without distortion. A smooth vertical pan follows Jill: it holds still while she stays in the middle band, eases in and out, and starts already framed on each camera cut. Text, prompts and the pause overlay stay at their original size. Full 2D screens (inventory, map, files, menus), FMV and LIVE SELECTION stay 4:3. Some rooms lose a little of the ceiling or floor. Off by default |

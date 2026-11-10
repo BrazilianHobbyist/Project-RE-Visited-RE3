@@ -37,6 +37,4 @@ infinite_health       = false
 infinite_ammo         = false
 infinite_ink_ribbons  = false
 all_weapons_box       = false
-unlock_mercenaries    = false
-unlock_boutique       = false
 unlock_epilogues      = false
