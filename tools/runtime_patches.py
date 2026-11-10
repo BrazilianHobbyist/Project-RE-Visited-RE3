@@ -91,6 +91,10 @@ def main():
     if cmd == "ensure":
         st, _ = state()
         if st == "clean":
+            # Check the whole sequence in a temporary index first: a patch that
+            # fails halfway would leave the submodule partly patched, and the
+            # next run would take that for development changes and build it.
+            expected_tree()
             for p in patches():
                 git("apply", p)
                 print(f"[PATCH] {os.path.basename(p)}")

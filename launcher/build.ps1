@@ -19,8 +19,8 @@ if ($LASTEXITCODE -eq 0) {
     $ParentDir = Split-Path $ScriptDir -Parent
     $WorkspaceRoot = Split-Path $ParentDir -Parent
 
-    # Se estivermos dentro de RE3Recomp\launcher, $WorkspaceRoot é a pasta raiz Decomp - SOTC
-    # Se estivermos em Decomp - SOTC\launcher, $ParentDir é a pasta raiz Decomp - SOTC
+    # Dentro de RE3Recomp\launcher, $WorkspaceRoot é a pasta acima do repositório;
+    # numa cópia solta do launcher, $ParentDir já é essa pasta.
     $candidatePCPorts = @(
         (Join-Path $ParentDir "ResidentEvil3-PCPort"),
         (Join-Path $WorkspaceRoot "ResidentEvil3-PCPort")
