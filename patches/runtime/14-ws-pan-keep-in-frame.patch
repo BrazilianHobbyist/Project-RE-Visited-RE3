@@ -1,0 +1,84 @@
+diff --git a/runtime/src/gpu_gl_renderer.c b/runtime/src/gpu_gl_renderer.c
+index 46c32d2a..cb9a226b 100644
+--- a/runtime/src/gpu_gl_renderer.c
++++ b/runtime/src/gpu_gl_renderer.c
+@@ -11237,6 +11237,9 @@ static uint64_t s_ly_snaps = 0, s_ly_invalidations = 0, s_ly_composed = 0, s_ly_
+  * copy invalid, size or scale mismatch, rect not wider than 4:3. */
+ static uint64_t s_ly_why[5];
+ static int s_ly_last_disp[4], s_ly_last_slot[4];
++/* The focus the last composed present framed (stats: the copy slots can
++ * already hold the next frame's focus when they are read). */
++static int s_ly_last_focus[2] = { -32768, -32768 };
+ 
+ void gl_renderer_set_ws_layers(int on) { s_ly_on = on ? 1 : 0; }
+ int gl_renderer_ws_layers_enabled(void) {
+@@ -11394,9 +11397,15 @@ static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
+      * already framed instead of sliding. */
+     const float vis = (float)h * (float)w / (float)nw;
+     const float room = (float)h - vis;
+-    const int has_focus = s->fy0 > -32768 && s->fy1 >= s->fy0;   /* -32768: none */
+-    const float fc = has_focus ? 0.5f * (float)(s->fy0 + s->fy1) : 0.5f * (float)h;
+-    const float fh = has_focus ? (float)(s->fy1 - s->fy0) : 0.0f;
++    /* The focus is clipped to the picture: a part of Jill outside the 4:3
++     * frame (feet below it, close to the camera) cannot be shown by any pan,
++     * and counting it made a tall focus centre itself and move the frame
++     * away from the bottom edge she was crossing (Dark Room, 2026-11-11). */
++    int fy0 = s->fy0, fy1 = s->fy1;
++    if (fy0 > -32768) { if (fy0 < 0) fy0 = 0; if (fy1 > h) fy1 = h; }
++    const int has_focus = s->fy0 > -32768 && fy1 >= fy0;   /* -32768: none */
++    const float fc = has_focus ? 0.5f * (float)(fy0 + fy1) : 0.5f * (float)h;
++    const float fh = has_focus ? (float)(fy1 - fy0) : 0.0f;
+     static uint64_t t_prev = 0;
+     static float vel = 0.0f, fc_prev = 0.0f, fc_vel = 0.0f, hold = -1.0f;
+     const uint64_t t_now = SDL_GetPerformanceCounter();
+@@ -11411,6 +11420,7 @@ static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
+         s_ly_pan = hold = want;
+         vel = fc_vel = 0.0f;
+     } else if (dt > 0.0f) {
++        const float pan_before = s_ly_pan;
+         /* Focus velocity on screen (lines/s), smoothed, for a small lead. */
+         const float raw_v = (fc - fc_prev) / dt;
+         fc_vel += (raw_v - fc_vel) * (dt / (0.25f + dt));
+@@ -11440,11 +11450,25 @@ static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
+         float next = (s_ly_pan - change) + (change + temp) * ex;
+         if ((hold - s_ly_pan > 0.0f) == (next > hold)) { next = hold; vel = 0.0f; }
+         s_ly_pan = next;
++        /* Hard limit on top of the spring: a focus that fits never leaves
++         * the window. Walking fast toward the camera the spring lagged and
++         * Jill's feet left the frame by up to 11 lines for 0.16 s (RPD hall,
++         * 2026-11-11). The focus moves a few lines per frame, so following
++         * it here reads as a glide, not a jump; the velocity carries on
++         * from the actual motion. */
++        if (has_focus && fh <= vis - 4.0f) {
++            const float lo = (float)fy1 + 2.0f - vis, hi = (float)fy0 - 2.0f;
++            if (s_ly_pan < lo) s_ly_pan = lo;
++            if (s_ly_pan > hi) s_ly_pan = hi;
++        }
+         if (s_ly_pan < 0.0f) s_ly_pan = 0.0f;
+         if (s_ly_pan > room) s_ly_pan = room;
++        if (s_ly_pan != next) vel = (s_ly_pan - pan_before) / dt;
+     }
+     fc_prev = fc;
+     s_ly_pan_hash = s->hash;
++    s_ly_last_focus[0] = has_focus ? s->fy0 : -32768;
++    s_ly_last_focus[1] = has_focus ? s->fy1 : -32768;
+ 
+     p_glBindFramebuffer(PSXGL_FRAMEBUFFER, s_ly_comp_fbo);
+     glDisable(GL_SCISSOR_TEST);
+@@ -11488,7 +11512,7 @@ static int ly_present(int disp_x, int disp_y, int w, int h, int linear,
+ int gl_renderer_ws_layers_stats(char *buf, int cap) {
+     return snprintf(buf, (size_t)cap,
+         "\"enabled\":%d,\"active\":%d,\"snapshots\":%llu,\"invalidations\":%llu,"
+-        "\"composed\":%llu,\"pillarboxed\":%llu,\"pan\":%.2f,"
++        "\"composed\":%llu,\"pillarboxed\":%llu,\"pan\":%.2f,\"pan_focus\":[%d,%d],"
+         "\"why\":{\"no_copy\":%llu,\"invalid\":%llu,\"size\":%llu,\"scale\":%llu,\"narrow\":%llu},"
+         "\"last_display\":[%d,%d,%d,%d],\"last_copy\":[%d,%d,%d,%d],"
+         "\"slots\":[{\"valid\":%d,\"x\":%d,\"y\":%d,\"fy0\":%d,\"fy1\":%d},"
+@@ -11496,6 +11520,7 @@ int gl_renderer_ws_layers_stats(char *buf, int cap) {
+         s_ly_on > 0, gl_renderer_ws_layers_enabled(),
+         (unsigned long long)s_ly_snaps, (unsigned long long)s_ly_invalidations,
+         (unsigned long long)s_ly_composed, (unsigned long long)s_ly_pillar, s_ly_pan,
++        s_ly_last_focus[0], s_ly_last_focus[1],
+         (unsigned long long)s_ly_why[0], (unsigned long long)s_ly_why[1], (unsigned long long)s_ly_why[2],
+         (unsigned long long)s_ly_why[3], (unsigned long long)s_ly_why[4],
+         s_ly_last_disp[0], s_ly_last_disp[1], s_ly_last_disp[2], s_ly_last_disp[3],
