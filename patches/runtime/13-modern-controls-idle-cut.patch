@@ -1,0 +1,41 @@
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 28d24251..5c4e1b05 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -6998,6 +6998,8 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+     static bool s_hold_firm = false;        /* cut to a nearly opposite camera */
+     static double s_prev_fx = 0.0, s_prev_fz = 0.0;
+     static int s_blend_left = 0, s_blend_from = 0;
++    static uint64_t s_move_frame = ~0ull;   /* last frame the stick steered Jill */
++    static int s_move_target = 0;           /* the heading it asked for */
+     Re3CtrlTrace tr = {};
+     tr.magic = 'C';
+     tr.lx = lx; tr.ly = ly;
+@@ -7090,9 +7092,16 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+     tr.target_raw = (int16_t)target;
+     tr.cam_sig = sig;
+     if (sig != s_cam_sig) {
+-        if (s_cam_sig != 0) {
++        /* The hold keeps a movement going through the cut, so it needs one:
++         * the stick steering Jill on the frame before. A camera that changed
++         * while the stick was idle (a door, a cutscene, walking with the
++         * D-pad) used to arm it on the first stick frame afterwards, and
++         * Jill walked on along her old facing whatever the stick asked
++         * (measured 2026-11-11: 141 deg off for the whole press). It holds
++         * the heading the stick asked for, not a yaw caught mid-turn. */
++        if (s_cam_sig != 0 && s_move_frame + 1 == s_frame_count) {
+             s_hold = true;
+-            s_hold_yaw = yaw;
++            s_hold_yaw = s_move_target;
+             s_hold_stick = stick_deg;
+             /* A cut to a camera facing the other way (forward axes more
+              * than 120 deg apart) turns the same stick into the opposite
+@@ -7129,6 +7138,8 @@ static bool re3_screen_relative_move(int16_t lx, int16_t ly, double mag,
+     }
+     tr.hold = s_hold ? 1 : 0;
+     tr.target = (int16_t)target;
++    s_move_frame = s_frame_count;
++    s_move_target = target;
+ 
+     if (forward_only) {
+         uint16_t clear = 0;
